@@ -3,7 +3,7 @@
 ## Goal
 Build a Python library that uses shfmt-py's `--to-json` flag to parse bash commands and expose the AST for inspection. This will be used to parse commands that AI agents want to run.
 
-## Status: In Progress
+## Status: In Progress (Phase 1)
 
 ## Architecture
 
@@ -30,7 +30,7 @@ The system will have these components:
 ### Phase 1: Foundation (Current)
 - [x] Initialize repo with uv
 - [x] Add shfmt-py dependency
-- [ ] Explore shfmt-py's JSON output format
+- [x] Explore shfmt-py's JSON output format
 - [ ] Create `parser.py` with core parse function
 - [ ] Define AST dataclasses in `ast.py`
 - [ ] Write initial tests
@@ -66,6 +66,24 @@ shfmt v3.14.0 supports:
 - Simplify mode: `--simplify`
 - Minify mode: `--minify`
 
+## shfmt AST Node Types (Observed)
+
+| Type | Description |
+|------|-------------|
+| `File` | Top level, has `Stmts` array |
+| `Stmt` | Statement with `Cmd`, `Position` |
+| `CallExpr` | Simple command call with `Args` array |
+| `BinaryCmd` | Pipe `|` with `X`, `Y`, `Op` |
+| `Word` | Has `Parts` array |
+| `Lit` | Literal value with `Value` field |
+| `Var` | Variable reference (to be tested) |
+| `And/Or` | `&&` / `||` (to be tested) |
+| `Subshell` | `(cmd)` (to be tested) |
+| `If/For/While/Case` | Control flow (to be tested) |
+| `Func` | Function definition (to be tested) |
+| `Alias` | Alias definition (to be tested) |
+| `Redir` | Redirection with `Op`, `Word` |
+
 ## Key Decisions (To Be Made)
 1. Use dataclasses vs pydantic vs attrs for AST nodes
 2. Whether to validate JSON schema
@@ -80,8 +98,7 @@ shfmt v3.14.0 supports:
 - Edge cases in bash syntax that shfmt may not handle
 
 ## Next Steps
-1. Explore shfmt's --to-json output on various commands
-2. Map shfmt's AST node types to our Python dataclasses
-3. Implement core parser
-4. Write tests
-5. Commit
+1. Create `parser.py` with core parse function
+2. Define AST dataclasses in `ast.py`
+3. Write tests
+4. Commit and tag
