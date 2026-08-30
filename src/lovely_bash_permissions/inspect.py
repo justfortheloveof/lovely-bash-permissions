@@ -95,8 +95,12 @@ def get_redirections(tree: Node) -> List[dict]:
 
 def _collect_redirections(node: Node, redirs: List[dict]):
     """Recursively collect redirections."""
-    # Stmt has redirs
-    if isinstance(node, Stmt):
+    # File has stmts
+    if isinstance(node, File):
+        for stmt in node.stmts:
+            _collect_redirections(stmt, redirs)
+    # Stmt has redirs directly
+    elif isinstance(node, Stmt):
         if node.redirs:
             for r in node.redirs:
                 redirs.append({
@@ -104,17 +108,20 @@ def _collect_redirections(node: Node, redirs: List[dict]):
                     'target': _word_value(r.word)
                 })
         _collect_redirections(node.cmd, redirs)
-    # BinaryCmd branches may have redirs
+    # BinaryCmd: X and Y may have redirs on their inner nodes
     elif isinstance(node, BinaryCmd):
         _collect_redirections(node.x, redirs)
         _collect_redirections(node.y, redirs)
-    # File has stmts
-    elif isinstance(node, File):
-        for stmt in node.stmts:
-            _collect_redirections(stmt, redirs)
+        # Redirections on the pipe itself
+        if node.redirs:
+            for r in node.redirs:
+                redirs.append({
+                    'op': r.op,
+                    'target': _word_value(r.word)
+                })
     # Recurse into other nodes
     elif isinstance(node, CallExpr):
-        pass  # No redirs here, check above
+        pass
     elif isinstance(node, Node):
         pass
 

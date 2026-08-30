@@ -56,6 +56,7 @@ class BinaryCmd(Node):
     op: str
     x: 'Node'
     y: 'Node'
+    redirs: Optional[List['Redir']] = None
 
 
 @dataclass
@@ -136,13 +137,22 @@ def node_from_json(data: dict) -> Node:
             args=[word_from_json(a) for a in data.get("Args", [])],
         )
     elif node_type == "BinaryCmd":
+        x = data.get("X")
+        y = data.get("Y")
+        x_node = node_from_json(x)
+        y_node = node_from_json(y)
+        redirs = []
+        # Check if Y has redirs
+        if isinstance(y, dict) and "Redirs" in y:
+            redirs = [redir_from_json(r) for r in y["Redirs"]]
         return BinaryCmd(
             type=node_type,
             pos=_parse_position(data.get("Pos")),
             end=_parse_position(data.get("End")),
             op=data.get("Op", ""),
-            x=node_from_json(data.get("X")),
-            y=node_from_json(data.get("Y")),
+            x=x_node,
+            y=y_node,
+            redirs=redirs,
         )
     elif node_type == "Word":
         return word_from_json(data)
