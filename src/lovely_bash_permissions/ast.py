@@ -2,7 +2,7 @@
 AST node types for bash commands.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional
 
 
@@ -24,49 +24,52 @@ class Range:
 @dataclass
 class Node:
     """Base AST node."""
-    type: str
-    pos: Position
-    end: Position
+    type: str = None
+    pos: Position = None
+    end: Position = None
+    extra: Optional[dict] = None
+    args: Optional[List['Word']] = None
 
 
 @dataclass
 class Word(Node):
     """A word with parts (could be literal, variable, expansion)."""
-    parts: List['Part']
+    parts: List['Part'] = None
 
 
 @dataclass
 class Part:
     """A part of a word."""
-    type: str
-    pos: Position
-    end: Position
+    type: str = None
+    pos: Position = None
+    end: Position = None
     value: Optional[str] = None
+    parts: Optional[List['Part']] = None
 
 
 @dataclass
 class CallExpr(Node):
     """A call expression (command with arguments)."""
-    args: List['Word']
+    args: List['Word'] = None
 
 
 @dataclass
 class BinaryCmd(Node):
     """Binary command (pipe)."""
-    op: str
-    x: 'Node'
-    y: 'Node'
+    op: str = None
+    x: 'Node' = None
+    y: 'Node' = None
     redirs: Optional[List['Redir']] = None
 
 
 @dataclass
 class Redir:
     """Redirection."""
-    op: str
-    word: 'Word'
-    pos: Position
-    end: Position
-    op_pos: Position
+    op: str = None
+    word: 'Word' = None
+    pos: Position = None
+    end: Position = None
+    op_pos: Position = None
 
 def redir_from_json(data: dict) -> Redir:
     """Convert shfmt JSON redirection to typed object."""
@@ -81,17 +84,17 @@ def redir_from_json(data: dict) -> Redir:
 @dataclass
 class Stmt:
     """A statement."""
-    cmd: 'Node'
-    position: Position
-    pos: Position
-    end: Position
+    cmd: 'Node' = None
+    position: Position = None
+    pos: Position = None
+    end: Position = None
     redirs: Optional[List['Redir']] = None
 
 
 @dataclass
 class File(Node):
     """Top-level file node."""
-    stmts: List['Stmt']
+    stmts: List['Stmt'] = None
 
 
 # Type mapping from shfmt's JSON to our dataclasses
@@ -100,6 +103,7 @@ NODE_TYPES = {
     "CallExpr": CallExpr,
     "BinaryCmd": BinaryCmd,
     "Word": Word,
+    "DeclClause": Node,
 }
 
 
@@ -154,6 +158,31 @@ def node_from_json(data: dict) -> Node:
             y=y_node,
             redirs=redirs,
         )
+    elif node_type == "DeclClause":
+        # Export/declare/readonly: convert Arg objects (with name/value) to Words
+        words = []
+        for arg in data.get("Args", []):
+            if isinstance(arg, dict):
+                # Extract the value part as a Word-like structure
+                val = arg.get("value", arg.get("Value", {}))
+                # Build a minimal Word from the value
+                if val:
+                    w = Word(
+                        type="Word",
+                        pos=_parse_position(val.get("Pos")),
+                        end=_parse_position(val.get("End")),
+                        parts=[],
+                    )
+                    if "Parts" in val:
+                        for p in val["Parts"]:
+                            w.parts.append(part_from_json(p))
+                    words.append(w)
+        return Node(
+            type=node_type,
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            args=words,
+        )
     elif node_type == "Word":
         return word_from_json(data)
     elif node_type == "Lit":
@@ -194,11 +223,21 @@ def word_from_json(data: dict) -> Word:
 
 def part_from_json(data: dict) -> Part:
     """Convert a shfmt JSON part to a typed Part object."""
+    parts = None
+    if "Parts" in data:
+        parts = [part_from_json(p) for p in data.get("Parts", [])]
+    
+    # For DblQuoted, the value is the concatenation of inner parts
+    value = data.get("Value")
+    if data.get("Type") == "DblQuoted" and parts:
+        value = "".join(p.value for p in parts if p.value)
+    
     return Part(
         type=data.get("Type", ""),
         pos=_parse_position(data.get("Pos")),
         end=_parse_position(data.get("End")),
-        value=data.get("Value"),
+        value=value,
+        parts=parts,
     )
 
 

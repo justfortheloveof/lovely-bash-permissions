@@ -64,17 +64,38 @@ def has_variable(tree: Node) -> bool:
 def _has_variable_recursive(node: Node) -> bool:
     """Recursively check for variables."""
     if isinstance(node, Part):
-        return node.type in ("Var", "ParamExp")
+        if node.type in ("Var", "ParamExp", "CmdSubst"):
+            return True
+        # Recurse into DblQuoted parts
+        if node.type == "DblQuoted" and node.parts:
+            return any(_has_variable_recursive(p) for p in node.parts)
+        return False
     elif isinstance(node, Word):
         return any(_has_variable_recursive(p) for p in node.parts)
     elif isinstance(node, CallExpr):
         return any(_has_variable_recursive(a) for a in node.args)
+    elif node.type == "DeclClause":
+        # Handle export/declare/readonly commands
+        if hasattr(node, 'args') and node.args:
+            for a in node.args:
+                # Args are objects with 'name' and 'value' fields
+                if isinstance(a, dict):
+                    if 'value' in a and _has_variable_recursive(a['value']):
+                        return True
+                elif isinstance(a, (Word, Part)):
+                    if _has_variable_recursive(a):
+                        return True
+                # Otherwise ignore
     elif isinstance(node, BinaryCmd):
         return _has_variable_recursive(node.x) or _has_variable_recursive(node.y)
     elif isinstance(node, File):
         return any(_has_variable_recursive(s.cmd) for s in node.stmts)
     elif isinstance(node, Stmt):
         return _has_variable_recursive(node.cmd)
+    elif isinstance(node, Node):
+        # Handle other node types with args
+        if hasattr(node, 'args') and node.args:
+            return any(_has_variable_recursive(a) for a in node.args)
     return False
 
 
