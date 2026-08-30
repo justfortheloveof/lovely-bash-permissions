@@ -35,6 +35,7 @@ The system will have these components:
 - [x] Define AST dataclasses in `ast.py`
 - [x] Build inspector with traversal utilities
 - [x] Implement get_commands(), get_arguments(), has_variable(), get_redirections()
+- [x] Test with pipes, redirections, and variables
 - [ ] Write comprehensive tests
 - [ ] Write documentation (README)
 - [ ] Commit and tag v0.1.0-alpha
