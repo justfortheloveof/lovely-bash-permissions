@@ -1,5 +1,20 @@
 """
 AST inspection and traversal utilities.
+
+This module provides functions for querying parsed bash AST trees, including
+command extraction, argument collection, variable detection, redirection
+analysis, and the AST visitor pattern for custom traversal.
+
+Key functions:
+    - get_commands(): Extract command names
+    - get_arguments(): Extract arguments for each command
+    - find_commands(): Get CallExpr nodes
+    - find_arguments(): Get argument lists
+    - has_variable(): Detect variable usage
+    - get_redirections(): Find file redirections
+    - has_pipe(): Check for pipe operators
+    - get_target_files(): Extract redirection file targets
+    - Visitor: Custom AST traversal pattern
 """
 
 from typing import List, Callable, Any, Dict, Optional
@@ -8,8 +23,48 @@ from .ast import Node, CallExpr, BinaryCmd, Word, Part, Stmt, File, Redir, Subsh
 
 class Visitor:
     """
-    AST node visitor pattern. Subclass and override visit methods
-    to process specific node types.
+    AST node visitor pattern for traversing bash AST trees.
+    
+    Subclass Visitor and override specific visit methods to process
+    particular node types. The visit() method dispatches each node
+    to the appropriate handler based on its type.
+    
+    Use walk() to traverse the entire tree, calling visit() on each
+    node and recursively visiting all child nodes.
+    
+    Example:
+        class CommandCollector(Visitor):
+            def __init__(self):
+                super().__init__()
+                self.commands = []
+            
+            def visit_call_expr(self, node):
+                super().visit_call_expr(node)
+                cmd_name = _word_value(node.args[0])
+                self.commands.append(cmd_name)
+        
+        collector = CommandCollector()
+        collector.walk(tree)
+        print(collector.commands)
+    
+    Visitor methods:
+        visit(node) - Dispatch to type-specific handler
+        visit_file(node) - Handle File nodes
+        visit_stmt(node) - Handle Stmt nodes
+        visit_call_expr(node) - Handle CallExpr nodes
+        visit_binary_cmd(node) - Handle BinaryCmd nodes
+        visit_word(node) - Handle Word nodes
+        visit_redir(node) - Handle Redir nodes
+        visit_part(node) - Handle Part nodes
+        visit_node(node) - Handle generic Node objects
+        visit_subshell(node) - Handle Subshell nodes
+        visit_if_clause(node) - Handle IfClause nodes
+        visit_for_clause(node) - Handle ForClause nodes
+        visit_while_clause(node) - Handle WhileClause nodes
+        visit_and_cmd(node) - Handle AndCmd nodes (&&)
+        visit_or_cmd(node) - Handle OrCmd nodes (||)
+        visit_case_clause(node) - Handle CaseClause nodes
+        walk(node) - Recursively visit all nodes in the tree
     """
 
     def visit(self, node: Node):
@@ -46,66 +101,76 @@ class Visitor:
             return self.visit_node(node)
 
     def visit_file(self, node: File) -> None:
-        """Visit a File node."""
+        """Visit a File node. Override to process top-level AST files."""
         pass
 
     def visit_stmt(self, node: Stmt) -> None:
-        """Visit a Stmt node."""
+        """Visit a Stmt node. Override to process individual statements."""
         pass
 
     def visit_call_expr(self, node: CallExpr) -> None:
-        """Visit a CallExpr node."""
+        """Visit a CallExpr node. Override to process command invocations."""
         pass
 
     def visit_binary_cmd(self, node: BinaryCmd) -> None:
-        """Visit a BinaryCmd node."""
+        """Visit a BinaryCmd node. Override to process pipes."""
         pass
 
     def visit_word(self, node: Word) -> None:
-        """Visit a Word node."""
+        """Visit a Word node. Override to process bash words."""
         pass
 
     def visit_redir(self, node: Redir) -> None:
-        """Visit a Redir node."""
+        """Visit a Redir node. Override to process file redirections."""
         pass
 
     def visit_part(self, node: Part) -> None:
-        """Visit a Part node."""
+        """Visit a Part node. Override to process word parts."""
         pass
 
     def visit_node(self, node: Node) -> None:
-        """Visit a generic Node."""
+        """Visit a generic Node. Override to process unmapped node types."""
         pass
 
     def visit_subshell(self, node: Subshell) -> None:
-        """Visit a Subshell node."""
+        """Visit a Subshell node. Override to process subshell commands."""
         pass
 
     def visit_if_clause(self, node: IfClause) -> None:
-        """Visit an IfClause node."""
+        """Visit an IfClause node. Override to process if/elif/else branches."""
         pass
 
     def visit_for_clause(self, node: ForClause) -> None:
-        """Visit a ForClause node."""
+        """Visit a ForClause node. Override to process for loops."""
         pass
 
     def visit_while_clause(self, node: WhileClause) -> None:
-        """Visit a WhileClause node."""
+        """Visit a WhileClause node. Override to process while loops."""
         pass
 
     def visit_and_cmd(self, node: AndCmd) -> None:
-        """Visit an AndCmd node (&&)."""
+        """Visit an AndCmd node. Override to process && logical AND."""
         pass
 
     def visit_or_cmd(self, node: OrCmd) -> None:
-        """Visit an OrCmd node (||)."""
+        """Visit an OrCmd node. Override to process || logical OR."""
         pass
 
     def visit_case_clause(self, node: CaseClause) -> None:
-        """Visit a CaseClause node."""
+        """Visit a CaseClause node. Override to process case/switch statements."""
         pass
 
     def walk(self, node: Node):
+        """
+        Walk the entire AST tree, visiting all nodes recursively.
+        
+        Visits each node by dispatching to the appropriate visit method,
+        then recursively visits all child nodes based on the node type.
+        This ensures the complete tree is traversed.
+        
+        Args:
+            node: Starting node (typically the root File node)
+        """
         """
         Walk the entire AST tree, visiting all nodes.
         """
@@ -210,11 +275,19 @@ def get_commands(tree: Node) -> List[str]:
     """
     Extract all command names from the AST.
     
+    Traverses the entire tree and collects the names of all commands
+    that would be executed, including commands within pipes, subshells,
+    conditionals, and loops.
+    
     Args:
-        tree: The AST tree
+        tree: The AST tree (typically root File node)
     
     Returns:
-        List of command names
+        List[str]: Names of all commands in execution order
+    
+    Example:
+        tree = parse_ast('cat file.txt | grep pattern | sort -u')
+        get_commands(tree)  # ['cat', 'grep', 'sort']
     """
     commands = []
     _collect_commands(tree, commands)
@@ -225,11 +298,21 @@ def find_commands(tree: Node) -> List[CallExpr]:
     """
     Find all CallExpr nodes (commands) in the AST.
     
+    Unlike get_commands(), this returns the full CallExpr node objects
+    rather than just command names. Use this when you need to inspect
+    command arguments or node positions.
+    
     Args:
-        tree: The AST tree
+        tree: The AST tree (typically root File node)
     
     Returns:
-        List of CallExpr nodes
+        List[CallExpr]: All command invocation nodes
+    
+    Example:
+        tree = parse_ast('ls -la | grep txt')
+        commands = find_commands(tree)
+        print(len(commands))           # 2
+        print(commands[0].args[0])     # Word for 'ls'
     """
     commands = []
     _find_commands(tree, commands)
@@ -405,11 +488,20 @@ def has_variable(tree: Node) -> bool:
     """
     Check if the command contains any variable references.
     
+    Detects variable references ($VAR), parameter expansions (${VAR}),
+    and command substitutions ($() or backticks). Also handles variables
+    within quoted strings and nested expressions.
+    
     Args:
-        tree: The AST tree
+        tree: The AST tree (typically root File node)
     
     Returns:
-        True if any variables are present
+        bool: True if any variables are referenced in the command
+    
+    Example:
+        has_variable(parse_ast('ls -la'))      # False
+        has_variable(parse_ast('echo $HOME'))  # True
+        has_variable(parse_ast('cat /tmp/x'))  # False (path, not variable)
     """
     return _has_variable_recursive(tree)
 
@@ -492,13 +584,23 @@ def _has_variable_recursive(node: Node) -> bool:
 
 def get_redirections(tree: Node) -> List[dict]:
     """
-    Extract redirections from the AST.
+    Extract file redirections from the AST.
+    
+    Finds all redirection operations in the tree and returns them as
+    dictionaries containing the redirection operator and target file.
     
     Args:
-        tree: The AST tree
+        tree: The AST tree (typically root File node)
     
     Returns:
-        List of redirection dicts with 'op' and 'target'
+        List[dict]: Each dict has 'op' (operator string like ">", ">>", "<")
+            and 'target' (the file path as a string)
+    
+    Example:
+        tree = parse_ast('cat file.txt > output.txt')
+        redirs = get_redirections(tree)
+        print(redirs[0]['op'])      # '>'
+        print(redirs[0]['target'])  # 'output.txt'
     """
     redirs = []
     _collect_redirections(tree, redirs)
@@ -577,11 +679,23 @@ def get_arguments(tree: Node) -> List[List[str]]:
     """
     Extract command arguments for each call expression.
     
+    For each command in the AST, returns its arguments (excluding the
+    command name itself). The result is a list of argument lists, in
+    the same order as the commands appear in the tree.
+    
     Args:
-        tree: The AST tree
+        tree: The AST tree (typically root File node)
     
     Returns:
-        List of argument lists (excluding command name)
+        List[List[str]]: Outer list has one entry per command; inner lists
+            contain the argument strings for that command
+    
+    Example:
+        tree = parse_ast('cp file1.txt file2.txt')
+        get_arguments(tree)  # [['file1.txt', 'file2.txt']]
+        
+        tree2 = parse_ast('ls -la | grep -i txt')
+        get_arguments(tree2)  # [['-la'], ['-i', 'txt']]
     """
     args_list = []
     _collect_arguments(tree, args_list)
@@ -645,11 +759,16 @@ def find_arguments(tree: Node) -> List[List[Word]]:
     """
     Find all argument lists (excluding command names) for each call.
     
+    Unlike get_arguments(), this returns the full Word node objects
+    rather than just the argument strings. Use this when you need
+    access to word parts or node positions.
+    
     Args:
-        tree: The AST tree
+        tree: The AST tree (typically root File node)
     
     Returns:
-        List of argument lists (Word objects)
+        List[List[Word]]: Outer list has one entry per command; inner lists
+            contain Word objects for each argument
     """
     args_list = []
     _find_arguments(tree, args_list)
@@ -711,11 +830,19 @@ def has_pipe(tree: Node) -> bool:
     """
     Check if the command contains any pipes.
     
+    Traverses the tree looking for BinaryCmd nodes with pipe operators,
+    including pipes nested within subshells, conditionals, and loops.
+    
     Args:
-        tree: The AST tree
+        tree: The AST tree (typically root File node)
     
     Returns:
-        True if any pipes are present
+        bool: True if any pipe operators are present
+    
+    Example:
+        has_pipe(parse_ast('ls -la'))          # False
+        has_pipe(parse_ast('ls | grep txt'))   # True
+        has_pipe(parse_ast('ls > file.txt'))   # False (redirect, not pipe)
     """
     return _has_pipe_recursive(tree)
 
@@ -765,11 +892,19 @@ def get_target_files(tree: Node) -> List[str]:
     """
     Extract file targets from redirections.
     
+    Finds all redirections in the tree and returns only the target
+    file paths. Useful for identifying which files will be modified
+    or read by the command.
+    
     Args:
-        tree: The AST tree
+        tree: The AST tree (typically root File node)
     
     Returns:
-        List of file target names
+        List[str]: Names of all files targeted by redirections
+    
+    Example:
+        tree = parse_ast('cat file.txt > output.txt')
+        get_target_files(tree)  # ['output.txt']
     """
     targets = []
     _collect_target_files(tree, targets)

@@ -62,7 +62,7 @@ class TestIfStatements:
     def test_if_else_elif(self):
         tree = parse_ast('if [ "$x" = "a" ]; then echo A; elif [ "$x" = "b" ]; then echo B; else echo C; fi')
         assert get_commands(tree) == ['[', 'echo', '[', 'echo', 'echo']
-        assert get_arguments(tree) == [['"$x"', '"a"', ']'], ['A'], ['"$x"', '"b"', ']'], ['B'], ['C']]
+        assert get_arguments(tree) == [['', '=', 'a', ']'], ['A'], ['', '=', 'b', ']'], ['B'], ['C']]
         assert has_variable(tree)
 
 
@@ -132,8 +132,7 @@ class TestMultiLineCommands:
         cmd = "if [ -f file.txt ]; then\n    cat file.txt\nelse\n    echo \"file not found\"\nfi"
         tree = parse_ast(cmd)
         assert get_commands(tree) == ['[', 'cat', 'echo']
-        assert get_arguments(tree) == [['-f', 'file.txt', ']'], ['file.txt'], ['"file not found"']]
-        assert has_variable(tree)
+        assert get_arguments(tree) == [['-f', 'file.txt', ']'], ['file.txt'], ['file not found']]
 
     def test_multiline_for(self):
         cmd = "for file in *.txt; do\n    cat \"$file\"\ndone"

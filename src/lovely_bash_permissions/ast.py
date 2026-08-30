@@ -1,5 +1,24 @@
 """
 AST node types for bash commands.
+
+This module defines the typed AST representation for parsed bash commands,
+based on shfmt's JSON node types. Each shfmt node type maps to a Python
+dataclass with appropriate fields.
+
+Node types:
+    - File: Top-level container with statements
+    - Stmt: Individual statement with optional redirections
+    - CallExpr: Command invocation (e.g., "ls -la")
+    - BinaryCmd: Pipe operations (cmd1 | cmd2)
+    - Word: A word composed of parts
+    - Part: Atomic part of a word (literal, variable, expansion)
+    - Redir: Redirection (file > output.txt)
+    - Subshell: Parenthesized command group
+    - IfClause, ForClause, WhileClause: Control flow
+    - AndCmd, OrCmd: Logical operators (&&, ||)
+    - CaseClause: Case/switch statements
+
+JSON node types not explicitly mapped are stored in generic Node objects.
 """
 
 from dataclasses import dataclass, field
@@ -8,7 +27,10 @@ from typing import List, Optional
 
 @dataclass
 class Position:
-    """Position information for AST nodes."""
+    """Source position information for AST nodes.
+    
+    Tracks the location of a node in the original source text.
+    """
     offset: int
     line: int
     col: int
@@ -16,14 +38,29 @@ class Position:
 
 @dataclass
 class Range:
-    """Range with start and end positions."""
+    """Source range with start and end positions.
+    
+    Defines a span of text in the source from pos to end.
+    """
     pos: Position
     end: Position
 
 
 @dataclass
 class Node:
-    """Base AST node."""
+    """Base AST node for all bash syntax elements.
+    
+    Every node in the AST inherits from this base class. Unknown or
+    unmapped shfmt node types are represented as Node objects with
+    their original type name preserved in the `type` field.
+    
+    Attributes:
+        type: shfmt node type name (e.g., "File", "CallExpr", "Word")
+        pos: Starting source position
+        end: Ending source position
+        extra: Additional context or metadata (parser-specific)
+        args: Command arguments as a list of Word nodes
+    """
     type: str = None
     pos: Position = None
     end: Position = None
@@ -33,13 +70,42 @@ class Node:
 
 @dataclass
 class Word(Node):
-    """A word with parts (could be literal, variable, expansion)."""
+    """A bash word composed of parts.
+    
+    Words are the basic unit of bash syntax. They can be simple literals,
+    variable expansions, command substitutions, or complex combinations.
+    For example, "hello", "$HOME", "$(date)", or "$HOME/file.txt" are all
+    words made up of one or more parts.
+    
+    Attributes:
+        parts: List of Part objects that make up this word
+    """
     parts: List['Part'] = None
 
 
 @dataclass
 class Part:
-    """A part of a word."""
+    """An atomic part of a bash word.
+    
+    Represents a single syntactic element within a word. Parts can be
+    literals, variable references, expansions, or nested parts.
+    
+    Common part types:
+        - "Lit": Simple literal string value
+        - "Var": Variable reference ($VAR)
+        - "ParamExp": Parameter expansion (${VAR}, ${VAR-default}, etc.)
+        - "CmdSubst": Command substitution ($() or backticks)
+        - "DblQuoted": Double-quoted string containing nested parts
+        - "SglQuoted": Single-quoted string
+    
+    Attributes:
+        type: shfmt part type name
+        pos: Starting source position
+        end: Ending source position
+        value: Literal string value (for Lit and some other types)
+        parts: Nested parts (for DblQuoted, SglQuoted, etc.)
+        extra: Additional context (for CmdSubst, contains inner statements)
+    """
     type: str = None
     pos: Position = None
     end: Position = None
@@ -50,13 +116,37 @@ class Part:
 
 @dataclass
 class CallExpr(Node):
-    """A call expression (command with arguments)."""
+    """A command invocation with its arguments.
+    
+    Represents a simple bash command invocation, e.g., "ls -la", "echo hello",
+    or "python script.py". The first argument in the args list is the command
+    name, followed by its arguments.
+    
+    For example, in "ls -la /tmp", CallExpr has three args:
+        [Word("ls"), Word("-la"), Word("/tmp")]
+    
+    Attributes:
+        args: List of Word objects - first is the command name, rest are arguments
+    """
     args: List['Word'] = None
 
 
 @dataclass
 class BinaryCmd(Node):
-    """Binary command (pipe)."""
+    """A binary command operation (primarily pipes).
+    
+    Represents bash binary operators, most commonly pipes (|). The operator
+    takes two command operands: x (left) and y (right).
+    
+    Example: "ls | grep txt" becomes:
+        BinaryCmd(op="|", x=CallExpr("ls"), y=CallExpr("grep txt"))
+    
+    Attributes:
+        op: Operator symbol ("|" for pipe)
+        x: Left operand (a command or nested expression)
+        y: Right operand (a command or nested expression)
+        redirs: Redirections applied at the pipe level
+    """
     op: str = None
     x: 'Node' = None
     y: 'Node' = None
@@ -65,13 +155,34 @@ class BinaryCmd(Node):
 
 @dataclass
 class Subshell(Node):
-    """Subshell (parenthesized command group)."""
+    """A parenthesized command group (subshell).
+    
+    Represents bash subshell syntax where commands are grouped in parentheses
+    and executed in a separate shell environment. For example:
+        (cd /tmp && ls)
+    
+    Attributes:
+        stmts: List of Stmt objects executed within the subshell
+    """
     stmts: List['Stmt'] = None
 
 
 @dataclass
 class IfClause(Node):
-    """If clause with condition, then, else branches."""
+    """An if/elif/else conditional statement.
+    
+    Represents bash conditional branching. The cond field contains the
+    test command, then contains the true branch, elif_branches contains
+    additional elif conditions, and else_branch contains the final fallback.
+    
+    Example: "if test -f file; then cat file; else echo missing; fi"
+    
+    Attributes:
+        cond: List of Stmt objects for the if condition
+        then: List of Stmt objects for the true branch
+        elif_branches: List of dicts with "cond" and "body" keys
+        else_branch: List of Stmt objects for the else branch
+    """
     cond: List['Stmt'] = None
     then: List['Stmt'] = None
     elif_branches: List[dict] = None
@@ -80,7 +191,17 @@ class IfClause(Node):
 
 @dataclass
 class ForClause(Node):
-    """For loop."""
+    """A for loop statement.
+    
+    Represents bash's C-style for loop: for var in words; do body; done
+    
+    Example: "for f in *.txt; do echo $f; done"
+    
+    Attributes:
+        var: Word representing the loop variable name
+        words: List of Word objects to iterate over
+        body: List of Stmt objects executed in each iteration
+    """
     var: 'Word' = None
     words: List['Word'] = None
     body: List['Stmt'] = None
@@ -88,28 +209,68 @@ class ForClause(Node):
 
 @dataclass
 class WhileClause(Node):
-    """While loop."""
+    """A while loop statement.
+    
+    Represents bash's while loop: while condition; do body; done
+    
+    Example: "while true; do sleep 1; done"
+    
+    Attributes:
+        cond: List of Stmt objects evaluated as the loop condition
+        body: List of Stmt objects executed in each iteration
+    """
     cond: List['Stmt'] = None
     body: List['Stmt'] = None
 
 
 @dataclass
 class AndCmd(Node):
-    """Logical AND (&&)."""
+    """Logical AND operator (&&).
+    
+    Represents bash's short-circuit AND: command1 && command2
+    Executes y only if x succeeds (exit code 0).
+    
+    Example: "test -f file && cat file"
+    
+    Attributes:
+        x: Left operand (command or expression)
+        y: Right operand (command or expression)
+    """
     x: 'Node' = None
     y: 'Node' = None
 
 
 @dataclass
 class OrCmd(Node):
-    """Logical OR (||)."""
+    """Logical OR operator (||).
+    
+    Represents bash's short-circuit OR: command1 || command2
+    Executes y only if x fails (non-zero exit code).
+    
+    Example: "ping -c1 host || echo unreachable"
+    
+    Attributes:
+        x: Left operand (command or expression)
+        y: Right operand (command or expression)
+    """
     x: 'Node' = None
     y: 'Node' = None
 
 
 @dataclass
 class CaseClause(Node):
-    """Case statement."""
+    """A case/switch statement.
+    
+    Represents bash's case statement: case expr in patterns) body;; esac
+    Matches expr against patterns and executes the first matching branch.
+    
+    Example: "case $color in red) echo warm;; green) echo natural;; esac"
+    
+    Attributes:
+        expr: Word expression to evaluate for matching
+        branches: List of dicts with "patterns" (Words) and "body" (Stmts)
+        default: List of Stmt objects for the default (*) branch
+    """
     expr: 'Word' = None
     branches: List[dict] = None
     default: List['Stmt'] = None
@@ -117,7 +278,22 @@ class CaseClause(Node):
 
 @dataclass
 class Redir:
-    """Redirection."""
+    """A file redirection operation.
+    
+    Represents bash's file redirections that connect commands to files.
+    Common redirection operators include > (output), >> (append), < (input),
+    and 2> (stderr output).
+    
+    Example: "cat file.txt > output.txt" has a Redir with op='>' and
+    word containing 'output.txt'.
+    
+    Attributes:
+        op: Redirection operator string (e.g., ">", ">>", "<", "2>")
+        word: Word specifying the file target
+        pos: Starting source position of the entire redirection
+        end: Ending source position
+        op_pos: Source position of the redirection operator itself
+    """
     op: str = None
     word: 'Word' = None
     pos: Position = None
@@ -125,7 +301,14 @@ class Redir:
     op_pos: Position = None
 
 def redir_from_json(data: dict) -> Redir:
-    """Convert shfmt JSON redirection to typed object."""
+    """Convert shfmt JSON redirection data to a typed Redir object.
+    
+    Args:
+        data: shfmt JSON object representing a redirection
+    
+    Returns:
+        Redir: Typed redirection object with operator and target word
+    """
     return Redir(
         op=data.get("Op", ""),
         word=word_from_json(data.get("Word")),
@@ -136,7 +319,22 @@ def redir_from_json(data: dict) -> Redir:
 
 @dataclass
 class Stmt:
-    """A statement."""
+    """A bash statement.
+    
+    A statement wraps a command with its associated position and optional
+    file redirections. Each statement in a script corresponds to one line
+    of execution (or a multi-line logical unit).
+    
+    Example: "cat file.txt > output.txt" has a Stmt with cmd=CallExpr
+    and redirs=[Redir(op='>', word='output.txt')]
+    
+    Attributes:
+        cmd: The command node (CallExpr, BinaryCmd, Subshell, etc.)
+        position: shfmt's position field (alternative to pos)
+        pos: Starting source position
+        end: Ending source position
+        redirs: List of Redir objects applied to this statement
+    """
     cmd: 'Node' = None
     position: Position = None
     pos: Position = None
@@ -146,7 +344,17 @@ class Stmt:
 
 @dataclass
 class File(Node):
-    """Top-level file node."""
+    """Top-level file node wrapping all statements.
+    
+    The root of every parsed bash command tree. Contains a list of
+    statements representing all commands in the input.
+    
+    Example: "ls -la; echo done" produces a File node with two
+    statements in the stmts list.
+    
+    Attributes:
+        stmts: List of Stmt objects representing all commands
+    """
     stmts: List['Stmt'] = None
 
 
@@ -168,7 +376,18 @@ NODE_TYPES = {
 
 
 def node_from_json(data: dict) -> Node:
-    """Convert shfmt JSON to typed AST node."""
+    """Convert shfmt JSON node data to a typed AST node.
+    
+    Maps shfmt's node type names to appropriate Python dataclasses using
+    the NODE_TYPES mapping. Unknown types are wrapped in generic Node
+    objects with their type name preserved.
+    
+    Args:
+        data: shfmt JSON object representing a single node
+    
+    Returns:
+        Node: Appropriately typed AST node (File, CallExpr, BinaryCmd, etc.)
+    """
     node_type = data.get("Type", "")
     
     # Handle nodes that have 'Cmd' but no 'Type' (wrapped statements)
@@ -441,7 +660,17 @@ def node_from_json(data: dict) -> Node:
 
 
 def stmt_from_json(data: dict) -> Stmt:
-    """Convert a shfmt JSON statement to a typed Stmt object."""
+    """Convert shfmt JSON statement data to a typed Stmt object.
+    
+    Parses the command within the statement and extracts any associated
+    file redirections.
+    
+    Args:
+        data: shfmt JSON object representing a statement
+    
+    Returns:
+        Stmt: Typed statement with parsed command and redirections
+    """
     cmd = node_from_json(data.get("Cmd"))
     redirs = None
     if "Redirs" in data:
@@ -456,7 +685,17 @@ def stmt_from_json(data: dict) -> Stmt:
 
 
 def word_from_json(data: dict) -> Word:
-    """Convert a shfmt JSON word to a typed Word object."""
+    """Convert shfmt JSON word data to a typed Word object.
+    
+    Parses all parts of the word (literals, variables, expansions) and
+    constructs a complete Word node.
+    
+    Args:
+        data: shfmt JSON object representing a word
+    
+    Returns:
+        Word: Typed word with parsed parts
+    """
     parts = [part_from_json(p) for p in data.get("Parts", [])]
     return Word(
         type="Word",
@@ -467,7 +706,17 @@ def word_from_json(data: dict) -> Word:
 
 
 def part_from_json(data: dict) -> Part:
-    """Convert a shfmt JSON part to a typed Part object."""
+    """Convert shfmt JSON part data to a typed Part object.
+    
+    Handles all part types: literals, variables, parameter expansions,
+    command substitutions, quoted strings, etc.
+    
+    Args:
+        data: shfmt JSON object representing a word part
+    
+    Returns:
+        Part: Typed part object
+    """
     parts = None
     if "Parts" in data:
         parts = [part_from_json(p) for p in data.get("Parts", [])]
@@ -488,7 +737,14 @@ def part_from_json(data: dict) -> Part:
 
 
 def _parse_position(data: dict) -> Position:
-    """Parse position data from shfmt JSON."""
+    """Parse source position data from shfmt JSON.
+    
+    Args:
+        data: shfmt JSON position object with Offset, Line, Col fields
+    
+    Returns:
+        Position: Typed position object
+    """
     return Position(
         offset=data.get("Offset", 0),
         line=data.get("Line", 0),
@@ -497,14 +753,26 @@ def _parse_position(data: dict) -> Position:
 
 
 def parse_ast(command: str) -> Node:
-    """
-    Parse a bash command and return a typed AST node.
+    """Parse a bash command string into a typed AST node.
+    
+    This is the main entry point for parsing bash commands. It invokes
+    shfmt via the parser module and converts the resulting JSON into
+    a typed Python AST rooted at a File node.
     
     Args:
-        command: Bash command to parse
+        command: Bash command string to parse
     
     Returns:
-        Typed AST node (File, Stmt, etc.)
+        Node: Root File node of the parsed AST tree
+    
+    Raises:
+        ParseError: If shfmt cannot parse the command
+    
+    Example:
+        tree = parse_ast('ls -la | grep txt')
+        print(tree.type)        # 'File'
+        print(len(tree.stmts))  # 1
+        print(tree.stmts[0].cmd.type)  # 'BinaryCmd'
     """
     from .parser import parse
     raw = parse(command)
