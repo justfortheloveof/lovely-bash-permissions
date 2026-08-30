@@ -3,7 +3,7 @@ AST inspection and traversal utilities.
 """
 
 from typing import List
-from .ast import Node, CallExpr, BinaryCmd, Word, Part, Stmt, File
+from .ast import Node, CallExpr, BinaryCmd, Word, Part, Stmt, File, Redir
 
 
 def get_commands(tree: Node) -> List[str]:
@@ -64,7 +64,7 @@ def has_variable(tree: Node) -> bool:
 def _has_variable_recursive(node: Node) -> bool:
     """Recursively check for variables."""
     if isinstance(node, Part):
-        return node.type == "Var"
+        return node.type in ("Var", "ParamExp")
     elif isinstance(node, Word):
         return any(_has_variable_recursive(p) for p in node.parts)
     elif isinstance(node, CallExpr):
@@ -95,29 +95,28 @@ def get_redirections(tree: Node) -> List[dict]:
 
 def _collect_redirections(node: Node, redirs: List[dict]):
     """Recursively collect redirections."""
-    if isinstance(node, Node):
-        # Redirections are stored in Redirs field
-        if hasattr(node, 'redirs') and node.redirs:
+    # Stmt has redirs
+    if isinstance(node, Stmt):
+        if node.redirs:
             for r in node.redirs:
                 redirs.append({
                     'op': r.op,
-                    'target': _word_value(r.word) if hasattr(r, 'word') else ''
+                    'target': _word_value(r.word)
                 })
-    # Also check in BinaryCmd branches
-    if isinstance(node, BinaryCmd):
+        _collect_redirections(node.cmd, redirs)
+    # BinaryCmd branches may have redirs
+    elif isinstance(node, BinaryCmd):
         _collect_redirections(node.x, redirs)
         _collect_redirections(node.y, redirs)
+    # File has stmts
     elif isinstance(node, File):
         for stmt in node.stmts:
             _collect_redirections(stmt, redirs)
-    elif isinstance(node, Stmt):
-        if hasattr(node, 'redirs'):
-            for r in node.redirs:
-                redirs.append({
-                    'op': r.op,
-                    'target': _word_value(r.word) if hasattr(r, 'word') else ''
-                })
-        _collect_redirections(node.cmd, redirs)
+    # Recurse into other nodes
+    elif isinstance(node, CallExpr):
+        pass  # No redirs here, check above
+    elif isinstance(node, Node):
+        pass
 
 
 def get_arguments(tree: Node) -> List[List[str]]:

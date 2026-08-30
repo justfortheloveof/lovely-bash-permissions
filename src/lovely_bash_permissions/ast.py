@@ -59,12 +59,32 @@ class BinaryCmd(Node):
 
 
 @dataclass
+class Redir:
+    """Redirection."""
+    op: str
+    word: 'Word'
+    pos: Position
+    end: Position
+    op_pos: Position
+
+def redir_from_json(data: dict) -> Redir:
+    """Convert shfmt JSON redirection to typed object."""
+    return Redir(
+        op=data.get("Op", ""),
+        word=word_from_json(data.get("Word")),
+        pos=_parse_position(data.get("Pos")),
+        end=_parse_position(data.get("End")),
+        op_pos=_parse_position(data.get("OpPos")),
+    )
+
+@dataclass
 class Stmt:
     """A statement."""
     cmd: 'Node'
     position: Position
     pos: Position
     end: Position
+    redirs: Optional[List['Redir']] = None
 
 
 @dataclass
@@ -139,11 +159,15 @@ def node_from_json(data: dict) -> Node:
 def stmt_from_json(data: dict) -> Stmt:
     """Convert a shfmt JSON statement to a typed Stmt object."""
     cmd = node_from_json(data.get("Cmd"))
+    redirs = None
+    if "Redirs" in data:
+        redirs = [redir_from_json(r) for r in data.get("Redirs", [])]
     return Stmt(
         cmd=cmd,
         position=_parse_position(data.get("Position")),
         pos=_parse_position(data.get("Pos")),
         end=_parse_position(data.get("End")),
+        redirs=redirs,
     )
 
 
