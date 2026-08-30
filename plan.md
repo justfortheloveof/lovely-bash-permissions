@@ -7,27 +7,30 @@ Build a Python library that uses shfmt-py's `--to-json` flag to parse bash comma
 
 ## Architecture
 
-The system will have these components:
+The system has three main modules:
+1. **`parser.py`** - Invokes shfmt binary and returns raw JSON
+2. **`ast.py`** - Converts JSON to typed Python dataclasses
+3. **`inspect.py`** - Provides query utilities (get_commands, get_arguments, etc.)
 
-1. **Parser Core** (`src/lovely_bash_permissions/parser.py`)
-   - Invoke shfmt's `--to-json` flag to parse bash commands
-   - Parse the JSON output into a structured Python AST representation
-   - Handle errors (syntax errors, etc.)
-
-2. **AST Node Types** (`src/lovely_bash_permissions/ast.py`)
-   - Define typed dataclasses or models for each node type
-   - Enable type-safe inspection of the command tree
-
-3. **Inspector/Traversal** (`src/lovely_bash_permissions/inspect.py`)
-   - Utility functions to query the AST
-   - Find commands, arguments, pipelines, redirections, etc.
-
-4. **CLI** (future)
-   - Command-line tool to inspect bash commands
+## File Structure
+```
+lovely-bash-permissions/
+├── src/
+│   └── lovely_bash_permissions/
+│       ├── __init__.py      # Package exports
+│       ├── parser.py        # Core shfmt invocation
+│       ├── ast.py           # Typed AST dataclasses
+│       └── inspect.py       # Query utilities
+├── tests/                   # (to be created)
+├── plan.md                  # This file
+├── README.md                # Documentation
+├── pyproject.toml           # uv project config
+└── uv.lock                  # Lock file
+```
 
 ## Implementation Plan
 
-### Phase 1: Foundation (Current)
+### Phase 1: Foundation (Complete)
 - [x] Initialize repo with uv
 - [x] Add shfmt-py dependency
 - [x] Explore shfmt-py's JSON output format
@@ -38,7 +41,7 @@ The system will have these components:
 - [x] Test with pipes, redirections, and variables
 - [ ] Write comprehensive tests
 - [ ] Write documentation (README)
-- [ ] Commit and tag v0.1.0-alpha
+- [x] Commit and tag v0.1.0-alpha
 
 ### Phase 2: AST Inspection
 - [ ] Build more comprehensive inspector
@@ -106,3 +109,38 @@ shfmt v3.14.0 supports:
 2. Build more comprehensive inspector
 3. Write documentation (README)
 4. Commit and tag
+
+---
+
+## Context for Continuation
+
+### What's Implemented
+- `parser.py`: Invokes `.venv/bin/shfmt` with `--to-json` and returns raw JSON dict
+- `ast.py`: Defines dataclasses (Position, Node, Word, Part, CallExpr, BinaryCmd, Stmt, File) and conversion functions (node_from_json, stmt_from_json, word_from_json, part_from_json)
+- `inspect.py`: Query utilities (get_commands, get_arguments, has_variable, get_redirections)
+- `__init__.py`: Exports all public API functions
+
+### API Surface
+```python
+from lovely_bash_permissions import parse_ast, get_commands, get_arguments, has_variable, get_redirections
+
+tree = parse_ast('ls -la | grep txt > output.txt')
+get_commands(tree)        # ['ls', 'grep']
+get_arguments(tree)       # [['-la'], ['txt']]
+has_variable(tree)        # False
+get_redirections(tree)    # [{'op': '>', 'target': 'output.txt'}]
+```
+
+### Dependencies
+- shfmt-py>=4.1.0 (provides the shfmt binary at .venv/bin/shfmt)
+- Python 3.14
+
+### Test Status
+- No formal test suite yet (only ad-hoc CLI tests)
+- Tested: pipes, redirections, variables, simple commands
+
+### Conventions
+- Use dataclasses for AST nodes
+- Lowercase method names
+- Follow the shfmt JSON structure as closely as possible
+- Test with `uv run python -c "..."`
