@@ -31,15 +31,18 @@ The system will have these components:
 - [x] Initialize repo with uv
 - [x] Add shfmt-py dependency
 - [x] Explore shfmt-py's JSON output format
-- [ ] Create `parser.py` with core parse function
-- [ ] Define AST dataclasses in `ast.py`
-- [ ] Write initial tests
+- [x] Create `parser.py` with core parse function
+- [x] Define AST dataclasses in `ast.py`
+- [x] Build inspector with traversal utilities
+- [x] Implement get_commands(), get_arguments(), has_variable(), get_redirections()
+- [ ] Write comprehensive tests
+- [ ] Write documentation (README)
 - [ ] Commit and tag v0.1.0-alpha
 
 ### Phase 2: AST Inspection
-- [ ] Build `inspect.py` with traversal utilities
+- [ ] Build more comprehensive inspector
 - [ ] Implement node visitor pattern
-- [ ] Add helper methods: `get_commands()`, `get_arguments()`, `has_variable()`
+- [ ] Add helper methods: find_commands(), find_arguments(), has_pipe(), get_target_files()
 - [ ] Write comprehensive tests
 - [ ] Commit and tag v0.2.0-alpha
 
@@ -71,18 +74,18 @@ shfmt v3.14.0 supports:
 | Type | Description |
 |------|-------------|
 | `File` | Top level, has `Stmts` array |
-| `Stmt` | Statement with `Cmd`, `Position` |
+| `Stmt` | Statement with `Cmd`, `Position`, `Redirs` |
 | `CallExpr` | Simple command call with `Args` array |
 | `BinaryCmd` | Pipe `|` with `X`, `Y`, `Op` |
 | `Word` | Has `Parts` array |
 | `Lit` | Literal value with `Value` field |
-| `Var` | Variable reference (to be tested) |
+| `ParamExp` | Parameter expansion (e.g., $HOME) with `Param` |
+| `Var` | Variable reference |
 | `And/Or` | `&&` / `||` (to be tested) |
 | `Subshell` | `(cmd)` (to be tested) |
 | `If/For/While/Case` | Control flow (to be tested) |
 | `Func` | Function definition (to be tested) |
 | `Alias` | Alias definition (to be tested) |
-| `Redir` | Redirection with `Op`, `Word` |
 
 ## Key Decisions (To Be Made)
 1. Use dataclasses vs pydantic vs attrs for AST nodes
@@ -98,7 +101,7 @@ shfmt v3.14.0 supports:
 - Edge cases in bash syntax that shfmt may not handle
 
 ## Next Steps
-1. Create `parser.py` with core parse function
-2. Define AST dataclasses in `ast.py`
-3. Write tests
+1. Write comprehensive tests
+2. Build more comprehensive inspector
+3. Write documentation (README)
 4. Commit and tag
