@@ -3,7 +3,7 @@
 ## Goal
 Build a Python library that uses shfmt-py's `--to-json` flag to parse bash commands and expose the AST for inspection. This will be used to parse commands that AI agents want to run.
 
-## Status: In Progress (Phase 1)
+## Status: In Progress (Phase 2)
 
 ## Architecture
 
@@ -43,12 +43,12 @@ lovely-bash-permissions/
 - [ ] Write documentation (README)
 - [x] Commit and tag v0.1.0-alpha
 
-### Phase 2: AST Inspection
-- [ ] Build more comprehensive inspector
-- [ ] Implement node visitor pattern
-- [ ] Add helper methods: find_commands(), find_arguments(), has_pipe(), get_target_files()
-- [ ] Write comprehensive tests
-- [ ] Commit and tag v0.2.0-alpha
+### Phase 2: AST Inspection (Complete)
+- [x] Build more comprehensive inspector
+- [x] Implement node visitor pattern
+- [x] Add helper methods: find_commands(), find_arguments(), has_pipe(), get_target_files()
+- [x] Write comprehensive tests (28 new tests added)
+- [x] Commit and tag v0.2.0-alpha
 
 ### Phase 3: Error Handling & Edge Cases
 - [ ] Robust error handling
