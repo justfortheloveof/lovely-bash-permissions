@@ -173,3 +173,24 @@ class TestNodeRepr:
         tree = parse_ast("ls -la | grep txt")
         r = repr(tree)
         assert "..." in r
+
+
+class TestAllExports:
+    """Validate that __all__ stays in sync with actual module exports."""
+
+    def test_all_matches_namespace(self):
+        import types
+
+        import lovely_bash_permissions
+
+        all_set = set(lovely_bash_permissions.__all__)
+        namespace = {
+            name
+            for name in dir(lovely_bash_permissions)
+            if not name.startswith("_")
+            and not isinstance(getattr(lovely_bash_permissions, name), types.ModuleType)
+        }
+        missing_from_all = namespace - all_set
+        extra_in_all = all_set - namespace
+        assert not missing_from_all, f"In namespace but not __all__: {missing_from_all}"
+        assert not extra_in_all, f"In __all__ but not namespace: {extra_in_all}"

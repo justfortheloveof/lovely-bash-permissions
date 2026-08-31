@@ -12,7 +12,9 @@ Example:
     raw_json = parse('ls -la | grep txt')
 """
 
+from __future__ import annotations
 
+import functools
 import json
 import os
 import shutil
@@ -21,8 +23,6 @@ import sys
 from pathlib import Path
 
 _VALID_DIALECTS = frozenset({"bash", "posix", "mksh", "bats", "zsh"})
-
-_cached_shfmt_path: str | None = None
 
 
 def parse(command: str, dialect: str = "bash") -> dict:
@@ -80,6 +80,7 @@ def parse(command: str, dialect: str = "bash") -> dict:
         ) from e
 
 
+@functools.lru_cache(maxsize=1)
 def find_shfmt() -> str:
     """
     Locate the shfmt binary on the system.
@@ -96,10 +97,6 @@ def find_shfmt() -> str:
     Raises:
         FileNotFoundError: If shfmt cannot be found.
     """
-    global _cached_shfmt_path
-    if _cached_shfmt_path is not None:
-        return _cached_shfmt_path
-
     candidates: list[Path] = []
 
     # 1. Active virtualenv from environment variable
@@ -115,14 +112,12 @@ def find_shfmt() -> str:
 
     for path in candidates:
         if path.is_file():
-            _cached_shfmt_path = str(path)
-            return _cached_shfmt_path
+            return str(path)
 
     # 4. Fallback to system PATH
     system_shfmt = shutil.which("shfmt")
     if system_shfmt:
-        _cached_shfmt_path = system_shfmt
-        return _cached_shfmt_path
+        return system_shfmt
 
     raise FileNotFoundError(
         "shfmt binary not found. Please ensure shfmt-py is installed."

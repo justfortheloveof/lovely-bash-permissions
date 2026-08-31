@@ -22,7 +22,9 @@ Node types:
 JSON node types not explicitly mapped are stored in generic Node objects.
 """
 
+from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 
 
@@ -36,24 +38,23 @@ def _node_repr(obj: object, depth: int = 1) -> str:
         type_val = getattr(obj, "type", obj.__class__.__name__)
         return f"<{type_val} ...>"
     cls = type(obj)
-    fields = getattr(cls, "__dataclass_fields__", {})
+    if not dataclasses.is_dataclass(cls):
+        return repr(obj)
     parts: list[str] = []
-    for name in fields:
-        val = getattr(obj, name, None)
+    for f in dataclasses.fields(cls):
+        val = getattr(obj, f.name, None)
         if val is None or val == "" or val == []:
             continue
         if isinstance(val, list):
             items = ", ".join(
-                _node_repr(v, depth - 1)
-                if hasattr(v, "__dataclass_fields__")
-                else repr(v)
+                _node_repr(v, depth - 1) if dataclasses.is_dataclass(v) else repr(v)
                 for v in val
             )
-            parts.append(f"{name}=[{items}]")
-        elif hasattr(val, "__dataclass_fields__"):
-            parts.append(f"{name}={_node_repr(val, depth - 1)}")
+            parts.append(f"{f.name}=[{items}]")
+        elif dataclasses.is_dataclass(val):
+            parts.append(f"{f.name}={_node_repr(val, depth - 1)}")
         else:
-            parts.append(f"{name}={val!r}")
+            parts.append(f"{f.name}={val!r}")
     return f"{cls.__name__}({', '.join(parts)})"
 
 
@@ -363,14 +364,6 @@ class ElifBranch:
     cond: list[Stmt]
     body: list[Stmt]
 
-    def __getitem__(self, key: str) -> list[Stmt]:
-        """Dict-like access for backwards compatibility."""
-        if key == "cond":
-            return self.cond
-        if key == "body":
-            return self.body
-        raise KeyError(key)
-
 
 @dataclass(slots=True, repr=False)
 class IfClause(Node):
@@ -455,14 +448,6 @@ class CaseBranch:
     patterns: list[Word]
     body: list[Stmt]
 
-    def __getitem__(self, key: str) -> list:
-        """Dict-like access for backwards compatibility."""
-        if key == "patterns":
-            return self.patterns
-        if key == "body":
-            return self.body
-        raise KeyError(key)
-
 
 @dataclass(slots=True, repr=False)
 class CaseClause(Node):
@@ -471,12 +456,12 @@ class CaseClause(Node):
     Attributes:
         expr: Word expression to evaluate for matching
         branches: List of CaseBranch objects
-        default: List of Stmt objects for the default (*) branch
+        default_body: List of Stmt objects for the default (*) branch
     """
 
     expr: Word | None = None
     branches: list[CaseBranch] = field(default_factory=list)
-    default: list[Stmt] = field(default_factory=list)
+    default_body: list[Stmt] = field(default_factory=list)
 
 
 @dataclass(slots=True, repr=False)

@@ -6,6 +6,7 @@ dataclass nodes defined in ``ast.py``. It uses a dispatch table
 (``_CONVERTERS``) to map shfmt type strings to converter functions.
 """
 
+from __future__ import annotations
 
 import logging
 from collections.abc import Callable
@@ -68,6 +69,9 @@ _log = logging.getLogger(__name__)
 # Type mapping from shfmt's JSON to our dataclasses
 # ---------------------------------------------------------------------------
 
+#: Registry mapping shfmt type-name strings to the corresponding Python
+#: dataclass.  Useful for dynamic dispatch, serialisation round-trips, or
+#: plugin code that needs to resolve a type name at runtime.
 NODE_TYPES: dict[str, type] = {
     "File": File,
     "CallExpr": CallExpr,
@@ -372,41 +376,19 @@ def word_from_json(data: dict | None) -> Word | None:
 def part_from_json(data: dict) -> Node:
     """Convert shfmt JSON part data to a typed Node object.
 
-    Delegates to the same converters used by ``node_from_json`` for all
-    known types. Falls back to a generic DblQuoted or Node for unknown types.
+    Delegates to ``_CONVERTERS`` for all known types. Falls back to a
+    generic Node for unknown types.
     """
     part_type = data.get("Type", "")
-
-    # Use the shared converters for all known part types
-    converter = _PART_CONVERTERS.get(part_type)
+    converter = _CONVERTERS.get(part_type)
     if converter is not None:
-        return converter(data)
-
-    # DblQuoted (handled specially since it needs computed value)
-    if part_type == "DblQuoted":
-        return _dbl_quoted_from_json(data)
-
-    # BraceExp (converter defined later in file, handled here to avoid forward ref)
-    if part_type == "BraceExp":
-        converter_fn = _CONVERTERS.get("BraceExp")
-        if converter_fn is not None:
-            return converter_fn(data)
+        result = converter(data)
+        if result is not None:
+            return result
 
     # Unknown part type — wrap in a generic Node
     pos, end = _parse_pos_end(data)
     return Node(type=part_type, pos=pos, end=end)
-
-
-# Part-specific converter dispatch (shared types reuse the same functions)
-_PART_CONVERTERS: dict[str, Callable[[dict], Node]] = {
-    "Lit": _lit_from_json,
-    "SglQuoted": _sgl_quoted_from_json,
-    "CmdSubst": _cmd_subst_from_json,
-    "ProcSubst": _proc_subst_from_json,
-    "ParamExp": _paramexp_from_json,
-    "ArithmExp": _arithm_exp_from_json,
-    "ExtGlob": _extglob_from_json,
-}
 
 
 # ---------------------------------------------------------------------------
@@ -516,6 +498,15 @@ def _convert_binary_cmd(data: dict) -> BinaryCmd:
 
 
 def _convert_decl_clause(data: dict) -> DeclClause:
+    """Convert shfmt DeclClause JSON to a typed DeclClause node.
+
+    shfmt represents declaration arguments (e.g., ``export FOO=bar``) as
+    Assign-like dicts in the ``Args`` array.  We store these in two fields:
+
+    * ``assigns`` — the full Assign objects with name/value/etc.
+    * ``args`` — the *value* portion as Word nodes, so callers that only
+      need the word-level view don't have to dig into Assign internals.
+    """
     variant = data.get("Variant", {})
     variant_value = variant.get("Value", "") if isinstance(variant, dict) else ""
 
@@ -553,13 +544,12 @@ def _convert_subshell(data: dict) -> Subshell:
 def _convert_for_clause(data: dict) -> ForClause:
     loop = data.get("Loop", {})
     var_name: str | None = None
+    items: list[Word] = []
+
     if isinstance(loop, dict):
         name_info = loop.get("Name", {})
         if isinstance(name_info, dict):
             var_name = name_info.get("Value")
-
-    items: list[Word] = []
-    if isinstance(loop, dict):
         for w in loop.get("Items", []):
             if isinstance(w, dict):
                 items.append(word_from_json(w))
@@ -624,7 +614,7 @@ def _convert_case_clause(data: dict) -> CaseClause:
             )
             for b in data.get("Items", [])
         ],
-        default=[stmt_from_json(s) for s in data.get("Default", [])],
+        default_body=[stmt_from_json(s) for s in data.get("Default", [])],
     )
 
 
@@ -894,7 +884,7 @@ def _convert_brace_exp(data: dict) -> BraceExp:
 # Dispatch table mapping shfmt Type strings to converter functions
 # ---------------------------------------------------------------------------
 
-_CONVERTERS: dict[str, Callable[[dict], Node]] = {
+_CONVERTERS: dict[str, Callable[[dict], Node | None]] = {
     "File": _convert_file,
     "CallExpr": _convert_call_expr,
     "BinaryCmd": _convert_binary_cmd,
@@ -974,6 +964,11 @@ def parse_ast(command: str) -> File:
     This is the main entry point for parsing bash commands. It invokes
     shfmt via the parser module and converts the resulting JSON into
     a typed Python AST rooted at a File node.
+
+    The function lives in ``converter`` (rather than ``parser`` or
+    ``__init__``) because it depends on ``node_from_json`` and the full
+    converter machinery.  It is re-exported from the package root for
+    convenience.
 
     Args:
         command: Bash command string to parse
