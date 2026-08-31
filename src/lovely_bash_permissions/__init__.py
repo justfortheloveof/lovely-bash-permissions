@@ -51,6 +51,7 @@ __all__ = [
     "BinaryArithm",
     "ExtGlob",
     "Block",
+    "FuncDecl",
     "Redir",
     "Subshell",
     "IfClause",
