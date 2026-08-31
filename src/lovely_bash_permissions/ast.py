@@ -429,6 +429,41 @@ class CallExpr(Node):
 
 
 @dataclass
+class Block(Node):
+    """A block of statements enclosed in curly braces.
+
+    Represents bash block syntax where commands are grouped in curly braces
+    and executed in the current shell environment. Unlike subshells (which
+    use parentheses and create a new shell), blocks run commands in the
+    same shell, so variable changes persist.
+
+    Examples:
+        { echo 'a'; echo 'b'; }          -> Two statements in a block
+        if true; then { cmd1; cmd2; }; fi -> Block in if-then
+        { cmd & }                        -> Background the entire block
+
+    shfmt's JSON representation for Block includes:
+        - Type: "Block"
+        - Pos/End: Position of the entire block
+        - Lbrace: Position of the opening brace
+        - Rbrace: Position of the closing brace
+        - Stmts: List of statements contained in the block
+
+    Attributes:
+        type: Always "Block"
+        pos: Starting source position of the entire block
+        end: Ending source position of the entire block
+        lbrace: Position of the opening brace
+        rbrace: Position of the closing brace
+        stmts: List of Stmt objects representing commands in the block
+    """
+    type: str = "Block"
+    lbrace: Position = None
+    rbrace: Position = None
+    stmts: List['Stmt'] = None
+
+
+@dataclass
 class BinaryCmd(Node):
     """A binary command operation (primarily pipes).
     
@@ -678,6 +713,7 @@ NODE_TYPES = {
     "ArithmExp": ArithmExp,
     "BinaryArithm": BinaryArithm,
     "ExtGlob": ExtGlob,
+    "Block": Block,
 }
 
 
@@ -997,6 +1033,15 @@ def node_from_json(data: dict) -> Node:
                 value_pos=_parse_position(pattern_data.get("ValuePos")),
                 value_end=_parse_position(pattern_data.get("ValueEnd")),
             ),
+        )
+    elif node_type == "Block":
+        return Block(
+            type=node_type,
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            lbrace=_parse_position(data.get("Lbrace")),
+            rbrace=_parse_position(data.get("Rbrace")),
+            stmts=[stmt_from_json(s) for s in data.get("Stmts", [])],
         )
     
     return Node(

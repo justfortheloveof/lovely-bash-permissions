@@ -5,7 +5,7 @@ Comprehensive tests for the lovely-bash-permissions parser.
 import pytest
 from lovely_bash_permissions import (
     parse_ast, get_commands, get_arguments, has_variable, get_redirections,
-    Lit, SglQuoted, ParamExp, DblQuoted, CmdSubst, ProcSubst, ArithmExp, BinaryArithm
+    Lit, SglQuoted, ParamExp, DblQuoted, CmdSubst, ProcSubst, ArithmExp, BinaryArithm, Block
 )
 
 
@@ -1032,3 +1032,175 @@ class TestExtGlobNodes:
         """Verify that ExtGlob is imported in the lovely_bash_permissions module."""
         from lovely_bash_permissions import ExtGlob
         assert ExtGlob is not None
+
+
+class TestBlockNodes:
+    """Tests for the Block node type (Step 10 of node coverage).
+
+    Blocks are curly-brace groups: { cmd1; cmd2; }. They execute
+    commands in the current shell environment (unlike subshells with
+    parentheses which spawn a new shell).
+    """
+
+    def test_simple_block(self):
+        """Parse { echo 'a'; echo 'b'; } and verify Block node."""
+        tree = parse_ast("{ echo 'a'; echo 'b'; }")
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'Block'
+        assert isinstance(cmd, Block)
+        assert len(cmd.stmts) == 2
+        # First statement: echo 'a'
+        assert cmd.stmts[0].cmd.args[0].parts[0].value == 'echo'
+        assert cmd.stmts[0].cmd.args[1].parts[0].type == 'SglQuoted'
+        assert cmd.stmts[0].cmd.args[1].parts[0].value == 'a'
+        # Second statement: echo 'b'
+        assert cmd.stmts[1].cmd.args[0].parts[0].value == 'echo'
+        assert cmd.stmts[1].cmd.args[1].parts[0].type == 'SglQuoted'
+        assert cmd.stmts[1].cmd.args[1].parts[0].value == 'b'
+
+    def test_block_with_true_false(self):
+        """Parse { true; false; } and verify Block with boolean commands."""
+        tree = parse_ast("{ true; false; }")
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'Block'
+        assert len(cmd.stmts) == 2
+        assert cmd.stmts[0].cmd.args[0].parts[0].value == 'true'
+        assert cmd.stmts[1].cmd.args[0].parts[0].value == 'false'
+
+    def test_nested_blocks(self):
+        """Parse { { echo 'inner'; }; } and verify nested Block nodes."""
+        tree = parse_ast("{ { echo 'inner'; }; }")
+        outer = tree.stmts[0].cmd
+        assert outer.type == 'Block'
+        assert len(outer.stmts) == 1
+        inner = outer.stmts[0].cmd
+        assert inner.type == 'Block'
+        assert len(inner.stmts) == 1
+        assert inner.stmts[0].cmd.args[0].parts[0].value == 'echo'
+        assert inner.stmts[0].cmd.args[1].parts[0].value == 'inner'
+
+    def test_block_with_subshell(self):
+        """Parse { (echo 'sub'); } and verify Block containing Subshell."""
+        tree = parse_ast("{ (echo 'sub'); }")
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'Block'
+        inner = cmd.stmts[0].cmd
+        assert inner.type == 'Subshell'
+        assert inner.stmts[0].cmd.args[0].parts[0].value == 'echo'
+
+    def test_block_with_variables(self):
+        """Parse { echo $HOME; } and verify Block with variable expansion."""
+        tree = parse_ast("{ echo $HOME; }")
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'Block'
+        assert cmd.stmts[0].cmd.args[1].parts[0].type == 'ParamExp'
+        assert cmd.stmts[0].cmd.args[1].parts[0].param == 'HOME'
+
+    def test_block_position_info(self):
+        """Verify Block nodes have position information from shfmt."""
+        tree = parse_ast("{ echo 'a'; }")
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'Block'
+        assert cmd.pos is not None
+        assert cmd.end is not None
+        assert cmd.lbrace is not None
+        assert cmd.rbrace is not None
+        assert isinstance(cmd.pos.offset, int)
+        assert isinstance(cmd.end.offset, int)
+        # Lbrace should be before rbrace
+        assert cmd.lbrace.offset < cmd.rbrace.offset
+
+    def test_empty_block_with_commands(self):
+        """Parse a block with multiple different command types."""
+        tree = parse_ast("{ ls -la; cat file.txt; grep pattern file.txt; }")
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'Block'
+        assert len(cmd.stmts) == 3
+        assert cmd.stmts[0].cmd.args[0].parts[0].value == 'ls'
+        assert cmd.stmts[1].cmd.args[0].parts[0].value == 'cat'
+        assert cmd.stmts[2].cmd.args[0].parts[0].value == 'grep'
+
+    def test_block_pipe_inside(self):
+        """Parse { ls | grep txt; } and verify pipe inside Block."""
+        tree = parse_ast("{ ls | grep txt; }")
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'Block'
+        inner = cmd.stmts[0].cmd
+        assert inner.type == 'BinaryCmd'
+        assert inner.op == '|'
+        assert inner.x.args[0].parts[0].value == 'ls'
+        assert inner.y.args[0].parts[0].value == 'grep'
+        assert inner.y.args[1].parts[0].value == 'txt'
+
+    def test_block_andcmd_inside(self):
+        """Parse { test -f file && cat file; } with BinaryCmd(op='&&') inside Block.
+        
+        shfmt represents && as BinaryCmd with Op='&&', not AndCmd.
+        AndCmd is used at statement level (across semicolons), not within blocks.
+        """
+        tree = parse_ast("{ test -f file && cat file; }")
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'Block'
+        inner = cmd.stmts[0].cmd
+        assert inner.type == 'BinaryCmd'
+        assert inner.op == '&&'
+        assert inner.x.args[0].parts[0].value == 'test'
+        assert inner.y.args[0].parts[0].value == 'cat'
+
+    def test_block_with_redirect(self):
+        """Parse { echo hello > output.txt; } with redirection inside Block."""
+        tree = parse_ast("{ echo hello > output.txt; }")
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'Block'
+        stmt = cmd.stmts[0]
+        assert stmt.cmd.args[0].parts[0].value == 'echo'
+        assert len(stmt.redirs) == 1
+        assert stmt.redirs[0].op == '>'
+        assert stmt.redirs[0].word.parts[0].value == 'output.txt'
+
+    def test_block_cmdsubst_inside(self):
+        """Parse { echo $(date); } with CmdSubst inside Block."""
+        tree = parse_ast("{ echo $(date); }")
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'Block'
+        inner_stmt = cmd.stmts[0]
+        assert inner_stmt.cmd.args[1].parts[0].type == 'CmdSubst'
+        assert inner_stmt.cmd.args[1].parts[0].stmts[0].cmd.args[0].parts[0].value == 'date'
+
+    def test_block_if_inside(self):
+        """Parse { if true; then echo 'yes'; fi; } with if statement inside Block."""
+        tree = parse_ast("{ if true; then echo 'yes'; fi; }")
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'Block'
+        inner = cmd.stmts[0].cmd
+        assert inner.type == 'IfClause'
+        assert len(inner.then) == 1
+        assert inner.then[0].cmd.args[0].parts[0].value == 'echo'
+
+    def test_block_with_arithmetic(self):
+        """Parse { echo $((1 + 2)); } with ArithmExp inside Block."""
+        tree = parse_ast("{ echo $((1 + 2)); }")
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'Block'
+        inner = cmd.stmts[0].cmd
+        assert inner.args[1].parts[0].type == 'ArithmExp'
+        inner_arith = inner.args[1].parts[0].x
+        assert inner_arith.type == 'BinaryArithm'
+        assert inner_arith.op == '+'
+
+    def test_deeply_nested_blocks(self):
+        """Parse { { { echo 'deep'; }; }; } with three levels of nesting."""
+        tree = parse_ast("{ { { echo 'deep'; }; }; }")
+        outer = tree.stmts[0].cmd
+        assert outer.type == 'Block'
+        mid = outer.stmts[0].cmd
+        assert mid.type == 'Block'
+        inner = mid.stmts[0].cmd
+        assert inner.type == 'Block'
+        assert inner.stmts[0].cmd.args[0].parts[0].value == 'echo'
+        assert inner.stmts[0].cmd.args[1].parts[0].value == 'deep'
+
+    def test_block_imported_in_module(self):
+        """Verify that Block is imported in the lovely_bash_permissions module."""
+        from lovely_bash_permissions import Block
+        assert Block is not None
