@@ -35,4 +35,5 @@ You MUST ONLY spawn `pi` coding agents.
 You MUST ONLY spawn 1 subagent at a time. Our inference server will otherwise grind to a halt.
 You MUST commit changes after each step is implemented
 You have limited context window size of ~70,000 tokens. You MUST be efficient. You MUST concentrate on moving along the project to the next step, towards completion.
+You MUST never modify anything in the ./.pi directory
 </constraints>
