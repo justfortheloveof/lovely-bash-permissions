@@ -3,11 +3,11 @@
 Project: lovely-bash-permissions (Python project managed with uv)
 Goal: Configure ruff for linting and formatting, integrated into the development workflow.
 
-## Step 1 — Install ruff via uv
+## Step 1 — Install ruff via uv ✅
 
-- Add `ruff` to the `[dependency-groups.dev]` section of `pyproject.toml`.
-- Run `uv sync` to install it into the existing `.venv`.
-- Verify installation: `uv run ruff --version` should succeed.
+- Added `ruff` to `[dependency-groups.dev]` in `pyproject.toml`
+- Ran `uv sync` — installed ruff 0.16.5
+- Verified: `uv run ruff --version` returns `ruff 0.16.5`, success
 
 ## Step 2 — Configure ruff in pyproject.toml
 
