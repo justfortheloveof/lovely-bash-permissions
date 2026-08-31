@@ -3,7 +3,7 @@ Core bash command parser using shfmt-py's --to-json flag.
 
 This module provides the low-level interface to shfmt, converting bash
 command strings into shfmt's JSON AST representation. The JSON output
-is then converted to typed Python AST nodes by ast.py.
+is then converted to typed Python AST nodes by converter.py.
 
 Supported shell dialects: bash, posix, mksh, bats, zsh.
 
@@ -16,6 +16,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 _VALID_DIALECTS = frozenset({"bash", "posix", "mksh", "bats", "zsh"})
@@ -81,9 +82,8 @@ def find_shfmt() -> str:
     Locate the shfmt binary on the system.
 
     Searches the following locations in order:
-        1. Virtual-environment ``bin/shfmt`` (resolved relative to *this*
-           package, not the caller's working directory)
-        2. ``$VIRTUAL_ENV/bin/shfmt``
+        1. ``$VIRTUAL_ENV/bin/shfmt`` (if the env var is set)
+        2. ``shfmt`` next to the running Python interpreter
         3. ``shfmt`` on the system PATH
 
     Returns:
@@ -92,25 +92,24 @@ def find_shfmt() -> str:
     Raises:
         FileNotFoundError: If shfmt cannot be found.
     """
-    # Resolve relative to this package's location so that it works
-    # regardless of the caller's working directory.
-    pkg_dir = Path(__file__).resolve().parent
-    project_root = pkg_dir.parent.parent  # src/../..
+    candidates: list[Path] = []
 
-    candidates = [
-        project_root / ".venv" / "bin" / "shfmt",
-        project_root / "venv" / "bin" / "shfmt",
-    ]
-
+    # 1. Active virtualenv from environment variable
     venv = os.environ.get("VIRTUAL_ENV")
     if venv:
         candidates.append(Path(venv) / "bin" / "shfmt")
+
+    # 2. Same directory as the running Python interpreter
+    candidates.append(Path(sys.executable).parent / "shfmt")
+
+    # 3. sys.prefix (covers virtualenvs where sys.executable resolves elsewhere)
+    candidates.append(Path(sys.prefix) / "bin" / "shfmt")
 
     for path in candidates:
         if path.is_file():
             return str(path)
 
-    # Fallback to system PATH
+    # 3. Fallback to system PATH
     system_shfmt = shutil.which("shfmt")
     if system_shfmt:
         return system_shfmt
@@ -141,7 +140,7 @@ class ParseError(Exception):
         self.returncode = returncode
         self.stderr = stderr
 
-    def __str__(self):
+    def __str__(self) -> str:
         msg = super().__str__()
         if self.command:
             msg += f"\n  Command: {self.command!r}"

@@ -17,6 +17,8 @@ from .ast import (
     CaseClause,
     CmdSubst,
     CoprocClause,
+    DblQuoted,
+    DeclClause,
     File,
     ForClause,
     FuncDecl,
@@ -26,8 +28,8 @@ from .ast import (
     Node,
     OrCmd,
     ParamExp,
-    Part,
     Redir,
+    SglQuoted,
     Stmt,
     Subshell,
     TestClause,
@@ -60,9 +62,8 @@ def _traverse(
     elif isinstance(node, Stmt):
         if node.cmd:
             _traverse(node.cmd, visitor, recurse_call_expr_args)
-        if node.redirs:
-            for redir in node.redirs:
-                _traverse(redir, visitor, recurse_call_expr_args)
+        for redir in node.redirs:
+            _traverse(redir, visitor, recurse_call_expr_args)
     elif isinstance(node, CallExpr):
         if recurse_call_expr_args and node.args:
             for arg in node.args:
@@ -72,59 +73,45 @@ def _traverse(
             _traverse(node.left, visitor, recurse_call_expr_args)
         if node.right:
             _traverse(node.right, visitor, recurse_call_expr_args)
-        if node.redirs:
-            for redir in node.redirs:
-                _traverse(redir, visitor, recurse_call_expr_args)
+        for redir in node.redirs:
+            _traverse(redir, visitor, recurse_call_expr_args)
     elif isinstance(node, Word):
-        if node.parts:
-            for part in node.parts:
-                _traverse(part, visitor, recurse_call_expr_args)
+        for part in node.parts:
+            _traverse(part, visitor, recurse_call_expr_args)
     elif isinstance(node, Redir):
         if node.word:
             _traverse(node.word, visitor, recurse_call_expr_args)
-    elif isinstance(node, Lit):
+    elif isinstance(node, (Lit, SglQuoted)):
         pass  # leaf
-    elif isinstance(node, CmdSubst):
-        if node.stmts:
-            for stmt in node.stmts:
-                _traverse(stmt, visitor, recurse_call_expr_args)
-    elif isinstance(node, Part):
+    elif isinstance(node, DblQuoted):
         if node.parts:
-            for subpart in node.parts:
-                _traverse(subpart, visitor, recurse_call_expr_args)
-    elif isinstance(node, Subshell):
-        if node.stmts:
-            for stmt in node.stmts:
-                _traverse(stmt, visitor, recurse_call_expr_args)
+            for part in node.parts:
+                _traverse(part, visitor, recurse_call_expr_args)
+    elif isinstance(node, (CmdSubst, Subshell)):
+        for stmt in node.stmts:
+            _traverse(stmt, visitor, recurse_call_expr_args)
     elif isinstance(node, IfClause):
         for stmt in node.cond_stmts:
             _traverse(stmt, visitor, recurse_call_expr_args)
         for stmt in node.then_stmts:
             _traverse(stmt, visitor, recurse_call_expr_args)
         for branch in node.elif_branches:
-            for stmt in branch["cond"]:
+            for stmt in branch.cond:
                 _traverse(stmt, visitor, recurse_call_expr_args)
-            for stmt in branch["body"]:
+            for stmt in branch.body:
                 _traverse(stmt, visitor, recurse_call_expr_args)
-        if node.else_stmts:
-            for stmt in node.else_stmts:
-                _traverse(stmt, visitor, recurse_call_expr_args)
+        for stmt in node.else_stmts:
+            _traverse(stmt, visitor, recurse_call_expr_args)
     elif isinstance(node, ForClause):
-        if node.var:
-            _traverse(node.var, visitor, recurse_call_expr_args)
-        if node.words:
-            for word in node.words:
-                _traverse(word, visitor, recurse_call_expr_args)
-        if node.body:
-            for stmt in node.body:
-                _traverse(stmt, visitor, recurse_call_expr_args)
+        for word in node.words:
+            _traverse(word, visitor, recurse_call_expr_args)
+        for stmt in node.body:
+            _traverse(stmt, visitor, recurse_call_expr_args)
     elif isinstance(node, WhileClause):
-        if node.cond_stmts:
-            for stmt in node.cond_stmts:
-                _traverse(stmt, visitor, recurse_call_expr_args)
-        if node.body:
-            for stmt in node.body:
-                _traverse(stmt, visitor, recurse_call_expr_args)
+        for stmt in node.cond_stmts:
+            _traverse(stmt, visitor, recurse_call_expr_args)
+        for stmt in node.body:
+            _traverse(stmt, visitor, recurse_call_expr_args)
     elif isinstance(node, (AndCmd, OrCmd)):
         if node.left:
             _traverse(node.left, visitor, recurse_call_expr_args)
@@ -134,19 +121,15 @@ def _traverse(
         if node.expr:
             _traverse(node.expr, visitor, recurse_call_expr_args)
         for branch in node.branches:
-            for pattern in branch["patterns"]:
+            for pattern in branch.patterns:
                 _traverse(pattern, visitor, recurse_call_expr_args)
-            for stmt in branch["body"]:
+            for stmt in branch.body:
                 _traverse(stmt, visitor, recurse_call_expr_args)
-        if node.default:
-            for stmt in node.default:
-                _traverse(stmt, visitor, recurse_call_expr_args)
-    # --- Issue #9: missing traversal branches for container node types ---
+        for stmt in node.default:
+            _traverse(stmt, visitor, recurse_call_expr_args)
     elif isinstance(node, Block):
-        if node.stmts:
-            for stmt in node.stmts:
-                _traverse(stmt, visitor, recurse_call_expr_args)
-    # --- Container node types with body/stmt fields ---
+        for stmt in node.stmts:
+            _traverse(stmt, visitor, recurse_call_expr_args)
     elif isinstance(node, (FuncDecl, TestClause, ArithmCmd)):
         if node.body:
             _traverse(node.body, visitor, recurse_call_expr_args)
@@ -154,10 +137,9 @@ def _traverse(
         if node.stmt:
             _traverse(node.stmt, visitor, recurse_call_expr_args)
     elif isinstance(node, LetClause):
-        if node.exprs:
-            for expr in node.exprs:
-                _traverse(expr, visitor, recurse_call_expr_args)
-    elif hasattr(node, "type") and node.type == "DeclClause" and node.args:
+        for expr in node.exprs:
+            _traverse(expr, visitor, recurse_call_expr_args)
+    elif isinstance(node, DeclClause):
         for a in node.args:
             _traverse(a, visitor, recurse_call_expr_args)
 
@@ -183,56 +165,43 @@ class Visitor:
         collector.walk(tree)
     """
 
-    def visit(self, node: Node):
+    # Dispatch table built once per class (maps type -> method name)
+    _DISPATCH: dict[type, str] = {
+        File: "visit_file",
+        Stmt: "visit_stmt",
+        CallExpr: "visit_call_expr",
+        BinaryCmd: "visit_binary_cmd",
+        Word: "visit_word",
+        Redir: "visit_redir",
+        Lit: "visit_lit",
+        ParamExp: "visit_param_exp",
+        DblQuoted: "visit_dbl_quoted",
+        Subshell: "visit_subshell",
+        CmdSubst: "visit_cmd_subst",
+        IfClause: "visit_if_clause",
+        ForClause: "visit_for_clause",
+        WhileClause: "visit_while_clause",
+        AndCmd: "visit_and_cmd",
+        OrCmd: "visit_or_cmd",
+        CaseClause: "visit_case_clause",
+        Block: "visit_block",
+        FuncDecl: "visit_func_decl",
+        TestClause: "visit_test_clause",
+        ArithmCmd: "visit_arithm_cmd",
+        TimeClause: "visit_time_clause",
+        CoprocClause: "visit_coproc_clause",
+        DeclClause: "visit_decl_clause",
+    }
+
+    def visit(self, node: Node) -> None:
         """Visit a node and dispatch to the appropriate method."""
-        if isinstance(node, File):
-            return self.visit_file(node)
-        elif isinstance(node, Stmt):
-            return self.visit_stmt(node)
-        elif isinstance(node, CallExpr):
-            return self.visit_call_expr(node)
-        elif isinstance(node, BinaryCmd):
-            return self.visit_binary_cmd(node)
-        elif isinstance(node, Word):
-            return self.visit_word(node)
-        elif isinstance(node, Redir):
-            return self.visit_redir(node)
-        elif isinstance(node, Lit):
-            return self.visit_lit(node)
-        elif isinstance(node, (ParamExp, Part)):
-            return self.visit_part(node)
-        elif isinstance(node, Subshell):
-            return self.visit_subshell(node)
-        elif isinstance(node, CmdSubst):
-            return self.visit_cmd_subst(node)
-        elif isinstance(node, IfClause):
-            return self.visit_if_clause(node)
-        elif isinstance(node, ForClause):
-            return self.visit_for_clause(node)
-        elif isinstance(node, WhileClause):
-            return self.visit_while_clause(node)
-        elif isinstance(node, AndCmd):
-            return self.visit_and_cmd(node)
-        elif isinstance(node, OrCmd):
-            return self.visit_or_cmd(node)
-        elif isinstance(node, CaseClause):
-            return self.visit_case_clause(node)
-        elif isinstance(node, Block):
-            return self.visit_block(node)
-        elif isinstance(node, FuncDecl):
-            return self.visit_func_decl(node)
-        elif isinstance(node, TestClause):
-            return self.visit_test_clause(node)
-        elif isinstance(node, ArithmCmd):
-            return self.visit_arithm_cmd(node)
-        elif isinstance(node, TimeClause):
-            return self.visit_time_clause(node)
-        elif isinstance(node, CoprocClause):
-            return self.visit_coproc_clause(node)
-        elif hasattr(node, "type") and node.type == "DeclClause":
-            return self.visit_decl_clause(node)
+        method_name = self._DISPATCH.get(type(node))
+        if method_name is not None:
+            getattr(self, method_name)(node)
         else:
-            return self.visit_node(node)
+            # Check for ParamExp-like nodes dispatched via visit_part for
+            # backwards compatibility
+            self.visit_node(node)
 
     def visit_file(self, node: File) -> None:
         pass
@@ -255,7 +224,14 @@ class Visitor:
     def visit_lit(self, node: Lit) -> None:
         pass
 
-    def visit_part(self, node: Part) -> None:
+    def visit_param_exp(self, node: ParamExp) -> None:
+        # Default: delegate to visit_part for backwards compatibility
+        self.visit_part(node)
+
+    def visit_dbl_quoted(self, node: DblQuoted) -> None:
+        pass
+
+    def visit_part(self, node: Node) -> None:
         pass
 
     def visit_node(self, node: Node) -> None:
@@ -303,61 +279,41 @@ class Visitor:
     def visit_coproc_clause(self, node: CoprocClause) -> None:
         pass
 
-    def visit_decl_clause(self, node: Node) -> None:
+    def visit_decl_clause(self, node: DeclClause) -> None:
         pass
 
-    def walk(self, node: Node):
+    def walk(self, node: Node) -> None:
         """Walk the entire AST tree, visiting all nodes recursively."""
         _traverse(node, self.visit, recurse_call_expr_args=True)
 
 
-class VariableVisitor(Visitor):
-    """Visitor that detects whether the tree contains any variable references."""
+def _word_value(word: Word) -> str:
+    """Get the string value of a word (concatenating all parts).
 
-    def __init__(self):
-        super().__init__()
-        self.found = False
-
-    def visit_part(self, node: Part) -> None:
-        if self.found:
-            return
-        if isinstance(node, (ParamExp, CmdSubst)):
-            self.found = True
-        elif node.type == "DblQuoted" and node.parts:
-            for p in node.parts:
-                _traverse(p, self.visit)
-
-    def visit_word(self, node: Word) -> None:
-        if self.found:
-            return
-        for part in node.parts:
-            _traverse(part, self.visit)
-
-    def visit_call_expr(self, node: CallExpr) -> None:
-        if self.found:
-            return
-        for arg in node.args:
-            _traverse(arg, self.visit)
-
-    def visit_decl_clause(self, node: Node) -> None:
-        if self.found:
-            return
-        if hasattr(node, "args") and node.args:
-            for a in node.args:
-                _traverse(a, self.visit)
-
-    def visit_cmd_subst(self, node: CmdSubst) -> None:
-        self.found = True
-        if node.stmts:
-            for stmt in node.stmts:
-                _traverse(stmt, self.visit, recurse_call_expr_args=True)
+    Handles Lit, SglQuoted, DblQuoted, ParamExp, and CmdSubst parts,
+    producing a best-effort string representation.
+    """
+    parts: list[str] = []
+    for part in word.parts:
+        if isinstance(part, (Lit, SglQuoted)):
+            parts.append(part.value)
+        elif isinstance(part, DblQuoted):
+            if part.value is not None:
+                parts.append(part.value)
+        elif isinstance(part, ParamExp):
+            parts.append(f"${part.param}")
+        elif isinstance(part, CmdSubst):
+            parts.append("$(...)")
+        elif hasattr(part, "value") and part.value is not None:
+            parts.append(str(part.value))
+    return "".join(parts)
 
 
 def get_commands(tree: Node) -> list[str]:
     """Extract all command names from the AST."""
     commands: list[str] = []
 
-    def visitor(node):
+    def visitor(node: Node) -> None:
         if isinstance(node, CallExpr):
             if node.args:
                 cmd_name = _word_value(node.args[0])
@@ -365,10 +321,10 @@ def get_commands(tree: Node) -> list[str]:
                     commands.append(cmd_name)
             if node.assigns:
                 for assign in node.assigns:
-                    val = assign.value if hasattr(assign, "value") else None
+                    val = assign.value
                     if val is None:
                         continue
-                    for p in getattr(val, "parts", []):
+                    for p in val.parts:
                         _traverse(p, visitor)
 
     _traverse(tree, visitor, recurse_call_expr_args=True)
@@ -379,43 +335,47 @@ def find_commands(tree: Node) -> list[CallExpr]:
     """Find all CallExpr nodes (commands) in the AST."""
     commands: list[CallExpr] = []
 
-    def visitor(node):
+    def visitor(node: Node) -> None:
         if isinstance(node, CallExpr):
             commands.append(node)
             if node.assigns:
                 for assign in node.assigns:
-                    val = assign.value if hasattr(assign, "value") else None
+                    val = assign.value
                     if val is None:
                         continue
-                    for p in getattr(val, "parts", []):
+                    for p in val.parts:
                         _traverse(p, visitor)
 
     _traverse(tree, visitor, recurse_call_expr_args=True)
     return commands
 
 
-def _word_value(word: Word) -> str:
-    """Get the value of a word (concatenate all parts)."""
-    parts = []
-    for part in word.parts:
-        if part.value:
-            parts.append(part.value)
-    return "".join(parts)
-
-
 def has_variable(tree: Node) -> bool:
     """Check if the command contains any variable references."""
-    visitor = VariableVisitor()
-    _traverse(tree, visitor.visit, recurse_call_expr_args=True)
-    return visitor.found
+    found = False
+
+    def visitor(node: Node) -> None:
+        nonlocal found
+        if found:
+            return
+        if isinstance(node, (ParamExp, CmdSubst)):
+            found = True
+
+    _traverse(tree, visitor, recurse_call_expr_args=True)
+    return found
 
 
 def get_redirections(tree: Node) -> list[dict]:
     """Extract file redirections from the AST."""
     redirs: list[dict] = []
 
-    def visitor(node):
-        if (isinstance(node, (Stmt, BinaryCmd))) and node.redirs:
+    def visitor(node: Node) -> None:
+        if (
+            isinstance(node, Stmt)
+            and node.redirs
+            or isinstance(node, BinaryCmd)
+            and node.redirs
+        ):
             for r in node.redirs:
                 redirs.append({"op": r.op, "target": _word_value(r.word)})
 
@@ -427,7 +387,7 @@ def get_arguments(tree: Node) -> list[list[str]]:
     """Extract command arguments for each call expression."""
     args_list: list[list[str]] = []
 
-    def visitor(node):
+    def visitor(node: Node) -> None:
         if isinstance(node, CallExpr) and node.args:
             args_list.append([_word_value(arg) for arg in node.args[1:]])
 
@@ -439,7 +399,7 @@ def find_arguments(tree: Node) -> list[list[Word]]:
     """Find all argument lists (excluding command names) for each call."""
     args_list: list[list[Word]] = []
 
-    def visitor(node):
+    def visitor(node: Node) -> None:
         if isinstance(node, CallExpr) and node.args:
             args_list.append(node.args[1:])
 
@@ -448,14 +408,18 @@ def find_arguments(tree: Node) -> list[list[Word]]:
 
 
 def has_pipe(tree: Node) -> bool:
-    """Check if the command contains any pipes."""
+    """Check if the command contains any pipe operators.
+
+    Only returns True for actual pipe operators (``|``), not for
+    ``&&`` or ``||`` which are also represented as BinaryCmd nodes.
+    """
     found = False
 
-    def visitor(n: Node):
+    def visitor(n: Node) -> None:
         nonlocal found
         if found:
             return
-        if isinstance(n, BinaryCmd):
+        if isinstance(n, BinaryCmd) and n.op == "|":
             found = True
 
     _traverse(tree, visitor, recurse_call_expr_args=True)
@@ -466,8 +430,13 @@ def get_target_files(tree: Node) -> list[str]:
     """Extract file targets from redirections."""
     targets: list[str] = []
 
-    def visitor(node):
-        if (isinstance(node, (Stmt, BinaryCmd))) and node.redirs:
+    def visitor(node: Node) -> None:
+        if (
+            isinstance(node, Stmt)
+            and node.redirs
+            or isinstance(node, BinaryCmd)
+            and node.redirs
+        ):
             for r in node.redirs:
                 target = _word_value(r.word)
                 if target:

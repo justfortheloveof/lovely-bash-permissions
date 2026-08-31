@@ -11,17 +11,7 @@ easy inspection and traversal.
 Quick start:
     from lovely_bash_permissions import parse_ast, get_commands
     tree = parse_ast('ls -la | grep txt')
-    commands = get_commands(tree)
     get_commands(tree)  # Returns list of command names: ['ls', 'grep']
-
-Exported symbols:
-    Parser: parse, parse_ast, ParseError
-    AST nodes: Node, Position, Word, CallExpr, BinaryCmd, Stmt, File,
-              Part, Redir, Subshell, IfClause, ForClause, WhileClause,
-              AndCmd, OrCmd, CaseClause
-    Inspection: get_commands, get_arguments, has_variable,
-               get_redirections, find_commands, find_arguments,
-               has_pipe, get_target_files, Visitor
 """
 
 from .ast import (
@@ -37,6 +27,7 @@ from .ast import (
     Block,
     BraceExp,
     CallExpr,
+    CaseBranch,
     CaseClause,
     CaseItem,
     CmdSubst,
@@ -44,6 +35,8 @@ from .ast import (
     CoprocClause,
     CStyleLoop,
     DblQuoted,
+    DeclClause,
+    ElifBranch,
     ExtGlob,
     File,
     FlagsArithm,
@@ -57,7 +50,6 @@ from .ast import (
     ParamExp,
     ParenArithm,
     ParenTest,
-    Part,
     Position,
     ProcSubst,
     Redir,
@@ -72,8 +64,8 @@ from .ast import (
     WhileClause,
     Word,
     WordIter,
-    parse_ast,
 )
+from .converter import NODE_TYPES, parse_ast
 from .inspect import (
     Visitor,
     find_arguments,
@@ -90,9 +82,11 @@ from .parser import ParseError, parse
 __version__ = "0.1.0"
 
 __all__ = [
+    # Parser
     "parse",
     "parse_ast",
     "ParseError",
+    # AST nodes
     "Node",
     "Position",
     "Word",
@@ -100,7 +94,6 @@ __all__ = [
     "BinaryCmd",
     "Stmt",
     "File",
-    "Part",
     "Lit",
     "SglQuoted",
     "ParamExp",
@@ -140,6 +133,12 @@ __all__ = [
     "ArrayExpr",
     "ArrayElem",
     "BraceExp",
+    "DeclClause",
+    "ElifBranch",
+    "CaseBranch",
+    # Registry
+    "NODE_TYPES",
+    # Inspection
     "get_commands",
     "get_arguments",
     "has_variable",

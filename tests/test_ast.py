@@ -5,10 +5,11 @@ and node types not covered by test_parser.py.
 
 from lovely_bash_permissions import (
     BraceExp,
+    DeclClause,
     Word,
     parse_ast,
 )
-from lovely_bash_permissions.ast import NODE_TYPES
+from lovely_bash_permissions.converter import NODE_TYPES
 
 
 class TestBraceExpNode:
@@ -94,17 +95,17 @@ class TestNodeFromJsonNoneGuard:
     """Verify that node_from_json handles None input gracefully."""
 
     def test_node_from_json_returns_none_for_none(self):
-        from lovely_bash_permissions.ast import node_from_json
+        from lovely_bash_permissions.converter import node_from_json
 
         assert node_from_json(None) is None
 
     def test_word_from_json_returns_none_for_none(self):
-        from lovely_bash_permissions.ast import word_from_json
+        from lovely_bash_permissions.converter import word_from_json
 
         assert word_from_json(None) is None
 
     def test_parse_position_returns_none_for_none(self):
-        from lovely_bash_permissions.ast import _parse_position
+        from lovely_bash_permissions.converter import _parse_position
 
         assert _parse_position(None) is None
 
@@ -139,3 +140,36 @@ class TestConsistentNaming:
         cmd = tree.stmts[0].cmd
         assert hasattr(cmd, "left")
         assert hasattr(cmd, "right")
+
+
+class TestDeclClauseNode:
+    """Tests for the DeclClause dataclass."""
+
+    def test_decl_clause_is_proper_type(self):
+        assert DeclClause is not None
+        node = DeclClause()
+        assert node.type == "DeclClause"
+
+    def test_decl_clause_registered(self):
+        assert "DeclClause" in NODE_TYPES
+        assert NODE_TYPES["DeclClause"] is DeclClause
+
+    def test_decl_clause_isinstance(self):
+        tree = parse_ast("export FOO=bar")
+        cmd = tree.stmts[0].cmd
+        assert isinstance(cmd, DeclClause)
+        assert cmd.type == "DeclClause"
+
+
+class TestNodeRepr:
+    """Test depth-limited __repr__ on nodes."""
+
+    def test_repr_does_not_raise(self):
+        tree = parse_ast("ls -la | grep txt")
+        r = repr(tree)
+        assert "File" in r
+
+    def test_repr_is_depth_limited(self):
+        tree = parse_ast("ls -la | grep txt")
+        r = repr(tree)
+        assert "..." in r
