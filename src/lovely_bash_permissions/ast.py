@@ -22,7 +22,6 @@ Node types:
 JSON node types not explicitly mapped are stored in generic Node objects.
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass, field
 

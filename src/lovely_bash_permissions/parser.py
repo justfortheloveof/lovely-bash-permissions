@@ -12,7 +12,6 @@ Example:
     raw_json = parse('ls -la | grep txt')
 """
 
-from __future__ import annotations
 
 import json
 import os

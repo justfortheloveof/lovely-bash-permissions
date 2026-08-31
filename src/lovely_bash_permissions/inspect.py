@@ -6,7 +6,6 @@ command extraction, argument collection, variable detection, redirection
 analysis, and the AST visitor pattern for custom traversal.
 """
 
-from __future__ import annotations
 
 from collections.abc import Callable
 
