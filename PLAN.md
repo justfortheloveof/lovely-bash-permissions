@@ -1,65 +1,81 @@
-# Test Refactoring Plan
+# Plan: Add Ruff for Linting and Formatting
 
-## Current State
+Project: lovely-bash-permissions (Python project managed with uv)
+Goal: Configure ruff for linting and formatting, integrated into the development workflow.
 
-**Source modules (4 files):**
-- `src/lovely_bash_permissions/__init__.py` — package exports
-- `src/lovely_bash_permissions/parser.py` — core parser (`parse`, `ParseError`)
-- `src/lovely_bash_permissions/ast.py` — AST node types and parsing logic
-- `src/lovely_bash_permissions/inspect.py` — inspection/traversal utilities
+## Step 1 — Install ruff via uv
 
-**Test files (4 files):**
-- `tests/test_parser.py` — parser tests ✅ matches source correctly
-- `tests/test_nodes.py` — only **BraceExp** node type (1 class, 6 tests)
-- `tests/test_phase2.py` — visitor pattern + inspection helpers (find_commands, find_arguments, has_pipe, get_target_files)
-- `tests/test_phase3.py` — edge cases, error handling, shell features (subshells, if/else, loops, pipes)
+- Add `ruff` to the `[dependency-groups.dev]` section of `pyproject.toml`.
+- Run `uv sync` to install it into the existing `.venv`.
+- Verify installation: `uv run ruff --version` should succeed.
 
-**Problem:** Most node-type tests (Lit, SglQuoted, ParamExp, DblQuoted, CmdSubst, ArithmExp, ProcSubst, ExtGlob, Block, FuncDecl) live inside `test_parser.py` — a file that should test only the parser module. Test files don't match source file names, and coverage is scattered rather than organized by module.
+## Step 2 — Configure ruff in pyproject.toml
 
-## Target Structure
+- Add a `[tool.ruff]` section with:
+  - `line-length = 88` (PEP-8 common default; adjust if project style differs).
+  - `target-version = "py314"` (matches `.python-version` / project requires-python).
+- Add a `[tool.ruff.lint]` section with a curated rule set:
+  - `select = ["E", "F", "W", "I", "UP", "B", "SIM"]` — common sensible defaults:
+    - `E/W`: pycodestyle errors/warnings
+    - `F`: pyflakes (unused imports, undefined names)
+    - `I`: isort (import ordering)
+    - `UP`: pyupgrade (modernize syntax)
+    - `B`: flake8-bugbear (common bugs)
+    - `SIM`: flynt/SIM (simplify code)
+  - `ignore = ["E501"]` — let formatter handle line length, so linting doesn't fight formatting.
+- Add a `[tool.ruff.format]` section with:
+  - `quote-style = "double"` (consistent style; match existing code).
 
-```
-tests/
-├── test_parser.py       — parser module tests (parse, ParseError)  [already correct]
-├── test_ast.py          — all node type tests (from test_parser.py + test_nodes.py)
-├── test_inspect.py      — inspection/traversal tests (from test_phase2.py)
-└── test_features.py     — shell features, edge cases (from test_phase3.py)
-```
+## Step 3 — Run ruff check and fix any lint errors
 
-## Steps
+- Run `uv run ruff check src/ tests/` to discover issues.
+- Run `uv run ruff check --fix src/ tests/` to auto-fix what's safe.
+- Manually review remaining issues; commit fixes.
 
-### Step 1 — Verify current tests pass
-Run the full test suite and confirm baseline passes before any changes.
-- [x] 276 tests collected, all passing — baseline confirmed.
+## Step 4 — Run ruff format to style all code
 
-### Step 2 — Create `test_ast.py` with all node type tests
-- [x] Created `tests/test_ast.py` from `test_parser.py` and `test_nodes.py`
-- All node-type test classes preserved: TestLitNodes, TestSglQuotedNodes, TestParamExpNodes,
-  TestDblQuotedNodes, TestCmdSubstNodes, TestArithmExpNodes, TestProcSubstNodes,
-  TestExtGlobNodes, TestBlockNodes, TestFuncDeclNodes, TestBraceExpNode,
-  TestSimpleCommands, TestPipes, TestRedirections, TestVariables, TestComplexCommands,
-  TestEdgeCases, TestASTStructure
+- Run `uv run ruff format src/ tests/` to reformat everything.
+- Commit the reformatted files.
 
-### Step 3 — Create `test_inspect.py` from phase2 tests
-- [x] Created `tests/test_inspect.py` from `test_phase2.py`
-- Test classes moved: TestVisitorPattern, TestFindCommands, TestFindArguments,
-  TestHasPipe, TestGetTargetFiles, TestIntegration
+## Step 5 — Add a lint check to tests
 
-### Step 4 — Create `test_features.py` from phase3 tests
-- [x] Created `tests/test_features.py` from `test_phase3.py`
-- Test classes moved: TestSubshells, TestIfStatements, TestForLoops, TestWhileLoops,
-  TestAndOrOperators, TestMultiLineCommands, TestComplexNestedStructures,
-  TestEdgeCases, TestCommandSubstitution, TestRedirectionComplex,
-  TestVariablesComplex, TestErrorMessages, TestParseErrorAttributes
+- Extend `[tool.pytest.ini_options]` in `pyproject.toml`:
+  - Add an option for ruff check so CI can verify style: `addopts = ["--strict-markers", "-vv"]` (keep existing, add ruff check step separately).
+- Create a `tests/test_ruff.py` (or inline in an existing test file) that runs:
+  ```python
+  import subprocess, sys
 
-### Step 5 — Delete old files and verify
-- [x] Removed `test_nodes.py`, `test_phase2.py`, `test_phase3.py`
-- [x] Full suite rerun: 276 tests passing
+  def test_ruff_check():
+      result = subprocess.run(
+          [sys.executable, "-m", "ruff", "check", "src/", "tests/"],
+          capture_output=True, text=True,
+      )
+      assert result.returncode == 0, f"ruff check failed:\n{result.stdout}\n{result.stderr}"
 
-### Step 6 — Add `tests/__init__.py` if missing
-Ensure the tests directory is a proper package (for relative imports).
+  def test_ruff_format_check():
+      result = subprocess.run(
+          [sys.executable, "-m", "ruff", "format", "--check", "src/", "tests/"],
+          capture_output=True, text=True,
+      )
+      assert result.returncode == 0, f"ruff format --check failed:\n{result.stdout}\n{result.stderr}"
+  ```
 
-## Completion Criteria
-- [x] All original test classes/functions preserved and passing (276 tests)
-- [x] New file names match source module names (ast → ast, inspect → inspect)
-- [x] Zero test duplication between files
+## Step 6 — Pre-commit hook (optional but recommended)
+
+- Add `.pre-commit-config.yaml` if not present, with a ruff hook:
+  ```yaml
+  repos:
+    - repo: https://github.com/astral-sh/ruff-pre-commit
+      rev: v0.9.x
+      hooks:
+        - id: ruff-check
+          args: [--fix]
+        - id: ruff-format
+  ```
+- If `.pre-commit-config.yaml` exists, merge these hooks in.
+
+## Step 7 — Verify everything passes
+
+- Run `uv run pytest` to confirm all tests (including new ruff tests) pass.
+- Run `uv run ruff check src/ tests/` and `uv run ruff format --check src/ tests/` — both must succeed clean.
+- Commit all changes.
