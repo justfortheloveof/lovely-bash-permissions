@@ -487,9 +487,10 @@ class FuncDecl(Node):
         body: Block node containing the function body statements
     """
     type: str = "FuncDecl"
+    rsrv_word: bool = False
     parens: bool = False
     name: Optional['Lit'] = None
-    body: Optional['Block'] = None
+    body: Optional['Node'] = None
 
 
 @dataclass
@@ -662,37 +663,239 @@ class Redir:
     op_pos: Position = None
 
 @dataclass
-class FuncDecl(Node):
-    """A bash function declaration.
+@dataclass
+class TestClause(Node):
+    """Extended test: [[ condition ]].
 
-    Represents bash function declarations in both traditional and
-    alternative syntax forms:
-        - name() { body }          (traditional, function name with parens)
-        - function name { body }    (POSIX, "function" keyword, no parens)
-        - function name() { body }  (POSIX with parens)
+    Represents bash's extended test expression, which provides additional
+    operators over the POSIX single-bracket test. The test expression is
+    stored in the x field and can be a complex expression involving
+    UnaryTest, BinaryTest, ParenTest nodes.
 
-    shfmt's JSON representation for FuncDecl includes:
-        - Type: "FuncDecl"
-        - Pos/End: Position of the entire declaration
-        - RsrvWord: True if "function" keyword was used
-        - Parens: True if () syntax was used
-        - Name: The function name as a Lit node
-        - Body: The function body (typically a Block node)
+    Examples:
+        [[ -f file.txt ]]                   -> UnaryTest(-f, file.txt)
+        [[ -f file && -r file ]]            -> BinaryTest(&&, UnaryTest(-f, file), UnaryTest(-r, file))
+        [[ "$name" == "alx" || "$name" == "bob" ]] -> BinaryTest(||, BinaryTest(...), ...)
+        [[ ( $x -gt 0 ) && ( $y -lt 10 ) ]] -> BinaryTest(&&, ParenTest(...), ParenTest(...))
+
+    shfmt's JSON representation includes:
+        - Type: "TestClause"
+        - Pos/End: Position of the entire test
+        - Left/Right: Position of the opening/closing brackets
+        - X: The test expression (TestExpr type)
 
     Attributes:
-        type: Always "FuncDecl"
-        pos: Starting source position of the declaration
-        end: Ending source position of the declaration
-        rsrv_word: True if "function" keyword was used, False for name() style
-        parens: True if () syntax was used, False for function name style
-        name: Lit node containing the function name
-        body: The function body (typically a Block node with nested statements)
+        type: Always "TestClause"
+        pos: Starting source position
+        end: Ending source position
+        left: Position of the opening [[
+        right: Position of the closing ]]
+        x: The test expression (Node with type UnaryTest, BinaryTest, ParenTest, etc.)
     """
-    type: str = "FuncDecl"
-    rsrv_word: bool = False
-    parens: bool = False
-    name: Optional['Lit'] = None
+    type: str = "TestClause"
+    left: Position = None
+    right: Position = None
+    x: Optional['Node'] = None
+
+
+@dataclass
+class UnaryTest(Node):
+    """Unary test: -f file, -z str, -n str, -d dir.
+
+    Represents a unary test operation where a single operator tests
+    one operand. Common operators include -f (file exists), -d (dir exists),
+    -r (readable), -w (writable), -x (executable), -z (string empty),
+    -n (string not empty).
+
+    Attributes:
+        type: Always "UnaryTest"
+        pos: Starting source position
+        end: Ending source position
+        op: The operator string ("-f", "-d", "-r", etc.)
+        op_pos: Position of the operator
+        x: The test operand
+    """
+    type: str = "UnaryTest"
+    op: str = None
+    op_pos: Position = None
+    x: Optional['Node'] = None
+
+
+@dataclass
+class BinaryTest(Node):
+    """Binary test: a -eq b, a && b, a || b, a == b, a != b.
+
+    Represents a binary test operation that compares two operands using
+    an operator. Comparison operators include -eq (equal), -ne (not equal),
+    -lt (less than), -gt (greater than), -le, -ge, == (string equal),
+    != (string not equal), && (logical and), || (logical or).
+
+    Attributes:
+        type: Always "BinaryTest"
+        pos: Starting source position
+        end: Ending source position
+        op: The operator string
+        op_pos: Position of the operator
+        x: Left operand
+        y: Right operand
+    """
+    type: str = "BinaryTest"
+    op: str = None
+    op_pos: Position = None
+    x: Optional['Node'] = None
+    y: Optional['Node'] = None
+
+
+@dataclass
+class ParenTest(Node):
+    """Parenthesized test: ( expr ).
+
+    Represents a test expression wrapped in parentheses to control
+    evaluation order in complex test conditions.
+
+    Attributes:
+        type: Always "ParenTest"
+        pos: Starting source position
+        end: Ending source position
+        lparen: Position of the opening parenthesis
+        rparen: Position of the closing parenthesis
+        x: The inner test expression
+    """
+    type: str = "ParenTest"
+    lparen: Position = None
+    rparen: Position = None
+    x: Optional['Node'] = None
+
+
+@dataclass
+class ArithmCmd(Node):
+    """Arithmetic command: (( expr ))."""
+    type: str = "ArithmCmd"
+    left: Position = None
+    right: Position = None
+    x: Optional['Node'] = None
+
+
+@dataclass
+class UnaryArithm(Node):
+    """Unary arithmetic: -x, !x, x++, x--."""
+    type: str = "UnaryArithm"
+    op: str = None
+    op_pos: Position = None
+    post: bool = False
+    x: Optional['Node'] = None
+
+
+@dataclass
+class ParenArithm(Node):
+    """Parenthesized arithmetic: (expr)."""
+    type: str = "ParenArithm"
+    lparen: Position = None
+    rparen: Position = None
+    x: Optional['Node'] = None
+
+
+@dataclass
+class FlagsArithm(Node):
+    """Zsh subscript flags: ${array[(flags)expr]}."""
+    type: str = "FlagsArithm"
+    flags: Optional['Lit'] = None
+    x: Optional['Node'] = None
+
+
+@dataclass
+class LetClause(Node):
+    """Let statement: let expr."""
+    type: str = "LetClause"
+    let_pos: Position = None
+    exprs: List['Node'] = None
+
+
+@dataclass
+class TimeClause(Node):
+    """Time-prefixed command: time cmd."""
+    type: str = "TimeClause"
+    time_pos: Position = None
+    posix_format: bool = False
+    stmt: Optional['Node'] = None
+
+
+@dataclass
+class CoprocClause(Node):
+    """Coprocess: coproc NAME { cmd }."""
+    type: str = "CoprocClause"
+    coproc_pos: Position = None
+    name: Optional['Word'] = None
+    stmt: Optional['Node'] = None
+
+
+@dataclass
+class TestDecl(Node):
+    """Bats test: @test "description" { body }."""
+    type: str = "TestDecl"
+    description: Optional['Word'] = None
     body: Optional['Node'] = None
+
+
+@dataclass
+class Comment(Node):
+    """Shell comment: # text."""
+    type: str = "Comment"
+    hash_pos: Position = None
+    text: str = ""
+
+
+@dataclass
+class Assign(Node):
+    """Variable assignment: var=val, arr[i]=val, var+=val."""
+    type: str = "Assign"
+    name: Optional['Lit'] = None
+    index: Optional['Node'] = None
+    value: Optional['Word'] = None
+    array: Optional['Node'] = None
+    append: bool = False
+    naked: bool = False
+
+
+@dataclass
+class CaseItem(Node):
+    """Case statement branch: patterns) stmts;;"""
+    type: str = "CaseItem"
+    op: str = None
+    patterns: List['Word'] = None
+    stmts: List['Node'] = None
+
+
+@dataclass
+class WordIter(Node):
+    """For-loop word iteration: for var in words."""
+    type: str = "WordIter"
+    name: Optional['Lit'] = None
+    items: List['Word'] = None
+
+
+@dataclass
+class CStyleLoop(Node):
+    """C-style for loop: for (init; cond; post)."""
+    type: str = "CStyleLoop"
+    init: Optional['Node'] = None
+    cond: Optional['Node'] = None
+    post: Optional['Node'] = None
+
+
+@dataclass
+class ArrayExpr(Node):
+    """Array expression: ( elem1 elem2 )."""
+    type: str = "ArrayExpr"
+    elems: List['Node'] = None
+
+
+@dataclass
+class ArrayElem(Node):
+    """Array element: index=value or just value."""
+    type: str = "ArrayElem"
+    index: Optional['Node'] = None
+    value: Optional['Word'] = None
 
 
 def redir_from_json(data: dict) -> Redir:
@@ -778,6 +981,25 @@ NODE_TYPES = {
     "ExtGlob": ExtGlob,
     "Block": Block,
     "FuncDecl": FuncDecl,
+    "TestClause": TestClause,
+    "UnaryTest": UnaryTest,
+    "BinaryTest": BinaryTest,
+    "ParenTest": ParenTest,
+    "ArithmCmd": ArithmCmd,
+    "UnaryArithm": UnaryArithm,
+    "ParenArithm": ParenArithm,
+    "FlagsArithm": FlagsArithm,
+    "LetClause": LetClause,
+    "TimeClause": TimeClause,
+    "CoprocClause": CoprocClause,
+    "TestDecl": TestDecl,
+    "Comment": Comment,
+    "Assign": Assign,
+    "CaseItem": CaseItem,
+    "WordIter": WordIter,
+    "CStyleLoop": CStyleLoop,
+    "ArrayExpr": ArrayExpr,
+    "ArrayElem": ArrayElem,
 }
 
 
@@ -1131,6 +1353,172 @@ def node_from_json(data: dict) -> Node:
             parens=data.get("Parens", False),
             name=name_node,
             body=body_node,
+        )
+    elif node_type == "TestClause":
+        return TestClause(
+            type=node_type,
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            left=_parse_position(data.get("Left")),
+            right=_parse_position(data.get("Right")),
+            x=node_from_json(data.get("X")),
+        )
+    elif node_type == "UnaryTest":
+        return UnaryTest(
+            type=node_type,
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            op=data.get("Op", ""),
+            op_pos=_parse_position(data.get("OpPos")),
+            x=node_from_json(data.get("X")),
+        )
+    elif node_type == "BinaryTest":
+        return BinaryTest(
+            type=node_type,
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            op=data.get("Op", ""),
+            op_pos=_parse_position(data.get("OpPos")),
+            x=node_from_json(data.get("X")),
+            y=node_from_json(data.get("Y")),
+        )
+    elif node_type == "ParenTest":
+        return ParenTest(
+            type=node_type,
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            lparen=_parse_position(data.get("Lparen")),
+            rparen=_parse_position(data.get("Rparen")),
+            x=node_from_json(data.get("X")),
+        )
+    elif node_type == "ArithmCmd":
+        return ArithmCmd(
+            type=node_type,
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            left=_parse_position(data.get("Left")),
+            right=_parse_position(data.get("Right")),
+            x=node_from_json(data.get("X")),
+        )
+    elif node_type == "UnaryArithm":
+        return UnaryArithm(
+            type=node_type,
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            op=data.get("Op", ""),
+            op_pos=_parse_position(data.get("OpPos")),
+            post=data.get("Post", False),
+            x=node_from_json(data.get("X")),
+        )
+    elif node_type == "ParenArithm":
+        return ParenArithm(
+            type=node_type,
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            lparen=_parse_position(data.get("Lparen")),
+            rparen=_parse_position(data.get("Rparen")),
+            x=node_from_json(data.get("X")),
+        )
+    elif node_type == "FlagsArithm":
+        return FlagsArithm(
+            type=node_type,
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            flags=Lit(type="Lit", value=data.get("Flags", "")),
+            x=node_from_json(data.get("X")),
+        )
+    elif node_type == "LetClause":
+        return LetClause(
+            type=node_type,
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            let_pos=_parse_position(data.get("Let")),
+            exprs=[node_from_json(e) for e in data.get("Exprs", [])],
+        )
+    elif node_type == "TimeClause":
+        return TimeClause(
+            type=node_type,
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            time_pos=_parse_position(data.get("Time")),
+            posix_format=data.get("PosixFormat", False),
+            stmt=node_from_json(data.get("Stmt")),
+        )
+    elif node_type == "CoprocClause":
+        return CoprocClause(
+            type=node_type,
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            coproc_pos=_parse_position(data.get("Coproc")),
+            name=word_from_json(data.get("Name")),
+            stmt=node_from_json(data.get("Stmt")),
+        )
+    elif node_type == "TestDecl":
+        return TestDecl(
+            type=node_type,
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            description=word_from_json(data.get("Description")),
+            body=node_from_json(data.get("Body")),
+        )
+    elif node_type == "Comment":
+        return Comment(
+            type=node_type,
+            hash_pos=_parse_position(data.get("Hash")),
+            text=data.get("Text", ""),
+        )
+    elif node_type == "Assign":
+        return Assign(
+            type=node_type,
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            name=Lit(type="Lit", value=data.get("Name", "")),
+            index=node_from_json(data.get("Index")),
+            value=word_from_json(data.get("Value")),
+            array=node_from_json(data.get("Array")),
+            append=data.get("Append", False),
+            naked=data.get("Naked", False),
+        )
+    elif node_type == "CaseItem":
+        return CaseItem(
+            type=node_type,
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            op=data.get("Op", ""),
+            patterns=[word_from_json(w) for w in data.get("Patterns", [])],
+            stmts=[stmt_from_json(s) for s in data.get("Stmts", [])],
+        )
+    elif node_type == "WordIter":
+        return WordIter(
+            type=node_type,
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            name=Lit(type="Lit", value=data.get("Name", "")),
+            items=[word_from_json(w) for w in data.get("Items", [])],
+        )
+    elif node_type == "CStyleLoop":
+        return CStyleLoop(
+            type=node_type,
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            init=node_from_json(data.get("Init")),
+            cond=node_from_json(data.get("Cond")),
+            post=node_from_json(data.get("Post")),
+        )
+    elif node_type == "ArrayExpr":
+        return ArrayExpr(
+            type=node_type,
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            elems=[node_from_json(e) for e in data.get("Elems", [])],
+        )
+    elif node_type == "ArrayElem":
+        return ArrayElem(
+            type=node_type,
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            index=node_from_json(data.get("Index")),
+            value=word_from_json(data.get("Value")),
         )
     
     return Node(

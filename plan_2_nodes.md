@@ -542,7 +542,9 @@ class FuncDecl(Node):
 
 **Dependencies**: Step 10 (Block), Step 1 (Lit)
 
-## [ ] Step 12: TestClause (Extended Test)
+## [x] Step 12: TestClause (Extended Test)
+
+Completed: TestClause, UnaryTest, BinaryTest, ParenTest dataclasses implemented in ast.py, registered in NODE_TYPES, parser updated in node_from_json(), and exported in __init__.py.
 
 **Priority**: MEDIUM
 
