@@ -6,19 +6,27 @@ command extraction, argument collection, variable detection, redirection
 analysis, and the AST visitor pattern for custom traversal.
 """
 
+from __future__ import annotations
+
 from collections.abc import Callable
 
 from .ast import (
     AndCmd,
     ArithmCmd,
+    ArithmExp,
+    Assign,
+    BinaryArithm,
     BinaryCmd,
+    BinaryTest,
     Block,
+    BraceExp,
     CallExpr,
     CaseClause,
     CmdSubst,
     CoprocClause,
     DblQuoted,
     DeclClause,
+    ExtGlob,
     File,
     ForClause,
     FuncDecl,
@@ -28,12 +36,17 @@ from .ast import (
     Node,
     OrCmd,
     ParamExp,
+    ParenArithm,
+    ParenTest,
+    ProcSubst,
     Redir,
     SglQuoted,
     Stmt,
     Subshell,
     TestClause,
     TimeClause,
+    UnaryArithm,
+    UnaryTest,
     WhileClause,
     Word,
 )
@@ -83,11 +96,13 @@ def _traverse(
             _traverse(node.word, visitor, recurse_call_expr_args)
     elif isinstance(node, (Lit, SglQuoted)):
         pass  # leaf
+    elif isinstance(node, ParamExp):
+        if node.index:
+            _traverse(node.index, visitor, recurse_call_expr_args)
     elif isinstance(node, DblQuoted):
-        if node.parts:
-            for part in node.parts:
-                _traverse(part, visitor, recurse_call_expr_args)
-    elif isinstance(node, (CmdSubst, Subshell)):
+        for part in node.parts:
+            _traverse(part, visitor, recurse_call_expr_args)
+    elif isinstance(node, (CmdSubst, Subshell, ProcSubst)):
         for stmt in node.stmts:
             _traverse(stmt, visitor, recurse_call_expr_args)
     elif isinstance(node, IfClause):
@@ -142,6 +157,33 @@ def _traverse(
     elif isinstance(node, DeclClause):
         for a in node.args:
             _traverse(a, visitor, recurse_call_expr_args)
+        for a in node.assigns:
+            if a.value:
+                _traverse(a.value, visitor, recurse_call_expr_args)
+    elif isinstance(node, ArithmExp):
+        if node.x:
+            _traverse(node.x, visitor, recurse_call_expr_args)
+    elif isinstance(node, BinaryArithm):
+        if node.left:
+            _traverse(node.left, visitor, recurse_call_expr_args)
+        if node.right:
+            _traverse(node.right, visitor, recurse_call_expr_args)
+    elif isinstance(node, (UnaryArithm, UnaryTest)):
+        if node.x:
+            _traverse(node.x, visitor, recurse_call_expr_args)
+    elif isinstance(node, BinaryTest):
+        if node.left:
+            _traverse(node.left, visitor, recurse_call_expr_args)
+        if node.right:
+            _traverse(node.right, visitor, recurse_call_expr_args)
+    elif isinstance(node, (ParenTest, ParenArithm)):
+        if node.body:
+            _traverse(node.body, visitor, recurse_call_expr_args)
+    elif isinstance(node, ExtGlob):
+        if node.pattern:
+            _traverse(node.pattern, visitor, recurse_call_expr_args)
+    elif isinstance(node, Assign) and node.value:
+        _traverse(node.value, visitor, recurse_call_expr_args)
 
 
 class Visitor:
@@ -174,6 +216,7 @@ class Visitor:
         Word: "visit_word",
         Redir: "visit_redir",
         Lit: "visit_lit",
+        SglQuoted: "visit_sgl_quoted",
         ParamExp: "visit_param_exp",
         DblQuoted: "visit_dbl_quoted",
         Subshell: "visit_subshell",
@@ -191,6 +234,12 @@ class Visitor:
         TimeClause: "visit_time_clause",
         CoprocClause: "visit_coproc_clause",
         DeclClause: "visit_decl_clause",
+        LetClause: "visit_let_clause",
+        ExtGlob: "visit_ext_glob",
+        Assign: "visit_assign",
+        ArithmExp: "visit_arithm_exp",
+        BinaryArithm: "visit_binary_arithm",
+        ProcSubst: "visit_proc_subst",
     }
 
     def visit(self, node: Node) -> None:
@@ -282,6 +331,27 @@ class Visitor:
     def visit_decl_clause(self, node: DeclClause) -> None:
         pass
 
+    def visit_sgl_quoted(self, node: SglQuoted) -> None:
+        pass
+
+    def visit_let_clause(self, node: LetClause) -> None:
+        pass
+
+    def visit_ext_glob(self, node: ExtGlob) -> None:
+        pass
+
+    def visit_assign(self, node: Assign) -> None:
+        pass
+
+    def visit_arithm_exp(self, node: ArithmExp) -> None:
+        pass
+
+    def visit_binary_arithm(self, node: BinaryArithm) -> None:
+        pass
+
+    def visit_proc_subst(self, node: ProcSubst) -> None:
+        pass
+
     def walk(self, node: Node) -> None:
         """Walk the entire AST tree, visiting all nodes recursively."""
         _traverse(node, self.visit, recurse_call_expr_args=True)
@@ -304,6 +374,13 @@ def _word_value(word: Word) -> str:
             parts.append(f"${part.param}")
         elif isinstance(part, CmdSubst):
             parts.append("$(...)")
+        elif isinstance(part, ArithmExp):
+            parts.append("$(( ... ))")
+        elif isinstance(part, ExtGlob):
+            pattern = part.pattern.value if part.pattern else ""
+            parts.append(f"{part.op}{pattern})")
+        elif isinstance(part, BraceExp):
+            parts.append("{...}")
         elif hasattr(part, "value") and part.value is not None:
             parts.append(str(part.value))
     return "".join(parts)
@@ -370,14 +447,10 @@ def get_redirections(tree: Node) -> list[dict]:
     redirs: list[dict] = []
 
     def visitor(node: Node) -> None:
-        if (
-            isinstance(node, Stmt)
-            and node.redirs
-            or isinstance(node, BinaryCmd)
-            and node.redirs
-        ):
+        if isinstance(node, (Stmt, BinaryCmd)) and node.redirs:
             for r in node.redirs:
-                redirs.append({"op": r.op, "target": _word_value(r.word)})
+                if r.word:
+                    redirs.append({"op": r.op, "target": _word_value(r.word)})
 
     _traverse(tree, visitor)
     return redirs
@@ -431,16 +504,12 @@ def get_target_files(tree: Node) -> list[str]:
     targets: list[str] = []
 
     def visitor(node: Node) -> None:
-        if (
-            isinstance(node, Stmt)
-            and node.redirs
-            or isinstance(node, BinaryCmd)
-            and node.redirs
-        ):
+        if isinstance(node, (Stmt, BinaryCmd)) and node.redirs:
             for r in node.redirs:
-                target = _word_value(r.word)
-                if target:
-                    targets.append(target)
+                if r.word:
+                    target = _word_value(r.word)
+                    if target:
+                        targets.append(target)
 
     _traverse(tree, visitor)
     return targets

@@ -12,6 +12,8 @@ Example:
     raw_json = parse('ls -la | grep txt')
 """
 
+from __future__ import annotations
+
 import json
 import os
 import shutil
@@ -20,6 +22,8 @@ import sys
 from pathlib import Path
 
 _VALID_DIALECTS = frozenset({"bash", "posix", "mksh", "bats", "zsh"})
+
+_cached_shfmt_path: str | None = None
 
 
 def parse(command: str, dialect: str = "bash") -> dict:
@@ -47,7 +51,7 @@ def parse(command: str, dialect: str = "bash") -> dict:
     shfmt_path = find_shfmt()
 
     if not command.strip():
-        raise ParseError("Empty command")
+        raise ParseError("Empty command", command=command)
 
     result = subprocess.run(
         [
@@ -84,7 +88,8 @@ def find_shfmt() -> str:
     Searches the following locations in order:
         1. ``$VIRTUAL_ENV/bin/shfmt`` (if the env var is set)
         2. ``shfmt`` next to the running Python interpreter
-        3. ``shfmt`` on the system PATH
+        3. ``sys.prefix/bin/shfmt`` (covers virtualenvs where sys.executable resolves elsewhere)
+        4. ``shfmt`` on the system PATH
 
     Returns:
         str: Absolute path to the shfmt binary.
@@ -92,6 +97,10 @@ def find_shfmt() -> str:
     Raises:
         FileNotFoundError: If shfmt cannot be found.
     """
+    global _cached_shfmt_path
+    if _cached_shfmt_path is not None:
+        return _cached_shfmt_path
+
     candidates: list[Path] = []
 
     # 1. Active virtualenv from environment variable
@@ -107,12 +116,14 @@ def find_shfmt() -> str:
 
     for path in candidates:
         if path.is_file():
-            return str(path)
+            _cached_shfmt_path = str(path)
+            return _cached_shfmt_path
 
-    # 3. Fallback to system PATH
+    # 4. Fallback to system PATH
     system_shfmt = shutil.which("shfmt")
     if system_shfmt:
-        return system_shfmt
+        _cached_shfmt_path = system_shfmt
+        return _cached_shfmt_path
 
     raise FileNotFoundError(
         "shfmt binary not found. Please ensure shfmt-py is installed."

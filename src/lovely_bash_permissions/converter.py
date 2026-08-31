@@ -233,9 +233,7 @@ def _extglob_from_json(data: dict) -> ExtGlob:
 
 
 def _dbl_quoted_from_json(data: dict) -> DblQuoted:
-    parts = (
-        [part_from_json(p) for p in data.get("Parts", [])] if "Parts" in data else None
-    )
+    parts = [part_from_json(p) for p in data.get("Parts", [])]
     value = None
     if parts:
         value = "".join(
@@ -264,7 +262,7 @@ def _parse_stmt_list(raw: list | None) -> list[Stmt]:
         if isinstance(item, dict) and "Cmd" in item:
             result.append(stmt_from_json(item))
         else:
-            _log.debug("Dropped non-statement entry in stmt list: %s", type(item))
+            _log.warning("Dropped non-statement entry in stmt list: %r", item)
     return result
 
 
@@ -389,6 +387,12 @@ def part_from_json(data: dict) -> Node:
     if part_type == "DblQuoted":
         return _dbl_quoted_from_json(data)
 
+    # BraceExp (converter defined later in file, handled here to avoid forward ref)
+    if part_type == "BraceExp":
+        converter_fn = _CONVERTERS.get("BraceExp")
+        if converter_fn is not None:
+            return converter_fn(data)
+
     # Unknown part type — wrap in a generic Node
     pos, end = _parse_pos_end(data)
     return Node(type=part_type, pos=pos, end=end)
@@ -495,7 +499,7 @@ def _convert_call_expr(data: dict) -> CallExpr:
         type="CallExpr",
         pos=pos,
         end=end,
-        args=[word_from_json(a) for a in data.get("Args", [])],
+        args=[w for a in data.get("Args", []) if (w := word_from_json(a)) is not None],
         assigns=assigns,
     )
 
@@ -815,8 +819,11 @@ def _convert_test_decl(data: dict) -> TestDecl:
 
 
 def _convert_comment(data: dict) -> Comment:
+    pos, end = _parse_pos_end(data)
     return Comment(
         type="Comment",
+        pos=pos,
+        end=end,
         hash_pos=_parse_position(data.get("Hash")),
         text=data.get("Text", ""),
     )
@@ -836,11 +843,17 @@ def _convert_case_item(data: dict) -> CaseItem:
 
 def _convert_word_iter(data: dict) -> WordIter:
     pos, end = _parse_pos_end(data)
+    name_data = data.get("Name")
+    name_node = (
+        _lit_from_json(name_data)
+        if isinstance(name_data, dict)
+        else Lit(type="Lit", value=str(name_data) if name_data else "")
+    )
     return WordIter(
         type="WordIter",
         pos=pos,
         end=end,
-        name=Lit(type="Lit", value=data.get("Name", "")),
+        name=name_node,
         items=[word_from_json(w) for w in data.get("Items", [])],
     )
 
@@ -925,8 +938,8 @@ _CONVERTERS: dict[str, Callable[[dict], Node]] = {
     "DblQuoted": _dbl_quoted_from_json,
     "CmdSubst": _cmd_subst_from_json,
     "ProcSubst": _proc_subst_from_json,
-    "Word": lambda data: word_from_json(data),
-    "Stmt": lambda data: stmt_from_json(data),
+    "Word": word_from_json,
+    "Stmt": stmt_from_json,
 }
 
 
@@ -956,7 +969,7 @@ def node_from_json(data: dict | None) -> Node | None:
     return Node(type=node_type, pos=pos, end=end)
 
 
-def parse_ast(command: str) -> Node:
+def parse_ast(command: str) -> File:
     """Parse a bash command string into a typed AST node.
 
     This is the main entry point for parsing bash commands. It invokes
@@ -967,7 +980,7 @@ def parse_ast(command: str) -> Node:
         command: Bash command string to parse
 
     Returns:
-        Node: Root File node of the parsed AST tree
+        File: Root File node of the parsed AST tree
 
     Raises:
         ParseError: If shfmt cannot parse the command
@@ -975,4 +988,7 @@ def parse_ast(command: str) -> Node:
     from .parser import parse
 
     raw = parse(command)
-    return node_from_json(raw)
+    result = node_from_json(raw)
+    if not isinstance(result, File):
+        raise TypeError(f"Expected File node, got {type(result).__name__}")
+    return result

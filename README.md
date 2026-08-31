@@ -16,7 +16,7 @@ Or with pip:
 pip install lovely-bash-permissions
 ```
 
-Requires Python >= 3.14 and the `shfmt-py` binary (installed automatically via uv).
+Requires Python >= 3.10 and the `shfmt-py` binary (installed automatically via uv).
 
 ## Quick Start
 
@@ -35,7 +35,7 @@ print(get_arguments(tree))     # [['-la'], ['txt']]
 
 ### Parser Functions
 
-#### `parse_ast(command)` → `Node`
+#### `parse_ast(command)` → `File`
 
 Parse a bash command string into a typed AST node. This is the main entry point for parsing.
 
@@ -201,14 +201,29 @@ Available visit methods:
 - `visit_word(node)` — Bash words
 - `visit_redir(node)` — File redirections
 - `visit_part(node)` — Word parts (literals, variables, etc.)
+- `visit_lit(node)` — Literal strings
+- `visit_sgl_quoted(node)` — Single-quoted strings
+- `visit_param_exp(node)` — Parameter expansions ($VAR)
+- `visit_dbl_quoted(node)` — Double-quoted strings
+- `visit_ext_glob(node)` — Extended glob patterns
+- `visit_assign(node)` — Variable assignments
 - `visit_node(node)` — Generic/unmapped node types
 - `visit_subshell(node)` — Parenthesized command groups
+- `visit_cmd_subst(node)` — Command substitutions
 - `visit_if_clause(node)` — If/elif/else conditionals
 - `visit_for_clause(node)` — For loops
 - `visit_while_clause(node)` — While loops
 - `visit_and_cmd(node)` — Logical AND (&&)
 - `visit_or_cmd(node)` — Logical OR (||)
 - `visit_case_clause(node)` — Case/switch statements
+- `visit_block(node)` — Block statements
+- `visit_func_decl(node)` — Function declarations
+- `visit_test_clause(node)` — Extended test expressions
+- `visit_arithm_cmd(node)` — Arithmetic commands
+- `visit_time_clause(node)` — Time-prefixed commands
+- `visit_coproc_clause(node)` — Coprocesses
+- `visit_decl_clause(node)` — Declaration builtins
+- `visit_let_clause(node)` — Let statements
 - `walk(node)` — Recursively visit all nodes
 
 ### AST Node Types
@@ -220,9 +235,9 @@ The parser uses dataclasses to represent bash syntax:
 | `File` | Top-level container with `stmts` array |
 | `Stmt` | Single statement with `cmd`, `pos`, `end`, optional `redirs` |
 | `CallExpr` | Command invocation with `args` array |
-| `BinaryCmd` | Pipe operator with `x`, `y` operands and `op` |
+| `BinaryCmd` | Pipe operator with `left`, `right` operands and `op` |
 | `Word` | A word with `parts` array |
-| `Part` | Part of a word (literal, variable, expansion) |
+| `Lit` | Literal string part of a word |
 | `Redir` | Redirection with `op` and `word` |
 | `Position` | Source position with `offset`, `line`, `col` |
 | `Subshell` | Parenthesized command group |
@@ -395,17 +410,10 @@ class VariableFinder(Visitor):
         super().__init__()
         self.variables = []
     
-    def visit_part(self, node):
-        super().visit_part(node)
-        if node.type in ("Var", "ParamExp"):
-            # Extract variable name from part
-            name = None
-            if node.type == "Var":
-                name = node.parts[0].value if node.parts else None
-            elif node.type == "ParamExp":
-                name = node.parts[0].value if node.parts else None
-            if name and name not in self.variables:
-                self.variables.append(name)
+    def visit_param_exp(self, node):
+        super().visit_param_exp(node)
+        if node.param and node.param not in self.variables:
+            self.variables.append(node.param)
 
 tree = parse_ast('echo $HOME $PATH $USER')
 finder = VariableFinder()
