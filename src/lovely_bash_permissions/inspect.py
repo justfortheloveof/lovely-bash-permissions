@@ -21,32 +21,147 @@ from typing import List, Callable, Any, Dict, Optional
 from .ast import Node, CallExpr, BinaryCmd, Word, Part, Lit, SglQuoted, ParamExp, DblQuoted, CmdSubst, Stmt, File, Redir, Subshell, IfClause, ForClause, WhileClause, AndCmd, OrCmd, CaseClause, part_from_json, node_from_json
 
 
+def _traverse(node: Node, visitor: Callable[[Node], None]) -> None:
+    """Shared AST traversal helper.
+
+    Calls ``visitor(node)`` on every node, then recurses into children
+    based on node type.  Visitor functions for leaf types (CallExpr, Redir)
+    extract data; visitor functions for container types are no-ops —
+    recursion is handled uniformly here.
+
+    This replaces the near-duplicate traversal logic previously spread
+    across ``_collect_commands``, ``_find_commands``, ``_collect_arguments``,
+    ``_find_arguments``, ``_collect_redirections``, and ``_collect_target_files``.
+
+    Args:
+        node:  AST node to visit (typically the root File).
+        visitor: Callable invoked on every node; may mutate a captured list.
+    """
+    visitor(node)
+
+    # --- recursion into children (shared across all callers) -----
+    if isinstance(node, File):
+        for stmt in node.stmts:
+            _traverse(stmt, visitor)
+    elif isinstance(node, Stmt):
+        if node.cmd:
+            _traverse(node.cmd, visitor)
+        if node.redirs:
+            for redir in node.redirs:
+                _traverse(redir, visitor)
+    elif isinstance(node, CallExpr):
+        # Do NOT recurse into args — matches original HEAD behavior where
+        # commands inside arguments (e.g. echo $(date)) are NOT extracted,
+        # but commands inside assigns' values (files=$(find ...)) ARE.
+        pass
+    elif isinstance(node, BinaryCmd):
+        if node.x:
+            _traverse(node.x, visitor)
+        if node.y:
+            _traverse(node.y, visitor)
+        if node.redirs:
+            for redir in node.redirs:
+                _traverse(redir, visitor)
+    elif isinstance(node, Word):
+        if node.parts:
+            for part in node.parts:
+                _traverse(part, visitor)
+    elif isinstance(node, Redir):
+        if node.word:
+            _traverse(node.word, visitor)
+    elif isinstance(node, Lit):
+        pass  # leaf — no children
+    elif isinstance(node, Part):
+        if node.parts:
+            for subpart in node.parts:
+                _traverse(subpart, visitor)
+    elif isinstance(node, CmdSubst):
+        # Command substitution ($() or backtick) — recurse into stmts
+        if node.stmts:
+            for stmt in node.stmts:
+                _traverse(stmt, visitor)
+    elif isinstance(node, Subshell):
+        if node.stmts:
+            for stmt in node.stmts:
+                _traverse(stmt, visitor)
+    elif isinstance(node, IfClause):
+        for stmt in node.cond:
+            _traverse(stmt, visitor)
+        for stmt in node.then:
+            _traverse(stmt, visitor)
+        for branch in node.elif_branches:
+            for stmt in branch["cond"]:
+                _traverse(stmt, visitor)
+            for stmt in branch["body"]:
+                _traverse(stmt, visitor)
+        if node.else_branch:
+            for stmt in node.else_branch:
+                _traverse(stmt, visitor)
+    elif isinstance(node, ForClause):
+        if node.var:
+            _traverse(node.var, visitor)
+        if node.words:
+            for word in node.words:
+                _traverse(word, visitor)
+        if node.body:
+            for stmt in node.body:
+                _traverse(stmt, visitor)
+    elif isinstance(node, WhileClause):
+        if node.cond:
+            for stmt in node.cond:
+                _traverse(stmt, visitor)
+        if node.body:
+            for stmt in node.body:
+                _traverse(stmt, visitor)
+    elif isinstance(node, AndCmd):
+        if node.x:
+            _traverse(node.x, visitor)
+        if node.y:
+            _traverse(node.y, visitor)
+    elif isinstance(node, OrCmd):
+        if node.x:
+            _traverse(node.x, visitor)
+        if node.y:
+            _traverse(node.y, visitor)
+    elif isinstance(node, CaseClause):
+        if node.expr:
+            _traverse(node.expr, visitor)
+        for branch in node.branches:
+            for pattern in branch["patterns"]:
+                _traverse(pattern, visitor)
+            for stmt in branch["body"]:
+                _traverse(stmt, visitor)
+        if node.default:
+            for stmt in node.default:
+                _traverse(stmt, visitor)
+
+
 class Visitor:
     """
     AST node visitor pattern for traversing bash AST trees.
-    
+
     Subclass Visitor and override specific visit methods to process
     particular node types. The visit() method dispatches each node
     to the appropriate handler based on its type.
-    
+
     Use walk() to traverse the entire tree, calling visit() on each
     node and recursively visiting all child nodes.
-    
+
     Example:
         class CommandCollector(Visitor):
             def __init__(self):
                 super().__init__()
                 self.commands = []
-            
+
             def visit_call_expr(self, node):
                 super().visit_call_expr(node)
                 cmd_name = _word_value(node.args[0])
                 self.commands.append(cmd_name)
-        
+
         collector = CommandCollector()
         collector.walk(tree)
         print(collector.commands)
-    
+
     Visitor methods:
         visit(node) - Dispatch to type-specific handler
         visit_file(node) - Handle File nodes
@@ -130,10 +245,10 @@ class Visitor:
 
     def visit_lit(self, node: Lit) -> None:
         """Visit a Lit node. Override to process literal values.
-        
+
         Lit nodes are simple literal parts of a Word. They inherit from
         Node (not Part) and represent unquoted literal strings.
-        
+
         By default, Lit nodes are forwarded to visit_part() for
         compatibility with existing visitor code that treats all word
         parts uniformly. Override visit_part() to handle both Part
@@ -180,11 +295,11 @@ class Visitor:
     def walk(self, node: Node):
         """
         Walk the entire AST tree, visiting all nodes recursively.
-        
+
         Visits each node by dispatching to the appropriate visit method,
         then recursively visits all child nodes based on the node type.
         This ensures the complete tree is traversed.
-        
+
         Args:
             node: Starting node (typically the root File node)
         """
@@ -291,204 +406,93 @@ class Visitor:
 def get_commands(tree: Node) -> List[str]:
     """
     Extract all command names from the AST.
-    
+
     Traverses the entire tree and collects the names of all commands
     that would be executed, including commands within pipes, subshells,
     conditionals, and loops.
-    
+
     Args:
         tree: The AST tree (typically root File node)
-    
+
     Returns:
         List[str]: Names of all commands in execution order
-    
+
     Example:
         tree = parse_ast('cat file.txt | grep pattern | sort -u')
         get_commands(tree)  # ['cat', 'grep', 'sort']
     """
-    commands = []
-    _collect_commands(tree, commands)
+    commands: List[str] = []
+
+    def visitor(node):
+        if isinstance(node, CallExpr):
+            # First arg is the command name
+            if node.args:
+                cmd_name = _word_value(node.args[0])
+                if cmd_name:
+                    commands.append(cmd_name)
+            # Handle Assigns (variable assignments) — recurse into their parts,
+            # which may contain CmdSubst with nested commands.
+            if node.extra and "assigns" in node.extra:
+                for assign in node.extra["assigns"]:
+                    val = assign.value if hasattr(assign, 'value') else None
+                    if val is None:
+                        continue
+                    for p in getattr(val, 'parts', []):
+                        _traverse(p, visitor)
+            # Legacy: CallExpr with assigns via direct attribute
+            if hasattr(node, 'assigns') and node.assigns:
+                for assign in node.assigns:
+                    if hasattr(assign, 'value') and assign.value:
+                        for part in assign.value:
+                            _traverse(part, visitor)
+
+    _traverse(tree, visitor)
     return commands
 
 
 def find_commands(tree: Node) -> List[CallExpr]:
     """
     Find all CallExpr nodes (commands) in the AST.
-    
+
     Unlike get_commands(), this returns the full CallExpr node objects
     rather than just command names. Use this when you need to inspect
     command arguments or node positions.
-    
+
     Args:
         tree: The AST tree (typically root File node)
-    
+
     Returns:
         List[CallExpr]: All command invocation nodes
-    
+
     Example:
         tree = parse_ast('ls -la | grep txt')
         commands = find_commands(tree)
         print(len(commands))           # 2
         print(commands[0].args[0])     # Word for 'ls'
     """
-    commands = []
-    _find_commands(tree, commands)
+    commands: List[CallExpr] = []
+
+    def visitor(node):
+        if isinstance(node, CallExpr):
+            commands.append(node)
+            # Handle Assigns (variable assignments) — recurse into their parts.
+            if node.extra and "assigns" in node.extra:
+                for assign in node.extra["assigns"]:
+                    val = assign.get("value", assign.get("Value", {}))
+                    for p in val.get("parts", val.get("Parts", [])):
+                        if isinstance(p, dict):
+                            _traverse(part_from_json(p), visitor)
+                        else:
+                            _traverse(p, visitor)
+            # Legacy: CallExpr with assigns via direct attribute
+            if hasattr(node, 'assigns') and node.assigns:
+                for assign in node.assigns:
+                    if hasattr(assign, 'value') and assign.value:
+                        for part in assign.value:
+                            _traverse(part, visitor)
+
+    _traverse(tree, visitor)
     return commands
-
-
-def _find_commands(node: Node, commands: List[CallExpr]):
-    """Recursively find CallExpr nodes."""
-    if isinstance(node, CallExpr):
-        commands.append(node)
-        # Handle Assigns (variable assignments)
-        if node.extra and "assigns" in node.extra:
-            for assign in node.extra["assigns"]:
-                val = assign.get("value", assign.get("Value", {}))
-                parts = val.get("parts", val.get("Parts", []))
-                for p in parts:
-                    if isinstance(p, dict):
-                        _find_commands(part_from_json(p), commands)
-                    else:
-                        _find_commands(p, commands)
-    elif isinstance(node, Lit):
-        pass
-    elif isinstance(node, CmdSubst):
-        # Descend into command substitution stmts
-        for stmt in node.stmts:
-            _find_commands(stmt.cmd, commands)
-    elif isinstance(node, Part):
-        # Recurse into nested parts
-        if node.parts:
-            for p in node.parts:
-                _find_commands(p, commands)
-    elif hasattr(node, 'assigns') and node.assigns:
-        # Handle CallExpr with Assigns
-        for assign in node.assigns:
-            if hasattr(assign, 'value') and assign.value:
-                for part in assign.value:
-                    _find_commands(part, commands)
-    elif isinstance(node, BinaryCmd):
-        _find_commands(node.x, commands)
-        _find_commands(node.y, commands)
-    elif isinstance(node, File):
-        for stmt in node.stmts:
-            _find_commands(stmt.cmd, commands)
-    elif isinstance(node, Stmt):
-        _find_commands(node.cmd, commands)
-    elif isinstance(node, Subshell):
-        for stmt in node.stmts:
-            _find_commands(stmt.cmd, commands)
-    elif isinstance(node, IfClause):
-        for stmt in node.cond:
-            _find_commands(stmt.cmd, commands)
-        for stmt in node.then:
-            _find_commands(stmt.cmd, commands)
-        for branch in node.elif_branches:
-            for stmt in branch["cond"]:
-                _find_commands(stmt.cmd, commands)
-            for stmt in branch["body"]:
-                _find_commands(stmt.cmd, commands)
-        for stmt in node.else_branch:
-            _find_commands(stmt.cmd, commands)
-    elif isinstance(node, ForClause):
-        for stmt in node.body:
-            _find_commands(stmt.cmd, commands)
-    elif isinstance(node, WhileClause):
-        for stmt in node.cond:
-            _find_commands(stmt.cmd, commands)
-        for stmt in node.body:
-            _find_commands(stmt.cmd, commands)
-    elif isinstance(node, AndCmd):
-        _find_commands(node.x, commands)
-        _find_commands(node.y, commands)
-    elif isinstance(node, OrCmd):
-        _find_commands(node.x, commands)
-        _find_commands(node.y, commands)
-    elif isinstance(node, CaseClause):
-        for branch in node.branches:
-            for stmt in branch["body"]:
-                _find_commands(stmt.cmd, commands)
-        for stmt in node.default:
-            _find_commands(stmt.cmd, commands)
-
-
-def _collect_commands(node: Node, commands: List[str]):
-    """Recursively collect command names."""
-    if isinstance(node, CallExpr):
-        # First arg is the command name
-        if node.args:
-            cmd_name = _word_value(node.args[0])
-            if cmd_name:
-                commands.append(cmd_name)
-        # Handle Assigns (variable assignments)
-        if node.extra and "assigns" in node.extra:
-            for assign in node.extra["assigns"]:
-                val = assign.value if hasattr(assign, 'value') else None
-                if val is None:
-                    continue
-                parts = getattr(val, 'parts', [])
-                for p in parts:
-                    _collect_commands(p, commands)
-    elif isinstance(node, Lit):
-        pass
-    elif isinstance(node, CmdSubst):
-        # Descend into command substitution to find nested commands
-        for stmt in node.stmts:
-            _collect_commands(stmt.cmd, commands)
-    elif isinstance(node, Part):
-        # Recurse into nested parts (CmdSubst can be nested)
-        if node.parts:
-            for p in node.parts:
-                _collect_commands(p, commands)
-    elif hasattr(node, 'assigns') and node.assigns:
-        # Handle CallExpr with Assigns (variable assignments)
-        for assign in node.assigns:
-            if hasattr(assign, 'value') and assign.value:
-                for part in assign.value:
-                    _collect_commands(part, commands)
-    elif isinstance(node, BinaryCmd):
-        _collect_commands(node.x, commands)
-        _collect_commands(node.y, commands)
-    elif isinstance(node, File):
-        for stmt in node.stmts:
-            _collect_commands(stmt.cmd, commands)
-    elif isinstance(node, Stmt):
-        _collect_commands(node.cmd, commands)
-    elif isinstance(node, Subshell):
-        for stmt in node.stmts:
-            _collect_commands(stmt.cmd, commands)
-    elif isinstance(node, IfClause):
-        for stmt in node.cond:
-            _collect_commands(stmt.cmd, commands)
-        for stmt in node.then:
-            _collect_commands(stmt.cmd, commands)
-        for branch in node.elif_branches:
-            for stmt in branch["cond"]:
-                _collect_commands(stmt.cmd, commands)
-            for stmt in branch["body"]:
-                _collect_commands(stmt.cmd, commands)
-        for stmt in node.else_branch:
-            _collect_commands(stmt.cmd, commands)
-    elif isinstance(node, ForClause):
-        for stmt in node.body:
-            _collect_commands(stmt.cmd, commands)
-    elif isinstance(node, WhileClause):
-        for stmt in node.cond:
-            _collect_commands(stmt.cmd, commands)
-        for stmt in node.body:
-            _collect_commands(stmt.cmd, commands)
-    elif isinstance(node, AndCmd):
-        _collect_commands(node.x, commands)
-        _collect_commands(node.y, commands)
-    elif isinstance(node, OrCmd):
-        _collect_commands(node.x, commands)
-        _collect_commands(node.y, commands)
-    elif isinstance(node, CaseClause):
-        for branch in node.branches:
-            for stmt in branch["body"]:
-                _collect_commands(stmt.cmd, commands)
-        for stmt in node.default:
-            _collect_commands(stmt.cmd, commands)
 
 
 def _word_value(word: Word) -> str:
@@ -503,17 +507,17 @@ def _word_value(word: Word) -> str:
 def has_variable(tree: Node) -> bool:
     """
     Check if the command contains any variable references.
-    
+
     Detects variable references ($VAR), parameter expansions (${VAR}),
     and command substitutions ($() or backticks). Also handles variables
     within quoted strings and nested expressions.
-    
+
     Args:
         tree: The AST tree (typically root File node)
-    
+
     Returns:
         bool: True if any variables are referenced in the command
-    
+
     Example:
         has_variable(parse_ast('ls -la'))      # False
         has_variable(parse_ast('echo $HOME'))  # True
@@ -525,12 +529,10 @@ def has_variable(tree: Node) -> bool:
 def _has_variable_recursive(node: Node) -> bool:
     """Recursively check for variables."""
     if isinstance(node, Lit):
-        # Lit nodes are plain literals, no variables
         return False
     elif isinstance(node, Part):
         if node.type in ("Var", "ParamExp", "CmdSubst"):
             return True
-        # Recurse into DblQuoted parts
         if node.type == "DblQuoted" and node.parts:
             return any(_has_variable_recursive(p) for p in node.parts)
         return False
@@ -541,17 +543,14 @@ def _has_variable_recursive(node: Node) -> bool:
     elif isinstance(node, CallExpr):
         return any(_has_variable_recursive(a) for a in node.args)
     elif node.type == "DeclClause":
-        # Handle export/declare/readonly commands
         if hasattr(node, 'args') and node.args:
             for a in node.args:
-                # Args are objects with 'name' and 'value' fields
                 if isinstance(a, dict):
                     if 'value' in a and _has_variable_recursive(a['value']):
                         return True
                 elif isinstance(a, (Word, Part)):
                     if _has_variable_recursive(a):
                         return True
-                # Otherwise ignore
     elif isinstance(node, BinaryCmd):
         return _has_variable_recursive(node.x) or _has_variable_recursive(node.y)
     elif isinstance(node, File):
@@ -597,7 +596,6 @@ def _has_variable_recursive(node: Node) -> bool:
                     return True
         return any(_has_variable_recursive(s.cmd) for s in node.default)
     elif isinstance(node, Node):
-        # Handle other node types with args
         if hasattr(node, 'args') and node.args:
             return any(_has_variable_recursive(a) for a in node.args)
     return False
@@ -606,260 +604,107 @@ def _has_variable_recursive(node: Node) -> bool:
 def get_redirections(tree: Node) -> List[dict]:
     """
     Extract file redirections from the AST.
-    
+
     Finds all redirection operations in the tree and returns them as
     dictionaries containing the redirection operator and target file.
-    
+
     Args:
         tree: The AST tree (typically root File node)
-    
+
     Returns:
         List[dict]: Each dict has 'op' (operator string like ">", ">>", "<")
             and 'target' (the file path as a string)
-    
+
     Example:
         tree = parse_ast('cat file.txt > output.txt')
         redirs = get_redirections(tree)
         print(redirs[0]['op'])      # '>'
         print(redirs[0]['target'])  # 'output.txt'
     """
-    redirs = []
-    _collect_redirections(tree, redirs)
+    redirs: List[dict] = []
+
+    def visitor(node):
+        if isinstance(node, Stmt) and node.redirs:
+            for r in node.redirs:
+                redirs.append({'op': r.op, 'target': _word_value(r.word)})
+        elif isinstance(node, BinaryCmd) and node.redirs:
+            for r in node.redirs:
+                redirs.append({'op': r.op, 'target': _word_value(r.word)})
+
+    _traverse(tree, visitor)
     return redirs
-
-
-def _collect_redirections(node: Node, redirs: List[dict]):
-    """Recursively collect redirections."""
-    # File has stmts
-    if isinstance(node, File):
-        for stmt in node.stmts:
-            _collect_redirections(stmt, redirs)
-    # Stmt has redirs directly
-    elif isinstance(node, Stmt):
-        if node.redirs:
-            for r in node.redirs:
-                redirs.append({
-                    'op': r.op,
-                    'target': _word_value(r.word)
-                })
-        _collect_redirections(node.cmd, redirs)
-    # BinaryCmd: X and Y may have redirs on their inner nodes
-    elif isinstance(node, BinaryCmd):
-        _collect_redirections(node.x, redirs)
-        _collect_redirections(node.y, redirs)
-        # Redirections on the pipe itself
-        if node.redirs:
-            for r in node.redirs:
-                redirs.append({
-                    'op': r.op,
-                    'target': _word_value(r.word)
-                })
-    # Recurse into other nodes
-    elif isinstance(node, CallExpr):
-        pass
-    elif isinstance(node, Subshell):
-        for stmt in node.stmts:
-            _collect_redirections(stmt, redirs)
-    elif isinstance(node, IfClause):
-        for stmt in node.cond:
-            _collect_redirections(stmt, redirs)
-        for stmt in node.then:
-            _collect_redirections(stmt, redirs)
-        for branch in node.elif_branches:
-            for stmt in branch["cond"]:
-                _collect_redirections(stmt, redirs)
-            for stmt in branch["body"]:
-                _collect_redirections(stmt, redirs)
-        for stmt in node.else_branch:
-            _collect_redirections(stmt, redirs)
-    elif isinstance(node, ForClause):
-        for stmt in node.body:
-            _collect_redirections(stmt, redirs)
-    elif isinstance(node, WhileClause):
-        for stmt in node.cond:
-            _collect_redirections(stmt, redirs)
-        for stmt in node.body:
-            _collect_redirections(stmt, redirs)
-    elif isinstance(node, AndCmd):
-        _collect_redirections(node.x, redirs)
-        _collect_redirections(node.y, redirs)
-    elif isinstance(node, OrCmd):
-        _collect_redirections(node.x, redirs)
-        _collect_redirections(node.y, redirs)
-    elif isinstance(node, CaseClause):
-        for branch in node.branches:
-            for stmt in branch["body"]:
-                _collect_redirections(stmt, redirs)
-        for stmt in node.default:
-            _collect_redirections(stmt, redirs)
-    elif isinstance(node, Node):
-        pass
 
 
 def get_arguments(tree: Node) -> List[List[str]]:
     """
     Extract command arguments for each call expression.
-    
+
     For each command in the AST, returns its arguments (excluding the
     command name itself). The result is a list of argument lists, in
     the same order as the commands appear in the tree.
-    
+
     Args:
         tree: The AST tree (typically root File node)
-    
+
     Returns:
         List[List[str]]: Outer list has one entry per command; inner lists
             contain the argument strings for that command
-    
+
     Example:
         tree = parse_ast('cp file1.txt file2.txt')
         get_arguments(tree)  # [['file1.txt', 'file2.txt']]
-        
+
         tree2 = parse_ast('ls -la | grep -i txt')
         get_arguments(tree2)  # [['-la'], ['-i', 'txt']]
     """
-    args_list = []
-    _collect_arguments(tree, args_list)
+    args_list: List[List[str]] = []
+
+    def visitor(node):
+        if isinstance(node, CallExpr) and node.args:
+            args_list.append([_word_value(arg) for arg in node.args[1:]])
+
+    _traverse(tree, visitor)
     return args_list
-
-
-def _collect_arguments(node: Node, args_list: List[List[str]]):
-    """Recursively collect command arguments."""
-    if isinstance(node, CallExpr):
-        # Skip command name (first arg), collect the rest
-        args = []
-        for arg in node.args[1:]:
-            args.append(_word_value(arg))
-        args_list.append(args)
-    elif isinstance(node, BinaryCmd):
-        _collect_arguments(node.x, args_list)
-        _collect_arguments(node.y, args_list)
-    elif isinstance(node, File):
-        for stmt in node.stmts:
-            _collect_arguments(stmt.cmd, args_list)
-    elif isinstance(node, Stmt):
-        _collect_arguments(node.cmd, args_list)
-    elif isinstance(node, Subshell):
-        for stmt in node.stmts:
-            _collect_arguments(stmt.cmd, args_list)
-    elif isinstance(node, IfClause):
-        for stmt in node.cond:
-            _collect_arguments(stmt.cmd, args_list)
-        for stmt in node.then:
-            _collect_arguments(stmt.cmd, args_list)
-        for branch in node.elif_branches:
-            for stmt in branch["cond"]:
-                _collect_arguments(stmt.cmd, args_list)
-            for stmt in branch["body"]:
-                _collect_arguments(stmt.cmd, args_list)
-        for stmt in node.else_branch:
-            _collect_arguments(stmt.cmd, args_list)
-    elif isinstance(node, ForClause):
-        for stmt in node.body:
-            _collect_arguments(stmt.cmd, args_list)
-    elif isinstance(node, WhileClause):
-        for stmt in node.cond:
-            _collect_arguments(stmt.cmd, args_list)
-        for stmt in node.body:
-            _collect_arguments(stmt.cmd, args_list)
-    elif isinstance(node, AndCmd):
-        _collect_arguments(node.x, args_list)
-        _collect_arguments(node.y, args_list)
-    elif isinstance(node, OrCmd):
-        _collect_arguments(node.x, args_list)
-        _collect_arguments(node.y, args_list)
-    elif isinstance(node, CaseClause):
-        for branch in node.branches:
-            for stmt in branch["body"]:
-                _collect_arguments(stmt.cmd, args_list)
-        for stmt in node.default:
-            _collect_arguments(stmt.cmd, args_list)
 
 
 def find_arguments(tree: Node) -> List[List[Word]]:
     """
     Find all argument lists (excluding command names) for each call.
-    
+
     Unlike get_arguments(), this returns the full Word node objects
     rather than just the argument strings. Use this when you need
     access to word parts or node positions.
-    
+
     Args:
         tree: The AST tree (typically root File node)
-    
+
     Returns:
         List[List[Word]]: Outer list has one entry per command; inner lists
             contain Word objects for each argument
     """
-    args_list = []
-    _find_arguments(tree, args_list)
-    return args_list
+    args_list: List[List[Word]] = []
 
-
-def _find_arguments(node: Node, args_list: List[List[Word]]):
-    """Recursively find argument lists."""
-    if isinstance(node, CallExpr):
-        # Skip command name (first arg), collect the rest
-        if node.args:
+    def visitor(node):
+        if isinstance(node, CallExpr) and node.args:
             args_list.append(node.args[1:])
-    elif isinstance(node, BinaryCmd):
-        _find_arguments(node.x, args_list)
-        _find_arguments(node.y, args_list)
-    elif isinstance(node, File):
-        for stmt in node.stmts:
-            _find_arguments(stmt.cmd, args_list)
-    elif isinstance(node, Stmt):
-        _find_arguments(node.cmd, args_list)
-    elif isinstance(node, Subshell):
-        for stmt in node.stmts:
-            _find_arguments(stmt.cmd, args_list)
-    elif isinstance(node, IfClause):
-        for stmt in node.cond:
-            _find_arguments(stmt.cmd, args_list)
-        for stmt in node.then:
-            _find_arguments(stmt.cmd, args_list)
-        for branch in node.elif_branches:
-            for stmt in branch["cond"]:
-                _find_arguments(stmt.cmd, args_list)
-            for stmt in branch["body"]:
-                _find_arguments(stmt.cmd, args_list)
-        for stmt in node.else_branch:
-            _find_arguments(stmt.cmd, args_list)
-    elif isinstance(node, ForClause):
-        for stmt in node.body:
-            _find_arguments(stmt.cmd, args_list)
-    elif isinstance(node, WhileClause):
-        for stmt in node.cond:
-            _find_arguments(stmt.cmd, args_list)
-        for stmt in node.body:
-            _find_arguments(stmt.cmd, args_list)
-    elif isinstance(node, AndCmd):
-        _find_arguments(node.x, args_list)
-        _find_arguments(node.y, args_list)
-    elif isinstance(node, OrCmd):
-        _find_arguments(node.x, args_list)
-        _find_arguments(node.y, args_list)
-    elif isinstance(node, CaseClause):
-        for branch in node.branches:
-            for stmt in branch["body"]:
-                _find_arguments(stmt.cmd, args_list)
-        for stmt in node.default:
-            _find_arguments(stmt.cmd, args_list)
+
+    _traverse(tree, visitor)
+    return args_list
 
 
 def has_pipe(tree: Node) -> bool:
     """
     Check if the command contains any pipes.
-    
+
     Traverses the tree looking for BinaryCmd nodes with pipe operators,
     including pipes nested within subshells, conditionals, and loops.
-    
+
     Args:
         tree: The AST tree (typically root File node)
-    
+
     Returns:
         bool: True if any pipe operators are present
-    
+
     Example:
         has_pipe(parse_ast('ls -la'))          # False
         has_pipe(parse_ast('ls | grep txt'))   # True
@@ -912,90 +757,34 @@ def _has_pipe_recursive(node: Node) -> bool:
 def get_target_files(tree: Node) -> List[str]:
     """
     Extract file targets from redirections.
-    
+
     Finds all redirections in the tree and returns only the target
     file paths. Useful for identifying which files will be modified
     or read by the command.
-    
+
     Args:
         tree: The AST tree (typically root File node)
-    
+
     Returns:
         List[str]: Names of all files targeted by redirections
-    
+
     Example:
         tree = parse_ast('cat file.txt > output.txt')
         get_target_files(tree)  # ['output.txt']
     """
-    targets = []
-    _collect_target_files(tree, targets)
+    targets: List[str] = []
+
+    def visitor(node):
+        if isinstance(node, Stmt) and node.redirs:
+            for r in node.redirs:
+                target = _word_value(r.word)
+                if target:
+                    targets.append(target)
+        elif isinstance(node, BinaryCmd) and node.redirs:
+            for r in node.redirs:
+                target = _word_value(r.word)
+                if target:
+                    targets.append(target)
+
+    _traverse(tree, visitor)
     return targets
-
-
-def _collect_target_files(node: Node, targets: List[str]):
-    """Recursively collect file targets from redirections."""
-    # File has stmts
-    if isinstance(node, File):
-        for stmt in node.stmts:
-            _collect_target_files(stmt, targets)
-    # Stmt has redirs directly
-    elif isinstance(node, Stmt):
-        if node.redirs:
-            for r in node.redirs:
-                target = _word_value(r.word)
-                if target:
-                    targets.append(target)
-        _collect_target_files(node.cmd, targets)
-    # BinaryCmd: X and Y may have redirs on their inner nodes
-    elif isinstance(node, BinaryCmd):
-        _collect_target_files(node.x, targets)
-        _collect_target_files(node.y, targets)
-        # Redirections on the pipe itself
-        if node.redirs:
-            for r in node.redirs:
-                target = _word_value(r.word)
-                if target:
-                    targets.append(target)
-    # Subshell
-    elif isinstance(node, Subshell):
-        for stmt in node.stmts:
-            _collect_target_files(stmt, targets)
-    # IfClause
-    elif isinstance(node, IfClause):
-        for stmt in node.cond:
-            _collect_target_files(stmt, targets)
-        for stmt in node.then:
-            _collect_target_files(stmt, targets)
-        for branch in node.elif_branches:
-            for stmt in branch["cond"]:
-                _collect_target_files(stmt, targets)
-            for stmt in branch["body"]:
-                _collect_target_files(stmt, targets)
-        for stmt in node.else_branch:
-            _collect_target_files(stmt, targets)
-    # ForClause
-    elif isinstance(node, ForClause):
-        for stmt in node.body:
-            _collect_target_files(stmt, targets)
-    # WhileClause
-    elif isinstance(node, WhileClause):
-        for stmt in node.cond:
-            _collect_target_files(stmt, targets)
-        for stmt in node.body:
-            _collect_target_files(stmt, targets)
-    # AndCmd
-    elif isinstance(node, AndCmd):
-        _collect_target_files(node.x, targets)
-        _collect_target_files(node.y, targets)
-    # OrCmd
-    elif isinstance(node, OrCmd):
-        _collect_target_files(node.x, targets)
-        _collect_target_files(node.y, targets)
-    # CaseClause
-    elif isinstance(node, CaseClause):
-        for branch in node.branches:
-            for stmt in branch["body"]:
-                _collect_target_files(stmt, targets)
-        for stmt in node.default:
-            _collect_target_files(stmt, targets)
-    # CallExpr: check for args that might be files? No, stick to redirections only
