@@ -5,7 +5,7 @@ Comprehensive tests for the lovely-bash-permissions parser.
 import pytest
 from lovely_bash_permissions import (
     parse_ast, get_commands, get_arguments, has_variable, get_redirections,
-    Lit, SglQuoted, ParamExp, DblQuoted, CmdSubst
+    Lit, SglQuoted, ParamExp, DblQuoted, CmdSubst, ArithmExp, BinaryArithm
 )
 
 
@@ -754,3 +754,106 @@ class TestCmdSubstNodes:
         """Verify that CmdSubst is imported in the lovely_bash_permissions module."""
         from lovely_bash_permissions import CmdSubst
         assert CmdSubst is not None
+
+
+class TestArithmExpNodes:
+    """Tests for the ArithmExp node type (Step 6 of node coverage)."""
+
+    def test_simple_arithmetic_expression(self):
+        """Parse echo $((2 + 2)) and verify ArithmExp with BinaryArithm."""
+        tree = parse_ast('echo $((2 + 2))')
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'CallExpr'
+        assert len(cmd.args) == 2
+        assert cmd.args[1].parts[0].type == 'ArithmExp'
+        assert isinstance(cmd.args[1].parts[0], ArithmExp)
+        inner = cmd.args[1].parts[0].x
+        assert inner.type == 'BinaryArithm'
+        assert inner.op == '+'
+        assert inner.x.parts[0].type == 'Lit'
+        assert inner.x.parts[0].value == '2'
+        assert inner.y.parts[0].type == 'Lit'
+        assert inner.y.parts[0].value == '2'
+
+    def test_arithmetic_with_variables(self):
+        """Parse echo $((x + y)) and verify ArithmExp with variables."""
+        tree = parse_ast('echo $((x + y))')
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].type == 'ArithmExp'
+        inner = cmd.args[1].parts[0].x
+        assert inner.type == 'BinaryArithm'
+        assert inner.op == '+'
+        assert inner.x.parts[0].type == 'Lit'
+        assert inner.x.parts[0].value == 'x'
+        assert inner.y.parts[0].type == 'Lit'
+        assert inner.y.parts[0].value == 'y'
+
+    def test_single_value_arithmetic(self):
+        """Parse echo $((50)) and verify ArithmExp with just a value."""
+        tree = parse_ast('echo $((50))')
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].type == 'ArithmExp'
+        inner = cmd.args[1].parts[0].x
+        assert inner.type == 'Word'
+        assert inner.parts[0].type == 'Lit'
+        assert inner.parts[0].value == '50'
+
+    def test_arithmetic_in_double_quotes(self):
+        """Parse echo \"$((5))\" and verify ArithmExp inside DblQuoted."""
+        tree = parse_ast('echo "$((5))"')
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].type == 'DblQuoted'
+        dq = cmd.args[1].parts[0]
+        assert dq.parts[0].type == 'ArithmExp'
+        inner = dq.parts[0].x
+        assert inner.type == 'Word'
+        assert inner.parts[0].type == 'Lit'
+        assert inner.parts[0].value == '5'
+
+    def test_complex_arithmetic_expression(self):
+        """Parse echo $((2 * 3 + 4)) and verify nested BinaryArithm."""
+        tree = parse_ast('echo $((2 * 3 + 4))')
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].type == 'ArithmExp'
+        inner = cmd.args[1].parts[0].x
+        assert inner.type == 'BinaryArithm'
+        assert inner.op == '+'
+        # Left side should be multiplication
+        assert inner.x.type == 'BinaryArithm'
+        assert inner.x.op == '*'
+        assert inner.x.x.parts[0].value == '2'
+        assert inner.x.y.parts[0].value == '3'
+        # Right side should be the number 4
+        assert inner.y.parts[0].value == '4'
+
+    def test_arithmetic_position_info(self):
+        """Verify that ArithmExp nodes have position information."""
+        tree = parse_ast('echo $((2 + 2))')
+        cmd = tree.stmts[0].cmd
+        part = cmd.args[1].parts[0]
+        assert part.type == 'ArithmExp'
+        assert part.pos is not None
+        assert part.end is not None
+        assert isinstance(part.pos.offset, int)
+        assert isinstance(part.end.offset, int)
+
+    def test_binaryarithm_position_info(self):
+        """Verify that BinaryArithm nodes have position information."""
+        tree = parse_ast('echo $((2 + 2))')
+        cmd = tree.stmts[0].cmd
+        inner = cmd.args[1].parts[0].x
+        assert inner.type == 'BinaryArithm'
+        assert inner.pos is not None
+        assert inner.end is not None
+        assert inner.op_pos is not None
+        assert isinstance(inner.pos.offset, int)
+
+    def test_arithmexp_imported_in_module(self):
+        """Verify that ArithmExp is imported in the lovely_bash_permissions module."""
+        from lovely_bash_permissions import ArithmExp
+        assert ArithmExp is not None
+
+    def test_binaryarithm_imported_in_module(self):
+        """Verify that BinaryArithm is imported in the lovely_bash_permissions module."""
+        from lovely_bash_permissions import BinaryArithm
+        assert BinaryArithm is not None

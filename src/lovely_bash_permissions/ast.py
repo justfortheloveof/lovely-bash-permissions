@@ -233,6 +233,70 @@ class CmdSubst(Node):
 
 
 @dataclass
+class ArithmExp(Node):
+    """An arithmetic expansion.
+
+    Represents bash arithmetic expansion using $((...)). The inner expression
+    is evaluated arithmetically and the result is substituted into the command.
+
+    Examples:
+        echo $((2 + 2))        -> Simple arithmetic operation
+        echo $((x * y))        -> Variable arithmetic
+        echo $((x + y))        -> Addition with variables
+    
+    shfmt's JSON representation for ArithmExp includes:
+        - Type: "ArithmExp"
+        - Pos/End: Position of the entire expansion
+        - Left/Right: Position of opening/closing delimiter characters
+        - X: The inner arithmetic expression (BinaryArithm, Word, etc.)
+    
+    Attributes:
+        type: Always "ArithmExp"
+        pos: Starting source position of the entire expansion
+        end: Ending source position of the entire expansion
+        x: The inner arithmetic expression (Node with type "BinaryArithm", "Word", etc.)
+    """
+    type: str = "ArithmExp"
+    x: Optional['Node'] = None
+
+
+@dataclass
+class BinaryArithm(Node):
+    """A binary arithmetic operation.
+
+    Represents a binary arithmetic operation within an arithmetic expression.
+    These appear as the inner expression of ArithmExp nodes.
+
+    Examples:
+        $((2 + 2))      -> Op="+", X=Word("2"), Y=Word("2")
+        $((x * y))      -> Op="*", X=Word("x"), Y=Word("y")
+        $((x = x + 1))  -> Nested: Op="=", Y contains another BinaryArithm
+    
+    shfmt's JSON representation for BinaryArithm includes:
+        - Type: "BinaryArithm"
+        - Pos/End: Position of the operation
+        - OpPos: Position of the operator character
+        - Op: The operator string (+, -, *, /, %, ==, !=, <, >, <=, >=, &&, ||, =, etc.)
+        - X: Left operand (Node)
+        - Y: Right operand (Node)
+    
+    Attributes:
+        type: Always "BinaryArithm"
+        pos: Starting source position
+        end: Ending source position
+        op: The operator string
+        op_pos: Position of the operator character
+        x: Left operand
+        y: Right operand
+    """
+    type: str = "BinaryArithm"
+    op: str = None
+    op_pos: Position = None
+    x: Optional['Node'] = None
+    y: Optional['Node'] = None
+
+
+@dataclass
 class Part:
     """An atomic part of a bash word.
     
@@ -526,6 +590,8 @@ NODE_TYPES = {
     "ParamExp": ParamExp,
     "DblQuoted": DblQuoted,
     "CmdSubst": CmdSubst,
+    "ArithmExp": ArithmExp,
+    "BinaryArithm": BinaryArithm,
 }
 
 
@@ -812,6 +878,23 @@ def node_from_json(data: dict) -> Node:
             ],
             default=[stmt_from_json(s) for s in data.get("Default", [])],
         )
+    elif node_type == "ArithmExp":
+        return ArithmExp(
+            type=node_type,
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            x=node_from_json(data.get("X")),
+        )
+    elif node_type == "BinaryArithm":
+        return BinaryArithm(
+            type=node_type,
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            op=data.get("Op", ""),
+            op_pos=_parse_position(data.get("OpPos")),
+            x=node_from_json(data.get("X")),
+            y=node_from_json(data.get("Y")),
+        )
     
     return Node(
         type=node_type,
@@ -937,6 +1020,14 @@ def part_from_json(data: dict) -> Part:
             index=index_node,
             length=data.get("Length", False),
             dollar_pos=_parse_position(data.get("Dollar")),
+        )
+    elif data.get("Type") == "ArithmExp":
+        # Arithmetic expansion: $((...))
+        return ArithmExp(
+            type="ArithmExp",
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            x=node_from_json(data.get("X")),
         )
     
     return Part(

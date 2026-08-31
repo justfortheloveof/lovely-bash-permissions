@@ -253,7 +253,9 @@ class Expansion(Node):
 
 **Dependencies**: Step 1 (Lit)
 
-## [ ] Step 5: CmdSubst (Command Substitution)
+## [x] Step 5: CmdSubst (Command Substitution)
+
+Completed: CmdSubst dataclass implemented in ast.py with stmts and backquotes fields. Registered in NODE_TYPES. Updated part_from_json() to parse CmdSubst nodes. Added 9 test cases in TestCmdSubstNodes. All 162 tests pass. Tested $(date), `date`, nested CmdSubst, CmdSubst inside DblQuoted.
 
 **Priority**: HIGH
 
