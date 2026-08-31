@@ -50,7 +50,9 @@ For each step:
 8. Run the test suite
 9. Verify with a real bash command example
 
-## [ ] Step 1: Lit (Simple Literal)
+## [x] Step 1: Lit (Simple Literal)
+
+Completed: Lit dataclass implemented in ast.py, registered in NODE_TYPES, parser updated, 19 tests added in test_parser.py::TestLitNodes. All 121 tests pass.
 
 **Priority**: HIGH
 

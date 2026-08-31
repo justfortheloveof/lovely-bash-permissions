@@ -18,7 +18,7 @@ Key functions:
 """
 
 from typing import List, Callable, Any, Dict, Optional
-from .ast import Node, CallExpr, BinaryCmd, Word, Part, Stmt, File, Redir, Subshell, IfClause, ForClause, WhileClause, AndCmd, OrCmd, CaseClause, part_from_json, node_from_json
+from .ast import Node, CallExpr, BinaryCmd, Word, Part, Lit, Stmt, File, Redir, Subshell, IfClause, ForClause, WhileClause, AndCmd, OrCmd, CaseClause, part_from_json, node_from_json
 
 
 class Visitor:
@@ -81,6 +81,8 @@ class Visitor:
             return self.visit_word(node)
         elif isinstance(node, Redir):
             return self.visit_redir(node)
+        elif isinstance(node, Lit):
+            return self.visit_lit(node)
         elif isinstance(node, Part):
             return self.visit_part(node)
         elif isinstance(node, Subshell):
@@ -122,6 +124,19 @@ class Visitor:
 
     def visit_redir(self, node: Redir) -> None:
         """Visit a Redir node. Override to process file redirections."""
+        pass
+
+    def visit_lit(self, node: Lit) -> None:
+        """Visit a Lit node. Override to process literal values.
+        
+        Lit nodes are simple literal parts of a Word. They inherit from
+        Node (not Part) and represent unquoted literal strings.
+        
+        By default, Lit nodes are forwarded to visit_part() for
+        compatibility with existing visitor code that treats all word
+        parts uniformly. Override visit_part() to handle both Part
+        and Lit nodes, or override visit_lit() for Lit-specific processing.
+        """
         pass
 
     def visit_part(self, node: Part) -> None:
@@ -204,6 +219,9 @@ class Visitor:
         elif isinstance(node, Redir):
             if node.word:
                 self.walk(node.word)
+        elif isinstance(node, Lit):
+            # Lit is a leaf node, no nested parts to walk
+            pass
         elif isinstance(node, Part):
             if node.parts:
                 for subpart in node.parts:
@@ -333,6 +351,8 @@ def _find_commands(node: Node, commands: List[CallExpr]):
                         _find_commands(part_from_json(p), commands)
                     else:
                         _find_commands(p, commands)
+    elif isinstance(node, Lit):
+        pass
     elif isinstance(node, Part) and node.type == "CmdSubst":
         # Descend into command substitution
         if node.parts:
@@ -412,6 +432,8 @@ def _collect_commands(node: Node, commands: List[str]):
                         _collect_commands(part_from_json(p), commands)
                     else:
                         _collect_commands(p, commands)
+    elif isinstance(node, Lit):
+        pass
     elif isinstance(node, Part) and node.type == "CmdSubst":
         # Descend into command substitution to find nested commands
         if node.extra:
@@ -508,7 +530,10 @@ def has_variable(tree: Node) -> bool:
 
 def _has_variable_recursive(node: Node) -> bool:
     """Recursively check for variables."""
-    if isinstance(node, Part):
+    if isinstance(node, Lit):
+        # Lit nodes are plain literals, no variables
+        return False
+    elif isinstance(node, Part):
         if node.type in ("Var", "ParamExp", "CmdSubst"):
             return True
         # Recurse into DblQuoted parts

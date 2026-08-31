@@ -84,6 +84,31 @@ class Word(Node):
 
 
 @dataclass
+class Lit(Node):
+    """A shell literal string without any special characters.
+    
+    Represents a plain, unquoted bash word. This is the simplest word part
+    type, containing just a literal value with no expansions, variables,
+    or special characters. Examples: "hello", "file.txt", "ls", "42".
+    
+    Lit nodes appear within Words as their parts, or can appear as
+    standalone nodes in certain contexts.
+    
+    Attributes:
+        type: Always "Lit"
+        pos: Starting source position
+        end: Ending source position
+        value: The literal string value
+        value_pos: Source position of the value's start
+        value_end: Source position of the value's end
+    """
+    type: str = "Lit"
+    value: str = ""
+    value_pos: Position = None
+    value_end: Position = None
+
+
+@dataclass
 class Part:
     """An atomic part of a bash word.
     
@@ -471,7 +496,14 @@ def node_from_json(data: dict) -> Node:
     elif node_type == "Word":
         return word_from_json(data)
     elif node_type == "Lit":
-        return part_from_json(data)
+        return Lit(
+            type=node_type,
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            value=data.get("Value", ""),
+            value_pos=_parse_position(data.get("ValuePos")),
+            value_end=_parse_position(data.get("ValueEnd")),
+        )
     elif node_type == "Subshell":
         return Subshell(
             type=node_type,
@@ -725,6 +757,16 @@ def part_from_json(data: dict) -> Part:
     value = data.get("Value")
     if data.get("Type") == "DblQuoted" and parts:
         value = "".join(p.value for p in parts if p.value)
+    
+    if data.get("Type") == "Lit":
+        return Lit(
+            type="Lit",
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            value=data.get("Value", ""),
+            value_pos=_parse_position(data.get("ValuePos")),
+            value_end=_parse_position(data.get("ValueEnd")),
+        )
     
     return Part(
         type=data.get("Type", ""),

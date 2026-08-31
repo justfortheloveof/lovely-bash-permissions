@@ -62,9 +62,12 @@ class TestVisitorPattern:
             def visit_part(self, node):
                 nonlocal part_count
                 part_count += 1
+            def visit_lit(self, node):
+                nonlocal part_count
+                part_count += 1
         
         PartCountVisitor().walk(tree)
-        # "ls" has 1 part, "-la" has 1 part
+        # "ls" has 1 part (now a Lit node), "-la" has 1 part (Lit)
         assert part_count == 2
 
     def test_recursive_visit(self):
