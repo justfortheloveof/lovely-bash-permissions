@@ -55,10 +55,10 @@ def _traverse(node: Node, visitor: Callable[[Node], None]) -> None:
         # but commands inside assigns' values (files=$(find ...)) ARE.
         pass
     elif isinstance(node, BinaryCmd):
-        if node.x:
-            _traverse(node.x, visitor)
-        if node.y:
-            _traverse(node.y, visitor)
+        if node.left:
+            _traverse(node.left, visitor)
+        if node.right:
+            _traverse(node.right, visitor)
         if node.redirs:
             for redir in node.redirs:
                 _traverse(redir, visitor)
@@ -85,17 +85,17 @@ def _traverse(node: Node, visitor: Callable[[Node], None]) -> None:
             for stmt in node.stmts:
                 _traverse(stmt, visitor)
     elif isinstance(node, IfClause):
-        for stmt in node.cond:
+        for stmt in node.cond_stmts:
             _traverse(stmt, visitor)
-        for stmt in node.then:
+        for stmt in node.then_stmts:
             _traverse(stmt, visitor)
         for branch in node.elif_branches:
             for stmt in branch["cond"]:
                 _traverse(stmt, visitor)
             for stmt in branch["body"]:
                 _traverse(stmt, visitor)
-        if node.else_branch:
-            for stmt in node.else_branch:
+        if node.else_stmts:
+            for stmt in node.else_stmts:
                 _traverse(stmt, visitor)
     elif isinstance(node, ForClause):
         if node.var:
@@ -107,22 +107,22 @@ def _traverse(node: Node, visitor: Callable[[Node], None]) -> None:
             for stmt in node.body:
                 _traverse(stmt, visitor)
     elif isinstance(node, WhileClause):
-        if node.cond:
-            for stmt in node.cond:
+        if node.cond_stmts:
+            for stmt in node.cond_stmts:
                 _traverse(stmt, visitor)
         if node.body:
             for stmt in node.body:
                 _traverse(stmt, visitor)
     elif isinstance(node, AndCmd):
-        if node.x:
-            _traverse(node.x, visitor)
-        if node.y:
-            _traverse(node.y, visitor)
+        if node.left:
+            _traverse(node.left, visitor)
+        if node.right:
+            _traverse(node.right, visitor)
     elif isinstance(node, OrCmd):
-        if node.x:
-            _traverse(node.x, visitor)
-        if node.y:
-            _traverse(node.y, visitor)
+        if node.left:
+            _traverse(node.left, visitor)
+        if node.right:
+            _traverse(node.right, visitor)
     elif isinstance(node, CaseClause):
         if node.expr:
             _traverse(node.expr, visitor)
@@ -319,10 +319,10 @@ class Visitor:
                 for arg in node.args:
                     self.walk(arg)
         elif isinstance(node, BinaryCmd):
-            if node.x:
-                self.walk(node.x)
-            if node.y:
-                self.walk(node.y)
+            if node.left:
+                self.walk(node.left)
+            if node.right:
+                self.walk(node.right)
             if node.redirs:
                 for redir in node.redirs:
                     self.walk(redir)
@@ -350,19 +350,19 @@ class Visitor:
                 for stmt in node.stmts:
                     self.walk(stmt)
         elif isinstance(node, IfClause):
-            if node.cond:
-                for stmt in node.cond:
+            if node.cond_stmts:
+                for stmt in node.cond_stmts:
                     self.walk(stmt)
-            if node.then:
-                for stmt in node.then:
+            if node.then_stmts:
+                for stmt in node.then_stmts:
                     self.walk(stmt)
             for branch in node.elif_branches:
                 for stmt in branch["cond"]:
                     self.walk(stmt)
                 for stmt in branch["body"]:
                     self.walk(stmt)
-            if node.else_branch:
-                for stmt in node.else_branch:
+            if node.else_stmts:
+                for stmt in node.else_stmts:
                     self.walk(stmt)
         elif isinstance(node, ForClause):
             if node.var:
@@ -374,22 +374,22 @@ class Visitor:
                 for stmt in node.body:
                     self.walk(stmt)
         elif isinstance(node, WhileClause):
-            if node.cond:
-                for stmt in node.cond:
+            if node.cond_stmts:
+                for stmt in node.cond_stmts:
                     self.walk(stmt)
             if node.body:
                 for stmt in node.body:
                     self.walk(stmt)
         elif isinstance(node, AndCmd):
-            if node.x:
-                self.walk(node.x)
-            if node.y:
-                self.walk(node.y)
+            if node.left:
+                self.walk(node.left)
+            if node.right:
+                self.walk(node.right)
         elif isinstance(node, OrCmd):
-            if node.x:
-                self.walk(node.x)
-            if node.y:
-                self.walk(node.y)
+            if node.left:
+                self.walk(node.left)
+            if node.right:
+                self.walk(node.right)
         elif isinstance(node, CaseClause):
             if node.expr:
                 self.walk(node.expr)
@@ -552,7 +552,7 @@ def _has_variable_recursive(node: Node) -> bool:
                     if _has_variable_recursive(a):
                         return True
     elif isinstance(node, BinaryCmd):
-        return _has_variable_recursive(node.x) or _has_variable_recursive(node.y)
+        return _has_variable_recursive(node.left) or _has_variable_recursive(node.right)
     elif isinstance(node, File):
         return any(_has_variable_recursive(s.cmd) for s in node.stmts)
     elif isinstance(node, Stmt):
@@ -560,16 +560,16 @@ def _has_variable_recursive(node: Node) -> bool:
     elif isinstance(node, Subshell):
         return any(_has_variable_recursive(s.cmd) for s in node.stmts)
     elif isinstance(node, IfClause):
-        if any(_has_variable_recursive(s.cmd) for s in node.cond):
+        if any(_has_variable_recursive(s.cmd) for s in node.cond_stmts):
             return True
-        if any(_has_variable_recursive(s.cmd) for s in node.then):
+        if any(_has_variable_recursive(s.cmd) for s in node.then_stmts):
             return True
         for branch in node.elif_branches:
             if any(_has_variable_recursive(s.cmd) for s in branch["cond"]):
                 return True
             if any(_has_variable_recursive(s.cmd) for s in branch["body"]):
                 return True
-        return any(_has_variable_recursive(s.cmd) for s in node.else_branch)
+        return any(_has_variable_recursive(s.cmd) for s in node.else_stmts)
     elif isinstance(node, ForClause):
         if node.var and _has_variable_recursive(node.var):
             return True
@@ -577,13 +577,13 @@ def _has_variable_recursive(node: Node) -> bool:
             return True
         return any(_has_variable_recursive(s.cmd) for s in node.body)
     elif isinstance(node, WhileClause):
-        if any(_has_variable_recursive(s.cmd) for s in node.cond):
+        if any(_has_variable_recursive(s.cmd) for s in node.cond_stmts):
             return True
         return any(_has_variable_recursive(s.cmd) for s in node.body)
     elif isinstance(node, AndCmd):
-        return _has_variable_recursive(node.x) or _has_variable_recursive(node.y)
+        return _has_variable_recursive(node.left) or _has_variable_recursive(node.right)
     elif isinstance(node, OrCmd):
-        return _has_variable_recursive(node.x) or _has_variable_recursive(node.y)
+        return _has_variable_recursive(node.left) or _has_variable_recursive(node.right)
     elif isinstance(node, CaseClause):
         if node.expr and _has_variable_recursive(node.expr):
             return True
@@ -726,26 +726,26 @@ def _has_pipe_recursive(node: Node) -> bool:
     elif isinstance(node, Subshell):
         return any(_has_pipe_recursive(s.cmd) for s in node.stmts)
     elif isinstance(node, IfClause):
-        if any(_has_pipe_recursive(s.cmd) for s in node.cond):
+        if any(_has_pipe_recursive(s.cmd) for s in node.cond_stmts):
             return True
-        if any(_has_pipe_recursive(s.cmd) for s in node.then):
+        if any(_has_pipe_recursive(s.cmd) for s in node.then_stmts):
             return True
         for branch in node.elif_branches:
             if any(_has_pipe_recursive(s.cmd) for s in branch["cond"]):
                 return True
             if any(_has_pipe_recursive(s.cmd) for s in branch["body"]):
                 return True
-        return any(_has_pipe_recursive(s.cmd) for s in node.else_branch)
+        return any(_has_pipe_recursive(s.cmd) for s in node.else_stmts)
     elif isinstance(node, ForClause):
         return any(_has_pipe_recursive(s.cmd) for s in node.body)
     elif isinstance(node, WhileClause):
-        if any(_has_pipe_recursive(s.cmd) for s in node.cond):
+        if any(_has_pipe_recursive(s.cmd) for s in node.cond_stmts):
             return True
         return any(_has_pipe_recursive(s.cmd) for s in node.body)
     elif isinstance(node, AndCmd):
-        return _has_pipe_recursive(node.x) or _has_pipe_recursive(node.y)
+        return _has_pipe_recursive(node.left) or _has_pipe_recursive(node.right)
     elif isinstance(node, OrCmd):
-        return _has_pipe_recursive(node.x) or _has_pipe_recursive(node.y)
+        return _has_pipe_recursive(node.left) or _has_pipe_recursive(node.right)
     elif isinstance(node, CaseClause):
         for branch in node.branches:
             if any(_has_pipe_recursive(s.cmd) for s in branch["body"]):

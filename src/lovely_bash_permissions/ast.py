@@ -484,13 +484,13 @@ class Block(Node):
         type: Always "Block"
         pos: Starting source position of the entire block
         end: Ending source position of the entire block
-        lbrace: Position of the opening brace
-        rbrace: Position of the closing brace
+        left_pos: Position of the opening brace
+        right_pos: Position of the closing brace
         stmts: List of Stmt objects representing commands in the block
     """
     type: str = "Block"
-    lbrace: Position = None
-    rbrace: Position = None
+    left_pos: Position = None
+    right_pos: Position = None
     stmts: List['Stmt'] = None
 
 
@@ -529,20 +529,20 @@ class BinaryCmd(Node):
     """A binary command operation (primarily pipes).
     
     Represents bash binary operators, most commonly pipes (|). The operator
-    takes two command operands: x (left) and y (right).
+    takes two command operands: left and right.
     
     Example: "ls | grep txt" becomes:
-        BinaryCmd(op="|", x=CallExpr("ls"), y=CallExpr("grep txt"))
+        BinaryCmd(op="|", left=CallExpr("ls"), right=CallExpr("grep txt"))
     
     Attributes:
         op: Operator symbol ("|" for pipe)
-        x: Left operand (a command or nested expression)
-        y: Right operand (a command or nested expression)
+        left: Left operand (a command or nested expression)
+        right: Right operand (a command or nested expression)
         redirs: Redirections applied at the pipe level
     """
     op: str = None
-    x: 'Node' = None
-    y: 'Node' = None
+    left: 'Node' = None
+    right: 'Node' = None
     redirs: Optional[List['Redir']] = None
 
 
@@ -564,22 +564,22 @@ class Subshell(Node):
 class IfClause(Node):
     """An if/elif/else conditional statement.
     
-    Represents bash conditional branching. The cond field contains the
-    test command, then contains the true branch, elif_branches contains
-    additional elif conditions, and else_branch contains the final fallback.
+    Represents bash conditional branching. The cond_stmts field contains
+    the test command, then_stmts contains the true branch, elif_branches
+    contains additional elif conditions, and else_stmts contains the final fallback.
     
     Example: "if test -f file; then cat file; else echo missing; fi"
     
     Attributes:
-        cond: List of Stmt objects for the if condition
-        then: List of Stmt objects for the true branch
+        cond_stmts: List of Stmt objects for the if condition
+        then_stmts: List of Stmt objects for the true branch
         elif_branches: List of dicts with "cond" and "body" keys
-        else_branch: List of Stmt objects for the else branch
+        else_stmts: List of Stmt objects for the else branch
     """
-    cond: List['Stmt'] = None
-    then: List['Stmt'] = None
+    cond_stmts: List['Stmt'] = None
+    then_stmts: List['Stmt'] = None
     elif_branches: List[dict] = None
-    else_branch: List['Stmt'] = None
+    else_stmts: List['Stmt'] = None
 
 
 @dataclass
@@ -609,10 +609,10 @@ class WhileClause(Node):
     Example: "while true; do sleep 1; done"
     
     Attributes:
-        cond: List of Stmt objects evaluated as the loop condition
+        cond_stmts: List of Stmt objects evaluated as the loop condition
         body: List of Stmt objects executed in each iteration
     """
-    cond: List['Stmt'] = None
+    cond_stmts: List['Stmt'] = None
     body: List['Stmt'] = None
 
 
@@ -621,16 +621,16 @@ class AndCmd(Node):
     """Logical AND operator (&&).
     
     Represents bash's short-circuit AND: command1 && command2
-    Executes y only if x succeeds (exit code 0).
+    Executes right only if left succeeds (exit code 0).
     
     Example: "test -f file && cat file"
     
     Attributes:
-        x: Left operand (command or expression)
-        y: Right operand (command or expression)
+        left: Left operand (command or expression)
+        right: Right operand (command or expression)
     """
-    x: 'Node' = None
-    y: 'Node' = None
+    left: 'Node' = None
+    right: 'Node' = None
 
 
 @dataclass
@@ -638,16 +638,16 @@ class OrCmd(Node):
     """Logical OR operator (||).
     
     Represents bash's short-circuit OR: command1 || command2
-    Executes y only if x fails (non-zero exit code).
+    Executes right only if left fails (non-zero exit code).
     
     Example: "ping -c1 host || echo unreachable"
     
     Attributes:
-        x: Left operand (command or expression)
-        y: Right operand (command or expression)
+        left: Left operand (command or expression)
+        right: Right operand (command or expression)
     """
-    x: 'Node' = None
-    y: 'Node' = None
+    left: 'Node' = None
+    right: 'Node' = None
 
 
 @dataclass
@@ -700,7 +700,7 @@ class TestClause(Node):
 
     Represents bash's extended test expression, which provides additional
     operators over the POSIX single-bracket test. The test expression is
-    stored in the x field and can be a complex expression involving
+    stored in the body field and can be a complex expression involving
     UnaryTest, BinaryTest, ParenTest nodes.
 
     Examples:
@@ -719,14 +719,14 @@ class TestClause(Node):
         type: Always "TestClause"
         pos: Starting source position
         end: Ending source position
-        left: Position of the opening [[
-        right: Position of the closing ]]
-        x: The test expression (Node with type UnaryTest, BinaryTest, ParenTest, etc.)
+        left_pos: Position of the opening [[
+        right_pos: Position of the closing ]]
+        body: The test expression (Node with type UnaryTest, BinaryTest, ParenTest, etc.)
     """
     type: str = "TestClause"
-    left: Position = None
-    right: Position = None
-    x: Optional['Node'] = None
+    left_pos: Position = None
+    right_pos: Position = None
+    body: Optional['Node'] = None
 
 
 @dataclass
@@ -788,23 +788,23 @@ class ParenTest(Node):
         type: Always "ParenTest"
         pos: Starting source position
         end: Ending source position
-        lparen: Position of the opening parenthesis
-        rparen: Position of the closing parenthesis
-        x: The inner test expression
+        left_pos: Position of the opening parenthesis
+        right_pos: Position of the closing parenthesis
+        body: The inner test expression
     """
     type: str = "ParenTest"
-    lparen: Position = None
-    rparen: Position = None
-    x: Optional['Node'] = None
+    left_pos: Position = None
+    right_pos: Position = None
+    body: Optional['Node'] = None
 
 
 @dataclass
 class ArithmCmd(Node):
     """Arithmetic command: (( expr ))."""
     type: str = "ArithmCmd"
-    left: Position = None
-    right: Position = None
-    x: Optional['Node'] = None
+    left_pos: Position = None
+    right_pos: Position = None
+    body: Optional['Node'] = None
 
 
 @dataclass
@@ -821,9 +821,9 @@ class UnaryArithm(Node):
 class ParenArithm(Node):
     """Parenthesized arithmetic: (expr)."""
     type: str = "ParenArithm"
-    lparen: Position = None
-    rparen: Position = None
-    x: Optional['Node'] = None
+    left_pos: Position = None
+    right_pos: Position = None
+    body: Optional['Node'] = None
 
 
 @dataclass
@@ -1187,8 +1187,8 @@ def node_from_json(data: dict) -> Node:
             pos=_parse_position(data.get("Pos")),
             end=_parse_position(data.get("End")),
             op=data.get("Op", ""),
-            x=x_node,
-            y=y_node,
+            left=x_node,
+            right=y_node,
             redirs=None,
         )
     elif node_type == "DeclClause":
@@ -1240,17 +1240,17 @@ def node_from_json(data: dict) -> Node:
         then_raw = data.get("Then", [])
         else_raw = data.get("Else")
         
-        cond = []
+        cond_stmts = []
         if isinstance(cond_raw, list):
             for item in cond_raw:
                 if isinstance(item, dict) and "Cmd" in item:
-                    cond.append(stmt_from_json(item))
+                    cond_stmts.append(stmt_from_json(item))
         
-        then = []
+        then_stmts = []
         if isinstance(then_raw, list):
             for item in then_raw:
                 if isinstance(item, dict) and "Cmd" in item:
-                    then.append(stmt_from_json(item))
+                    then_stmts.append(stmt_from_json(item))
         
         elif_branches = []
         for b in data.get("Elif", []):
@@ -1269,7 +1269,7 @@ def node_from_json(data: dict) -> Node:
                             b_body.append(stmt_from_json(item))
                 elif_branches.append({"cond": b_cond, "body": b_body})
         
-        else_branch = []
+        else_stmts = []
         if isinstance(else_raw, dict):
             # Check if it's an elif (nested if) or a plain else body
             # shfmt represents elif as a nested structure in Else without a Type field,
@@ -1300,38 +1300,38 @@ def node_from_json(data: dict) -> Node:
                         # Another elif - convert recursively
                         nested_nested = node_from_json(nested_else_raw)
                         elif_branches.extend(nested_nested.elif_branches)
-                        else_branch = nested_nested.else_branch
+                        else_stmts = nested_nested.else_stmts
                     else:
                         # Plain else body
                         nested_nested_then = nested_else_raw.get("Then", [])
                         if isinstance(nested_nested_then, list):
                             for item in nested_nested_then:
                                 if isinstance(item, dict) and "Cmd" in item:
-                                    else_branch.append(stmt_from_json(item))
+                                    else_stmts.append(stmt_from_json(item))
                 elif isinstance(nested_else_raw, list):
                     for item in nested_else_raw:
                         if isinstance(item, dict) and "Cmd" in item:
-                            else_branch.append(stmt_from_json(item))
+                            else_stmts.append(stmt_from_json(item))
             else:
                 # Plain else body
                 nested_then = else_raw.get("Then", [])
                 if isinstance(nested_then, list):
                     for item in nested_then:
                         if isinstance(item, dict) and "Cmd" in item:
-                            else_branch.append(stmt_from_json(item))
+                            else_stmts.append(stmt_from_json(item))
         elif isinstance(else_raw, list):
             for item in else_raw:
                 if isinstance(item, dict) and "Cmd" in item:
-                    else_branch.append(stmt_from_json(item))
+                    else_stmts.append(stmt_from_json(item))
         
         return IfClause(
             type=node_type,
             pos=_parse_position(data.get("Pos")),
             end=_parse_position(data.get("End")),
-            cond=cond,
-            then=then,
+            cond_stmts=cond_stmts,
+            then_stmts=then_stmts,
             elif_branches=elif_branches,
-            else_branch=else_branch,
+            else_stmts=else_stmts,
         )
     elif node_type == "ForClause":
         # ForClause has "Loop" field with "Type": "WordIter"
@@ -1372,7 +1372,7 @@ def node_from_json(data: dict) -> Node:
             type=node_type,
             pos=_parse_position(data.get("Pos")),
             end=_parse_position(data.get("End")),
-            cond=[stmt_from_json(s) for s in data.get("Cond", [])],
+            cond_stmts=[stmt_from_json(s) for s in data.get("Cond", [])],
             body=[stmt_from_json(s) for s in data.get("Do", [])],
         )
     elif node_type == "AndCmd":
@@ -1445,8 +1445,8 @@ def node_from_json(data: dict) -> Node:
             type=node_type,
             pos=_parse_position(data.get("Pos")),
             end=_parse_position(data.get("End")),
-            lbrace=_parse_position(data.get("Lbrace")),
-            rbrace=_parse_position(data.get("Rbrace")),
+            left_pos=_parse_position(data.get("Lbrace")),
+            right_pos=_parse_position(data.get("Rbrace")),
             stmts=[stmt_from_json(s) for s in data.get("Stmts", [])],
         )
     elif node_type == "FuncDecl":
@@ -1483,9 +1483,9 @@ def node_from_json(data: dict) -> Node:
             type=node_type,
             pos=_parse_position(data.get("Pos")),
             end=_parse_position(data.get("End")),
-            left=_parse_position(data.get("Left")),
-            right=_parse_position(data.get("Right")),
-            x=node_from_json(data.get("X")),
+            left_pos=_parse_position(data.get("Left")),
+            right_pos=_parse_position(data.get("Right")),
+            body=node_from_json(data.get("X")),
         )
     elif node_type == "UnaryTest":
         return UnaryTest(
@@ -1511,18 +1511,18 @@ def node_from_json(data: dict) -> Node:
             type=node_type,
             pos=_parse_position(data.get("Pos")),
             end=_parse_position(data.get("End")),
-            lparen=_parse_position(data.get("Lparen")),
-            rparen=_parse_position(data.get("Rparen")),
-            x=node_from_json(data.get("X")),
+            left_pos=_parse_position(data.get("Lparen")),
+            right_pos=_parse_position(data.get("Rparen")),
+            body=node_from_json(data.get("X")),
         )
     elif node_type == "ArithmCmd":
         return ArithmCmd(
             type=node_type,
             pos=_parse_position(data.get("Pos")),
             end=_parse_position(data.get("End")),
-            left=_parse_position(data.get("Left")),
-            right=_parse_position(data.get("Right")),
-            x=node_from_json(data.get("X")),
+            left_pos=_parse_position(data.get("Left")),
+            right_pos=_parse_position(data.get("Right")),
+            body=node_from_json(data.get("X")),
         )
     elif node_type == "UnaryArithm":
         return UnaryArithm(
@@ -1539,9 +1539,9 @@ def node_from_json(data: dict) -> Node:
             type=node_type,
             pos=_parse_position(data.get("Pos")),
             end=_parse_position(data.get("End")),
-            lparen=_parse_position(data.get("Lparen")),
-            rparen=_parse_position(data.get("Rparen")),
-            x=node_from_json(data.get("X")),
+            left_pos=_parse_position(data.get("Lparen")),
+            right_pos=_parse_position(data.get("Rparen")),
+            body=node_from_json(data.get("X")),
         )
     elif node_type == "FlagsArithm":
         return FlagsArithm(

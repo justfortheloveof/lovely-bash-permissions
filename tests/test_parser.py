@@ -256,15 +256,15 @@ class TestLitNodes:
         cmd = tree.stmts[0].cmd
         assert cmd.type == 'BinaryCmd'
         # Left side: cat file.txt
-        assert cmd.x.args[0].parts[0].type == 'Lit'
-        assert cmd.x.args[0].parts[0].value == 'cat'
-        assert cmd.x.args[1].parts[0].type == 'Lit'
-        assert cmd.x.args[1].parts[0].value == 'file.txt'
+        assert cmd.left.args[0].parts[0].type == 'Lit'
+        assert cmd.left.args[0].parts[0].value == 'cat'
+        assert cmd.left.args[1].parts[0].type == 'Lit'
+        assert cmd.left.args[1].parts[0].value == 'file.txt'
         # Right side: grep pattern
-        assert cmd.y.args[0].parts[0].type == 'Lit'
-        assert cmd.y.args[0].parts[0].value == 'grep'
-        assert cmd.y.args[1].parts[0].type == 'Lit'
-        assert cmd.y.args[1].parts[0].value == 'pattern'
+        assert cmd.right.args[0].parts[0].type == 'Lit'
+        assert cmd.right.args[0].parts[0].value == 'grep'
+        assert cmd.right.args[1].parts[0].type == 'Lit'
+        assert cmd.right.args[1].parts[0].value == 'pattern'
 
     def test_literal_with_special_chars(self):
         """Parse a command with special characters in a literal."""
@@ -730,9 +730,9 @@ class TestCmdSubstNodes:
         assert len(cs.stmts) == 1
         inner = cs.stmts[0].cmd
         assert inner.type == 'BinaryCmd'
-        assert inner.x.args[0].parts[0].value == 'ls'
-        assert inner.y.args[0].parts[0].value == 'grep'
-        assert inner.y.args[1].parts[0].value == 'txt'
+        assert inner.left.args[0].parts[0].value == 'ls'
+        assert inner.right.args[0].parts[0].value == 'grep'
+        assert inner.right.args[1].parts[0].value == 'txt'
 
     def test_cmdsubst_position_info(self):
         """Verify that CmdSubst nodes have position information."""
@@ -1024,7 +1024,7 @@ class TestExtGlobNodes:
         assert tree.stmts[0].cmd.type == 'BinaryCmd'
         assert tree.stmts[0].cmd.op == '|'
         # Left side should have ExtGlob
-        left_arg = tree.stmts[0].cmd.x.args[1].parts[1]
+        left_arg = tree.stmts[0].cmd.left.args[1].parts[1]
         assert left_arg.type == 'ExtGlob'
         assert left_arg.pattern.value == 'txt|md'
 
@@ -1103,12 +1103,12 @@ class TestBlockNodes:
         assert cmd.type == 'Block'
         assert cmd.pos is not None
         assert cmd.end is not None
-        assert cmd.lbrace is not None
-        assert cmd.rbrace is not None
+        assert cmd.left_pos is not None
+        assert cmd.right_pos is not None
         assert isinstance(cmd.pos.offset, int)
         assert isinstance(cmd.end.offset, int)
         # Lbrace should be before rbrace
-        assert cmd.lbrace.offset < cmd.rbrace.offset
+        assert cmd.left_pos.offset < cmd.right_pos.offset
 
     def test_empty_block_with_commands(self):
         """Parse a block with multiple different command types."""
@@ -1128,9 +1128,9 @@ class TestBlockNodes:
         inner = cmd.stmts[0].cmd
         assert inner.type == 'BinaryCmd'
         assert inner.op == '|'
-        assert inner.x.args[0].parts[0].value == 'ls'
-        assert inner.y.args[0].parts[0].value == 'grep'
-        assert inner.y.args[1].parts[0].value == 'txt'
+        assert inner.left.args[0].parts[0].value == 'ls'
+        assert inner.right.args[0].parts[0].value == 'grep'
+        assert inner.right.args[1].parts[0].value == 'txt'
 
     def test_block_andcmd_inside(self):
         """Parse { test -f file && cat file; } with BinaryCmd(op='&&') inside Block.
@@ -1144,8 +1144,8 @@ class TestBlockNodes:
         inner = cmd.stmts[0].cmd
         assert inner.type == 'BinaryCmd'
         assert inner.op == '&&'
-        assert inner.x.args[0].parts[0].value == 'test'
-        assert inner.y.args[0].parts[0].value == 'cat'
+        assert inner.left.args[0].parts[0].value == 'test'
+        assert inner.right.args[0].parts[0].value == 'cat'
 
     def test_block_with_redirect(self):
         """Parse { echo hello > output.txt; } with redirection inside Block."""
@@ -1174,8 +1174,8 @@ class TestBlockNodes:
         assert cmd.type == 'Block'
         inner = cmd.stmts[0].cmd
         assert inner.type == 'IfClause'
-        assert len(inner.then) == 1
-        assert inner.then[0].cmd.args[0].parts[0].value == 'echo'
+        assert len(inner.then_stmts) == 1
+        assert inner.then_stmts[0].cmd.args[0].parts[0].value == 'echo'
 
     def test_block_with_arithmetic(self):
         """Parse { echo $((1 + 2)); } with ArithmExp inside Block."""
@@ -1359,29 +1359,29 @@ class TestFuncDeclNodes:
         # The inner statement should be IfClause
         inner = cmd.body.stmts[0].cmd
         assert inner.type == 'IfClause'
-        assert len(inner.cond) == 1
-        assert len(inner.then) == 1
+        assert len(inner.cond_stmts) == 1
+        assert len(inner.then_stmts) == 1
         # The body of the if should be a BinaryCmd (pipe chain)
-        then_stmt = inner.then[0]
+        then_stmt = inner.then_stmts[0]
         assert then_stmt.cmd.type == 'BinaryCmd'
         # The structure is: BinaryCmd(op="|", x=BinaryCmd(cat|sort), y=CallExpr(uniq > file))
         # Nested BinaryCmd: cat "$1" | sort
-        x = then_stmt.cmd.x
-        assert x.type == 'BinaryCmd'
-        assert x.op == '|'
-        # x.x should be CallExpr for cat "$1"
-        assert x.x.type == 'CallExpr'
-        assert x.x.args[0].parts[0].value == 'cat'
+        left = then_stmt.cmd.left
+        assert left.type == 'BinaryCmd'
+        assert left.op == '|'
+        # left.left should be CallExpr for cat "$1"
+        assert left.left.type == 'CallExpr'
+        assert left.left.args[0].parts[0].value == 'cat'
         # "$1" is a DblQuoted containing a ParamExp for $1
-        assert x.x.args[1].parts[0].type == 'DblQuoted'
-        inner_param = x.x.args[1].parts[0].parts[0]
+        assert left.left.args[1].parts[0].type == 'DblQuoted'
+        inner_param = left.left.args[1].parts[0].parts[0]
         assert inner_param.type == 'ParamExp'
         assert inner_param.param == '1'
-        # x.y should be CallExpr for sort
-        assert x.y.type == 'CallExpr'
-        assert x.y.args[0].parts[0].value == 'sort'
+        # left.right should be CallExpr for sort
+        assert left.right.type == 'CallExpr'
+        assert left.right.args[0].parts[0].value == 'sort'
         # The outer y should be CallExpr for uniq with redirection
-        y = then_stmt.cmd.y
+        y = then_stmt.cmd.right
         assert y.type == 'CallExpr'
         assert y.args[0].parts[0].value == 'uniq'
         # Redirection on the y side: > "$2"
