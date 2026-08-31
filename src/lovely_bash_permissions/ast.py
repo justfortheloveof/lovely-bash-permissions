@@ -27,16 +27,16 @@ import complexity without a clear benefit. See plan_3.md (priority 8) for the
 decision record — documented here rather than restructured.
 """
 
-from dataclasses import dataclass, field
-from typing import List, Optional
+from dataclasses import dataclass
 
 
 @dataclass
 class Position:
     """Source position information for AST nodes.
-    
+
     Tracks the location of a node in the original source text.
     """
+
     offset: int
     line: int
     col: int
@@ -45,11 +45,11 @@ class Position:
 @dataclass
 class Node:
     """Base AST node for all bash syntax elements.
-    
+
     Every node in the AST inherits from this base class. Unknown or
     unmapped shfmt node types are represented as Node objects with
     their original type name preserved in the `type` field.
-    
+
     Attributes:
         type: shfmt node type name (e.g., "File", "CallExpr", "Word")
         pos: Starting source position
@@ -57,39 +57,41 @@ class Node:
         extra: Additional context or metadata (parser-specific)
         args: Command arguments as a list of Word nodes
     """
+
     type: str = None
     pos: Position = None
     end: Position = None
-    extra: Optional[dict] = None
-    args: Optional[List['Word']] = None
+    extra: dict | None = None
+    args: list[Word] | None = None
 
 
 @dataclass
 class Word(Node):
     """A bash word composed of parts.
-    
+
     Words are the basic unit of bash syntax. They can be simple literals,
     variable expansions, command substitutions, or complex combinations.
     For example, "hello", "$HOME", "$(date)", or "$HOME/file.txt" are all
     words made up of one or more parts.
-    
+
     Attributes:
         parts: List of Part objects that make up this word
     """
-    parts: List['Part'] = None
+
+    parts: list[Part] = None
 
 
 @dataclass
 class Lit(Node):
     """A shell literal string without any special characters.
-    
+
     Represents a plain, unquoted bash word. This is the simplest word part
     type, containing just a literal value with no expansions, variables,
     or special characters. Examples: "hello", "file.txt", "ls", "42".
-    
+
     Lit nodes appear within Words as their parts, or can appear as
     standalone nodes in certain contexts.
-    
+
     Attributes:
         type: Always "Lit"
         pos: Starting source position
@@ -98,6 +100,7 @@ class Lit(Node):
         value_pos: Source position of the value's start
         value_end: Source position of the value's end
     """
+
     type: str = "Lit"
     value: str = ""
     value_pos: Position = None
@@ -132,11 +135,12 @@ class ParamExp(Node):
         length: True for ${#VAR} length expansion
         dollar_pos: Position of the $ character
     """
+
     type: str = "ParamExp"
     param: str = ""
     short: bool = False
-    exp: Optional[dict] = None
-    index: Optional['Word'] = None
+    exp: dict | None = None
+    index: Word | None = None
     length: bool = False
     dollar_pos: Position = None
 
@@ -144,29 +148,30 @@ class ParamExp(Node):
 @dataclass
 class SglQuoted(Node):
     """A single-quoted shell string.
-    
+
     Represents a single-quoted bash string where the content is taken
     literally with no variable expansion, command substitution, or
     special character interpretation. Single-quoted strings are the
     simplest way to quote strings in bash.
-    
+
     Unlike Lit, the value is wrapped in single quotes in the source,
     which means no expansion occurs. For example, in 'echo $HOME',
     the argument would be SglQuoted with value="$HOME" (the variable
     is not expanded).
-    
+
     shfmt's JSON representation for SglQuoted includes:
         - Type: "SglQuoted"
         - Value: The string content without quotes
         - Pos/End: Position of the entire quoted string
         - Left/Right: Position of the opening/closing quote characters
-    
+
     Attributes:
         type: Always "SglQuoted"
         pos: Starting source position of the entire quoted string
         end: Ending source position of the entire quoted string
         value: The string content without the surrounding quotes
     """
+
     type: str = "SglQuoted"
     value: str = ""
 
@@ -174,48 +179,49 @@ class SglQuoted(Node):
 @dataclass
 class DblQuoted(Node):
     """A double-quoted shell string with nested parts.
-    
+
     Represents a double-quoted bash string where the content is parsed as
     a list of parts. Unlike single-quoted strings, double-quoted strings
     allow variable expansion, command substitution, and escape sequences,
     but protect words from splitting and globbing.
-    
+
     shfmt's JSON representation for DblQuoted includes:
         - Type: "DblQuoted"
         - Pos/End: Position of the entire quoted string
         - Left/Right: Position of the opening/closing quote characters
         - Parts: Nested parts (Lit, ParamExp, CmdSubst, Esc, etc.)
-    
+
     Attributes:
         type: Always "DblQuoted"
         pos: Starting source position of the entire quoted string
         end: Ending source position of the entire quoted string
         parts: List of Part objects that make up the quoted content
     """
+
     type: str = "DblQuoted"
-    parts: List['Part'] = None
+    parts: list[Part] = None
 
 
 @dataclass
 class CmdSubst(Node):
-    """A command substitution. 
+    """A command substitution.
 
     Represents bash command substitution using either $(...) or backticks.
     The inner command(s) are parsed as full statements and executed, with
     their output substituted back into the original command.
-    
-    Examples: 
+
+    Examples:
         echo $(date)           -> Modern $(...) syntax
         echo `date`            -> Legacy backtick syntax
         echo "Hello $(whoami)" -> Command substitution in double quotes
-    
+
     shfmt's JSON representation for CmdSubst includes:
         - Type: "CmdSubst"
         - Pos/End: Position of the entire substitution
         - Left/Right: Position of opening/closing delimiter characters
         - Stmts: List of statements contained in the substitution
         - Backquotes: True if backtick syntax is used, false for $(...)
-    
+
     Attributes:
         type: Always "CmdSubst"
         pos: Starting source position of the entire substitution
@@ -223,8 +229,9 @@ class CmdSubst(Node):
         stmts: List of Stmt objects representing commands in the substitution
         backquotes: True if backtick syntax, False for $(...)
     """
+
     type: str = "CmdSubst"
-    stmts: List['Stmt'] = None
+    stmts: list[Stmt] = None
     backquotes: bool = False
 
 
@@ -258,11 +265,12 @@ class ProcSubst(Node):
         rparen: Position of the closing parenthesis
         stmts: List of Stmt objects representing commands to execute
     """
+
     type: str = "ProcSubst"
     op: str = ""
     op_pos: Position = None
     rparen: Position = None
-    stmts: List['Stmt'] = None
+    stmts: list[Stmt] = None
 
 
 @dataclass
@@ -276,21 +284,22 @@ class ArithmExp(Node):
         echo $((2 + 2))        -> Simple arithmetic operation
         echo $((x * y))        -> Variable arithmetic
         echo $((x + y))        -> Addition with variables
-    
+
     shfmt's JSON representation for ArithmExp includes:
         - Type: "ArithmExp"
         - Pos/End: Position of the entire expansion
         - Left/Right: Position of opening/closing delimiter characters
         - X: The inner arithmetic expression (BinaryArithm, Word, etc.)
-    
+
     Attributes:
         type: Always "ArithmExp"
         pos: Starting source position of the entire expansion
         end: Ending source position of the entire expansion
         x: The inner arithmetic expression (Node with type "BinaryArithm", "Word", etc.)
     """
+
     type: str = "ArithmExp"
-    x: Optional['Node'] = None
+    x: Node | None = None
 
 
 @dataclass
@@ -319,9 +328,10 @@ class BraceExp(Node):
         sequence: True for {1..10} style, False for {a,b}
         elems: List of Word nodes representing expansion elements
     """
+
     type: str = "BraceExp"
     sequence: bool = False
-    elems: List['Word'] = None
+    elems: list[Word] = None
 
 
 @dataclass
@@ -349,14 +359,14 @@ class ExtGlob(Node):
         cp *?(bak|orig) dest/   -> Match files with no extension or .bak/.orig
         echo *.!(zip|tar)       -> Match files except .zip or .tar
         find . -name *@(exe|so) -> Find executable/shared library files
-    
+
     shfmt's JSON representation for ExtGlob includes:
         - Type: "ExtGlob"
         - Pos/End: Position of the entire extended glob expression
         - OpPos: Position of the extended glob operator character
         - Op: Extended glob operator string ("@(", "+(", "*(", "?(", "!(")
         - Pattern: Pattern specification as a Lit node (pipe-separated patterns)
-    
+
     Attributes:
         type: Always "ExtGlob"
         pos: Starting source position of the extended glob
@@ -365,10 +375,11 @@ class ExtGlob(Node):
         op_pos: Source position of the extended glob operator character
         pattern: Pattern specification as a Lit node
     """
+
     type: str = "ExtGlob"
     op: str = ""
     op_pos: Position = None
-    pattern: Optional['Lit'] = None
+    pattern: Lit | None = None
 
 
 @dataclass
@@ -382,7 +393,7 @@ class BinaryArithm(Node):
         $((2 + 2))      -> Op="+", X=Word("2"), Y=Word("2")
         $((x * y))      -> Op="*", X=Word("x"), Y=Word("y")
         $((x = x + 1))  -> Nested: Op="=", Y contains another BinaryArithm
-    
+
     shfmt's JSON representation for BinaryArithm includes:
         - Type: "BinaryArithm"
         - Pos/End: Position of the operation
@@ -390,7 +401,7 @@ class BinaryArithm(Node):
         - Op: The operator string (+, -, *, /, %, ==, !=, <, >, <=, >=, &&, ||, =, etc.)
         - X: Left operand (Node)
         - Y: Right operand (Node)
-    
+
     Attributes:
         type: Always "BinaryArithm"
         pos: Starting source position
@@ -400,20 +411,21 @@ class BinaryArithm(Node):
         x: Left operand
         y: Right operand
     """
+
     type: str = "BinaryArithm"
     op: str = None
     op_pos: Position = None
-    x: Optional['Node'] = None
-    y: Optional['Node'] = None
+    x: Node | None = None
+    y: Node | None = None
 
 
 @dataclass
 class Part:
     """An atomic part of a bash word.
-    
+
     Represents a single syntactic element within a word. Parts can be
     literals, variable references, expansions, or nested parts.
-    
+
     Common part types:
         - "Lit": Simple literal string value
         - "Var": Variable reference ($VAR)
@@ -421,7 +433,7 @@ class Part:
         - "CmdSubst": Command substitution ($() or backticks)
         - "DblQuoted": Double-quoted string containing nested parts
         - "SglQuoted": Single-quoted string
-    
+
     Attributes:
         type: shfmt part type name
         pos: Starting source position
@@ -430,31 +442,33 @@ class Part:
         parts: Nested parts (for DblQuoted, SglQuoted, etc.)
         extra: Additional context (for CmdSubst, contains inner statements)
     """
+
     type: str = None
     pos: Position = None
     end: Position = None
-    value: Optional[str] = None
-    parts: Optional[List['Part']] = None
-    extra: Optional[dict] = None
+    value: str | None = None
+    parts: list[Part] | None = None
+    extra: dict | None = None
 
 
 @dataclass
 class CallExpr(Node):
     """A command invocation with its arguments.
-    
+
     Represents a simple bash command invocation, e.g., "ls -la", "echo hello",
     or "python script.py". The first argument in the args list is the command
     name, followed by its arguments.
-    
+
     For example, in "ls -la /tmp", CallExpr has three args:
         [Word("ls"), Word("-la"), Word("/tmp")]
-    
+
     Attributes:
         args: List of Word objects - first is the command name, rest are arguments
         assigns: Variable assignments before the command (e.g., "x=1 ls")
     """
-    args: List['Word'] = None
-    assigns: List['Assign'] = None
+
+    args: list[Word] = None
+    assigns: list[Assign] = None
 
 
 @dataclass
@@ -486,10 +500,11 @@ class Block(Node):
         right_pos: Position of the closing brace
         stmts: List of Stmt objects representing commands in the block
     """
+
     type: str = "Block"
     left_pos: Position = None
     right_pos: Position = None
-    stmts: List['Stmt'] = None
+    stmts: list[Stmt] = None
 
 
 @dataclass
@@ -515,169 +530,178 @@ class FuncDecl(Node):
         name: Lit node containing the function name
         body: Block node containing the function body statements
     """
+
     type: str = "FuncDecl"
     rsrv_word: bool = False
     parens: bool = False
-    name: Optional['Lit'] = None
-    body: Optional['Node'] = None
+    name: Lit | None = None
+    body: Node | None = None
 
 
 @dataclass
 class BinaryCmd(Node):
     """A binary command operation (primarily pipes).
-    
+
     Represents bash binary operators, most commonly pipes (|). The operator
     takes two command operands: left and right.
-    
+
     Example: "ls | grep txt" becomes:
         BinaryCmd(op="|", left=CallExpr("ls"), right=CallExpr("grep txt"))
-    
+
     Attributes:
         op: Operator symbol ("|" for pipe)
         left: Left operand (a command or nested expression)
         right: Right operand (a command or nested expression)
         redirs: Redirections applied at the pipe level
     """
+
     op: str = None
-    left: 'Node' = None
-    right: 'Node' = None
-    redirs: Optional[List['Redir']] = None
+    left: Node = None
+    right: Node = None
+    redirs: list[Redir] | None = None
 
 
 @dataclass
 class Subshell(Node):
     """A parenthesized command group (subshell).
-    
+
     Represents bash subshell syntax where commands are grouped in parentheses
     and executed in a separate shell environment. For example:
         (cd /tmp && ls)
-    
+
     Attributes:
         stmts: List of Stmt objects executed within the subshell
     """
-    stmts: List['Stmt'] = None
+
+    stmts: list[Stmt] = None
 
 
 @dataclass
 class IfClause(Node):
     """An if/elif/else conditional statement.
-    
+
     Represents bash conditional branching. The cond_stmts field contains
     the test command, then_stmts contains the true branch, elif_branches
     contains additional elif conditions, and else_stmts contains the final fallback.
-    
+
     Example: "if test -f file; then cat file; else echo missing; fi"
-    
+
     Attributes:
         cond_stmts: List of Stmt objects for the if condition
         then_stmts: List of Stmt objects for the true branch
         elif_branches: List of dicts with "cond" and "body" keys
         else_stmts: List of Stmt objects for the else branch
     """
-    cond_stmts: List['Stmt'] = None
-    then_stmts: List['Stmt'] = None
-    elif_branches: List[dict] = None
-    else_stmts: List['Stmt'] = None
+
+    cond_stmts: list[Stmt] = None
+    then_stmts: list[Stmt] = None
+    elif_branches: list[dict] = None
+    else_stmts: list[Stmt] = None
 
 
 @dataclass
 class ForClause(Node):
     """A for loop statement.
-    
+
     Represents bash's C-style for loop: for var in words; do body; done
-    
+
     Example: "for f in *.txt; do echo $f; done"
-    
+
     Attributes:
         var: Word representing the loop variable name
         words: List of Word objects to iterate over
         body: List of Stmt objects executed in each iteration
     """
-    var: 'Word' = None
-    words: List['Word'] = None
-    body: List['Stmt'] = None
+
+    var: Word = None
+    words: list[Word] = None
+    body: list[Stmt] = None
 
 
 @dataclass
 class WhileClause(Node):
     """A while loop statement.
-    
+
     Represents bash's while loop: while condition; do body; done
-    
+
     Example: "while true; do sleep 1; done"
-    
+
     Attributes:
         cond_stmts: List of Stmt objects evaluated as the loop condition
         body: List of Stmt objects executed in each iteration
     """
-    cond_stmts: List['Stmt'] = None
-    body: List['Stmt'] = None
+
+    cond_stmts: list[Stmt] = None
+    body: list[Stmt] = None
 
 
 @dataclass
 class AndCmd(Node):
     """Logical AND operator (&&).
-    
+
     Represents bash's short-circuit AND: command1 && command2
     Executes right only if left succeeds (exit code 0).
-    
+
     Example: "test -f file && cat file"
-    
+
     Attributes:
         left: Left operand (command or expression)
         right: Right operand (command or expression)
     """
-    left: 'Node' = None
-    right: 'Node' = None
+
+    left: Node = None
+    right: Node = None
 
 
 @dataclass
 class OrCmd(Node):
     """Logical OR operator (||).
-    
+
     Represents bash's short-circuit OR: command1 || command2
     Executes right only if left fails (non-zero exit code).
-    
+
     Example: "ping -c1 host || echo unreachable"
-    
+
     Attributes:
         left: Left operand (command or expression)
         right: Right operand (command or expression)
     """
-    left: 'Node' = None
-    right: 'Node' = None
+
+    left: Node = None
+    right: Node = None
 
 
 @dataclass
 class CaseClause(Node):
     """A case/switch statement.
-    
+
     Represents bash's case statement: case expr in patterns) body;; esac
     Matches expr against patterns and executes the first matching branch.
-    
+
     Example: "case $color in red) echo warm;; green) echo natural;; esac"
-    
+
     Attributes:
         expr: Word expression to evaluate for matching
         branches: List of dicts with "patterns" (Words) and "body" (Stmts)
         default: List of Stmt objects for the default (*) branch
     """
-    expr: 'Word' = None
-    branches: List[dict] = None
-    default: List['Stmt'] = None
+
+    expr: Word = None
+    branches: list[dict] = None
+    default: list[Stmt] = None
 
 
 @dataclass
 class Redir:
     """A file redirection operation.
-    
+
     Represents bash's file redirections that connect commands to files.
     Common redirection operators include > (output), >> (append), < (input),
     and 2> (stderr output).
-    
+
     Example: "cat file.txt > output.txt" has a Redir with op='>' and
     word containing 'output.txt'.
-    
+
     Attributes:
         op: Redirection operator string (e.g., ">", ">>", "<", "2>")
         word: Word specifying the file target
@@ -685,11 +709,13 @@ class Redir:
         end: Ending source position
         op_pos: Source position of the redirection operator itself
     """
+
     op: str = None
-    word: 'Word' = None
+    word: Word = None
     pos: Position = None
     end: Position = None
     op_pos: Position = None
+
 
 @dataclass
 class TestClause(Node):
@@ -720,10 +746,11 @@ class TestClause(Node):
         right_pos: Position of the closing ]]
         body: The test expression (Node with type UnaryTest, BinaryTest, ParenTest, etc.)
     """
+
     type: str = "TestClause"
     left_pos: Position = None
     right_pos: Position = None
-    body: Optional['Node'] = None
+    body: Node | None = None
 
 
 @dataclass
@@ -743,10 +770,11 @@ class UnaryTest(Node):
         op_pos: Position of the operator
         x: The test operand
     """
+
     type: str = "UnaryTest"
     op: str = None
     op_pos: Position = None
-    x: Optional['Node'] = None
+    x: Node | None = None
 
 
 @dataclass
@@ -767,11 +795,12 @@ class BinaryTest(Node):
         x: Left operand
         y: Right operand
     """
+
     type: str = "BinaryTest"
     op: str = None
     op_pos: Position = None
-    x: Optional['Node'] = None
-    y: Optional['Node'] = None
+    x: Node | None = None
+    y: Node | None = None
 
 
 @dataclass
@@ -789,85 +818,95 @@ class ParenTest(Node):
         right_pos: Position of the closing parenthesis
         body: The inner test expression
     """
+
     type: str = "ParenTest"
     left_pos: Position = None
     right_pos: Position = None
-    body: Optional['Node'] = None
+    body: Node | None = None
 
 
 @dataclass
 class ArithmCmd(Node):
     """Arithmetic command: (( expr ))."""
+
     type: str = "ArithmCmd"
     left_pos: Position = None
     right_pos: Position = None
-    body: Optional['Node'] = None
+    body: Node | None = None
 
 
 @dataclass
 class UnaryArithm(Node):
     """Unary arithmetic: -x, !x, x++, x--."""
+
     type: str = "UnaryArithm"
     op: str = None
     op_pos: Position = None
     post: bool = False
-    x: Optional['Node'] = None
+    x: Node | None = None
 
 
 @dataclass
 class ParenArithm(Node):
     """Parenthesized arithmetic: (expr)."""
+
     type: str = "ParenArithm"
     left_pos: Position = None
     right_pos: Position = None
-    body: Optional['Node'] = None
+    body: Node | None = None
 
 
 @dataclass
 class FlagsArithm(Node):
     """Zsh subscript flags: ${array[(flags)expr]}."""
+
     type: str = "FlagsArithm"
-    flags: Optional['Lit'] = None
-    x: Optional['Node'] = None
+    flags: Lit | None = None
+    x: Node | None = None
 
 
 @dataclass
 class LetClause(Node):
     """Let statement: let expr."""
+
     type: str = "LetClause"
     let_pos: Position = None
-    exprs: List['Node'] = None
+    exprs: list[Node] = None
 
 
 @dataclass
 class TimeClause(Node):
     """Time-prefixed command: time cmd."""
+
     type: str = "TimeClause"
     time_pos: Position = None
     posix_format: bool = False
-    stmt: Optional['Node'] = None
+    stmt: Node | None = None
 
 
 @dataclass
 class CoprocClause(Node):
     """Coprocess: coproc NAME { cmd }."""
+
     type: str = "CoprocClause"
     coproc_pos: Position = None
-    name: Optional['Word'] = None
-    stmt: Optional['Node'] = None
+    name: Word | None = None
+    stmt: Node | None = None
 
 
 @dataclass
 class TestDecl(Node):
     """Bats test: @test "description" { body }."""
+
     type: str = "TestDecl"
-    description: Optional['Word'] = None
-    body: Optional['Node'] = None
+    description: Word | None = None
+    body: Node | None = None
 
 
 @dataclass
 class Comment(Node):
     """Shell comment: # text."""
+
     type: str = "Comment"
     hash_pos: Position = None
     text: str = ""
@@ -876,11 +915,12 @@ class Comment(Node):
 @dataclass
 class Assign(Node):
     """Variable assignment: var=val, arr[i]=val, var+=val."""
+
     type: str = "Assign"
-    name: Optional['Lit'] = None
-    index: Optional['Node'] = None
-    value: Optional['Word'] = None
-    array: Optional['Node'] = None
+    name: Lit | None = None
+    index: Node | None = None
+    value: Word | None = None
+    array: Node | None = None
     append: bool = False
     naked: bool = False
 
@@ -888,50 +928,55 @@ class Assign(Node):
 @dataclass
 class CaseItem(Node):
     """Case statement branch: patterns) stmts;;"""
+
     type: str = "CaseItem"
     op: str = None
-    patterns: List['Word'] = None
-    stmts: List['Node'] = None
+    patterns: list[Word] = None
+    stmts: list[Node] = None
 
 
 @dataclass
 class WordIter(Node):
     """For-loop word iteration: for var in words."""
+
     type: str = "WordIter"
-    name: Optional['Lit'] = None
-    items: List['Word'] = None
+    name: Lit | None = None
+    items: list[Word] = None
 
 
 @dataclass
 class CStyleLoop(Node):
     """C-style for loop: for (init; cond; post)."""
+
     type: str = "CStyleLoop"
-    init: Optional['Node'] = None
-    cond: Optional['Node'] = None
-    post: Optional['Node'] = None
+    init: Node | None = None
+    cond: Node | None = None
+    post: Node | None = None
 
 
 @dataclass
 class ArrayExpr(Node):
     """Array expression: ( elem1 elem2 )."""
+
     type: str = "ArrayExpr"
-    elems: List['Node'] = None
+    elems: list[Node] = None
 
 
 @dataclass
 class ArrayElem(Node):
     """Array element: index=value or just value."""
+
     type: str = "ArrayElem"
-    index: Optional['Node'] = None
-    value: Optional['Word'] = None
+    index: Node | None = None
+    value: Word | None = None
 
 
 def assign_from_json(data: dict) -> Assign:
     """Convert shfmt JSON assignment data to a typed Assign object.
-    
+
     Args:
         data: shfmt JSON object representing an assignment
-    
+
     Returns:
         Assign: Typed assignment object with name, index, value, array fields
     """
@@ -947,19 +992,19 @@ def assign_from_json(data: dict) -> Assign:
             value_pos=_parse_position(name_data.get("ValuePos")),
             value_end=_parse_position(name_data.get("ValueEnd")),
         )
-    
+
     # Index is a Word node
     index_data = data.get("Index")
     index_node = None
     if isinstance(index_data, dict):
         index_node = word_from_json(index_data)
-    
+
     # Value is a Word node
     value_data = data.get("Value")
     value_node = None
     if isinstance(value_data, dict):
         value_node = word_from_json(value_data)
-    
+
     # Array is an ArrayExpr
     array_data = data.get("Array")
     array_node = None
@@ -971,7 +1016,7 @@ def assign_from_json(data: dict) -> Assign:
             end=_parse_position(array_data.get("End")),
             elems=[array_elem_from_json(e) for e in array_data.get("Elems", [])],
         )
-    
+
     return Assign(
         type="Assign",
         pos=_parse_position(data.get("Pos")),
@@ -987,10 +1032,10 @@ def assign_from_json(data: dict) -> Assign:
 
 def array_elem_from_json(data: dict) -> ArrayElem:
     """Convert shfmt JSON array element data to a typed ArrayElem object.
-    
+
     Args:
         data: shfmt JSON object representing an array element
-    
+
     Returns:
         ArrayElem: Typed array element object
     """
@@ -999,13 +1044,13 @@ def array_elem_from_json(data: dict) -> ArrayElem:
     index_node = None
     if isinstance(index_data, dict):
         index_node = word_from_json(index_data)
-    
+
     # Value is a Word node
     value_data = data.get("Value")
     value_node = None
     if isinstance(value_data, dict):
         value_node = word_from_json(value_data)
-    
+
     return ArrayElem(
         type="ArrayElem",
         pos=_parse_position(data.get("Pos")),
@@ -1017,10 +1062,10 @@ def array_elem_from_json(data: dict) -> ArrayElem:
 
 def redir_from_json(data: dict) -> Redir:
     """Convert shfmt JSON redirection data to a typed Redir object.
-    
+
     Args:
         data: shfmt JSON object representing a redirection
-    
+
     Returns:
         Redir: Typed redirection object with operator and target word
     """
@@ -1032,17 +1077,18 @@ def redir_from_json(data: dict) -> Redir:
         op_pos=_parse_position(data.get("OpPos")),
     )
 
+
 @dataclass
 class Stmt:
     """A bash statement.
-    
+
     A statement wraps a command with its associated position and optional
     file redirections. Each statement in a script corresponds to one line
     of execution (or a multi-line logical unit).
-    
+
     Example: "cat file.txt > output.txt" has a Stmt with cmd=CallExpr
     and redirs=[Redir(op='>', word='output.txt')]
-    
+
     Attributes:
         cmd: The command node (CallExpr, BinaryCmd, Subshell, etc.)
         position: shfmt's position field (alternative to pos)
@@ -1050,27 +1096,29 @@ class Stmt:
         end: Ending source position
         redirs: List of Redir objects applied to this statement
     """
-    cmd: 'Node' = None
+
+    cmd: Node = None
     position: Position = None
     pos: Position = None
     end: Position = None
-    redirs: Optional[List['Redir']] = None
+    redirs: list[Redir] | None = None
 
 
 @dataclass
 class File(Node):
     """Top-level file node wrapping all statements.
-    
+
     The root of every parsed bash command tree. Contains a list of
     statements representing all commands in the input.
-    
+
     Example: "ls -la; echo done" produces a File node with two
     statements in the stmts list.
-    
+
     Attributes:
         stmts: List of Stmt objects representing all commands
     """
-    stmts: List['Stmt'] = None
+
+    stmts: list[Stmt] = None
 
 
 # Type mapping from shfmt's JSON to our dataclasses
@@ -1123,32 +1171,30 @@ NODE_TYPES = {
 
 def node_from_json(data: dict) -> Node:
     """Convert shfmt JSON node data to a typed AST node.
-    
+
     Maps shfmt's node type names to appropriate Python dataclasses using
     the NODE_TYPES mapping. Unknown types are wrapped in generic Node
     objects with their type name preserved.
-    
+
     Args:
         data: shfmt JSON object representing a single node
-    
+
     Returns:
         Node: Appropriately typed AST node (File, CallExpr, BinaryCmd, etc.)
     """
     node_type = data.get("Type", "")
-    
+
     # Handle nodes that have 'Cmd' but no 'Type' (wrapped statements)
     if not node_type and "Cmd" in data:
         return node_from_json(data["Cmd"])
-    
+
     if node_type not in NODE_TYPES:
         return Node(
             type=node_type,
             pos=_parse_position(data.get("Pos")),
             end=_parse_position(data.get("End")),
         )
-    
-    cls = NODE_TYPES[node_type]
-    
+
     if node_type == "File":
         return File(
             type=node_type,
@@ -1233,19 +1279,19 @@ def node_from_json(data: dict) -> Node:
         cond_raw = data.get("Cond", [])
         then_raw = data.get("Then", [])
         else_raw = data.get("Else")
-        
+
         cond_stmts = []
         if isinstance(cond_raw, list):
             for item in cond_raw:
                 if isinstance(item, dict) and "Cmd" in item:
                     cond_stmts.append(stmt_from_json(item))
-        
+
         then_stmts = []
         if isinstance(then_raw, list):
             for item in then_raw:
                 if isinstance(item, dict) and "Cmd" in item:
                     then_stmts.append(stmt_from_json(item))
-        
+
         elif_branches = []
         for b in data.get("Elif", []):
             if isinstance(b, dict):
@@ -1262,7 +1308,7 @@ def node_from_json(data: dict) -> Node:
                         if isinstance(item, dict) and "Cmd" in item:
                             b_body.append(stmt_from_json(item))
                 elif_branches.append({"cond": b_cond, "body": b_body})
-        
+
         else_stmts = []
         if isinstance(else_raw, dict):
             # Check if it's an elif (nested if) or a plain else body
@@ -1273,21 +1319,21 @@ def node_from_json(data: dict) -> Node:
                 nested_cond_raw = else_raw.get("Cond", [])
                 nested_then_raw = else_raw.get("Then", [])
                 nested_else_raw = else_raw.get("Else")
-                
+
                 nested_cond = []
                 if isinstance(nested_cond_raw, list):
                     for item in nested_cond_raw:
                         if isinstance(item, dict) and "Cmd" in item:
                             nested_cond.append(stmt_from_json(item))
-                
+
                 nested_then = []
                 if isinstance(nested_then_raw, list):
                     for item in nested_then_raw:
                         if isinstance(item, dict) and "Cmd" in item:
                             nested_then.append(stmt_from_json(item))
-                
+
                 elif_branches.append({"cond": nested_cond, "body": nested_then})
-                
+
                 # Process nested else recursively
                 if isinstance(nested_else_raw, dict):
                     if "Cond" in nested_else_raw:
@@ -1317,7 +1363,7 @@ def node_from_json(data: dict) -> Node:
             for item in else_raw:
                 if isinstance(item, dict) and "Cmd" in item:
                     else_stmts.append(stmt_from_json(item))
-        
+
         return IfClause(
             type=node_type,
             pos=_parse_position(data.get("Pos")),
@@ -1336,25 +1382,27 @@ def node_from_json(data: dict) -> Node:
             name_info = loop.get("Name", {})
             if isinstance(name_info, dict):
                 var_name = name_info.get("Value")
-        
+
         items = []
         if isinstance(loop, dict):
             for w in loop.get("Items", []):
                 if isinstance(w, dict):
                     items.append(word_from_json(w))
-        
+
         body = []
         do_raw = data.get("Do", [])
         if isinstance(do_raw, list):
             for s in do_raw:
                 if isinstance(s, dict) and "Cmd" in s:
                     body.append(stmt_from_json(s))
-        
+
         return ForClause(
             type=node_type,
             pos=_parse_position(data.get("Pos")),
             end=_parse_position(data.get("End")),
-            var=None if var_name is None else Word(
+            var=None
+            if var_name is None
+            else Word(
                 type="Word",
                 parts=[Part(type="Lit", value=var_name)],
             ),
@@ -1646,7 +1694,7 @@ def node_from_json(data: dict) -> Node:
             sequence=data.get("Sequence", False),
             elems=[word_from_json(e) for e in data.get("Elems", [])],
         )
-    
+
     return Node(
         type=node_type,
         pos=_parse_position(data.get("Pos")),
@@ -1656,13 +1704,13 @@ def node_from_json(data: dict) -> Node:
 
 def stmt_from_json(data: dict) -> Stmt:
     """Convert shfmt JSON statement data to a typed Stmt object.
-    
+
     Parses the command within the statement and extracts any associated
     file redirections.
-    
+
     Args:
         data: shfmt JSON object representing a statement
-    
+
     Returns:
         Stmt: Typed statement with parsed command and redirections
     """
@@ -1687,13 +1735,13 @@ def stmt_from_json(data: dict) -> Stmt:
 
 def word_from_json(data: dict) -> Word:
     """Convert shfmt JSON word data to a typed Word object.
-    
+
     Parses all parts of the word (literals, variables, expansions) and
     constructs a complete Word node.
-    
+
     Args:
         data: shfmt JSON object representing a word
-    
+
     Returns:
         Word: Typed word with parsed parts
     """
@@ -1708,25 +1756,28 @@ def word_from_json(data: dict) -> Word:
 
 def part_from_json(data: dict) -> Part:
     """Convert shfmt JSON part data to a typed Part object.
-    
+
     Handles all part types: literals, variables, parameter expansions,
     command substitutions, quoted strings, etc.
-    
+
     Args:
         data: shfmt JSON object representing a word part
-    
+
     Returns:
         Part: Typed part object
     """
     parts = None
     if "Parts" in data:
         parts = [part_from_json(p) for p in data.get("Parts", [])]
-    
+
     # For DblQuoted, the value is the concatenation of inner parts
     value = data.get("Value")
     if data.get("Type") == "DblQuoted" and parts:
-        value = "".join(str(p.value) if hasattr(p, "value") and p.value is not None else "" for p in parts)
-    
+        value = "".join(
+            str(p.value) if hasattr(p, "value") and p.value is not None else ""
+            for p in parts
+        )
+
     if data.get("Type") == "Lit":
         return Lit(
             type="Lit",
@@ -1813,7 +1864,7 @@ def part_from_json(data: dict) -> Part:
                 value_end=_parse_position(pattern_data.get("ValueEnd")),
             ),
         )
-    
+
     return Part(
         type=data.get("Type", ""),
         pos=_parse_position(data.get("Pos")),
@@ -1826,10 +1877,10 @@ def part_from_json(data: dict) -> Part:
 
 def _parse_position(data: dict) -> Position:
     """Parse source position data from shfmt JSON.
-    
+
     Args:
         data: shfmt JSON position object with Offset, Line, Col fields
-    
+
     Returns:
         Position: Typed position object
     """
@@ -1842,20 +1893,20 @@ def _parse_position(data: dict) -> Position:
 
 def parse_ast(command: str) -> Node:
     """Parse a bash command string into a typed AST node.
-    
+
     This is the main entry point for parsing bash commands. It invokes
     shfmt via the parser module and converts the resulting JSON into
     a typed Python AST rooted at a File node.
-    
+
     Args:
         command: Bash command string to parse
-    
+
     Returns:
         Node: Root File node of the parsed AST tree
-    
+
     Raises:
         ParseError: If shfmt cannot parse the command
-    
+
     Example:
         tree = parse_ast('ls -la | grep txt')
         tree.type            # 'File'
@@ -1863,5 +1914,6 @@ def parse_ast(command: str) -> Node:
         tree.stmts[0].cmd.type  # 'BinaryCmd'
     """
     from .parser import parse
+
     raw = parse(command)
     return node_from_json(raw)

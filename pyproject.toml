@@ -20,3 +20,14 @@ dev = [
     "pytest>=9.1.1",
     "ruff",
 ]
+
+[tool.ruff]
+line-length = 88
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"

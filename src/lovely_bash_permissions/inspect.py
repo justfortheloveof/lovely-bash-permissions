@@ -17,8 +17,28 @@ Key functions:
     - Visitor: Custom AST traversal pattern
 """
 
-from typing import List, Callable
-from .ast import Node, CallExpr, BinaryCmd, Word, Part, Lit, ParamExp, DblQuoted, CmdSubst, Stmt, File, Redir, Subshell, IfClause, ForClause, WhileClause, AndCmd, OrCmd, CaseClause, part_from_json, node_from_json
+from collections.abc import Callable
+
+from .ast import (
+    AndCmd,
+    BinaryCmd,
+    CallExpr,
+    CaseClause,
+    CmdSubst,
+    File,
+    ForClause,
+    IfClause,
+    Lit,
+    Node,
+    OrCmd,
+    ParamExp,
+    Part,
+    Redir,
+    Stmt,
+    Subshell,
+    WhileClause,
+    Word,
+)
 
 
 def _traverse(
@@ -125,12 +145,7 @@ def _traverse(
         if node.body:
             for stmt in node.body:
                 _traverse(stmt, visitor, recurse_call_expr_args)
-    elif isinstance(node, AndCmd):
-        if node.left:
-            _traverse(node.left, visitor, recurse_call_expr_args)
-        if node.right:
-            _traverse(node.right, visitor, recurse_call_expr_args)
-    elif isinstance(node, OrCmd):
+    elif isinstance(node, (AndCmd, OrCmd)):
         if node.left:
             _traverse(node.left, visitor, recurse_call_expr_args)
         if node.right:
@@ -146,10 +161,9 @@ def _traverse(
         if node.default:
             for stmt in node.default:
                 _traverse(stmt, visitor, recurse_call_expr_args)
-    elif hasattr(node, 'type') and node.type == "DeclClause":
-        if node.args:
-            for a in node.args:
-                _traverse(a, visitor, recurse_call_expr_args)
+    elif hasattr(node, "type") and node.type == "DeclClause" and node.args:
+        for a in node.args:
+            _traverse(a, visitor, recurse_call_expr_args)
 
 
 class Visitor:
@@ -214,9 +228,7 @@ class Visitor:
             return self.visit_redir(node)
         elif isinstance(node, Lit):
             return self.visit_lit(node)
-        elif isinstance(node, ParamExp):
-            return self.visit_part(node)
-        elif isinstance(node, Part):
+        elif isinstance(node, (ParamExp, Part)):
             return self.visit_part(node)
         elif isinstance(node, Subshell):
             return self.visit_subshell(node)
@@ -234,7 +246,7 @@ class Visitor:
             return self.visit_or_cmd(node)
         elif isinstance(node, CaseClause):
             return self.visit_case_clause(node)
-        elif hasattr(node, 'type') and node.type == "DeclClause":
+        elif hasattr(node, "type") and node.type == "DeclClause":
             return self.visit_decl_clause(node)
         else:
             return self.visit_node(node)
@@ -316,8 +328,6 @@ class Visitor:
         """Visit a CaseClause node. Override to process case/switch statements."""
         pass
 
-
-
     def walk(self, node: Node):
         """Walk the entire AST tree, visiting all nodes recursively."""
         _traverse(node, self.visit, recurse_call_expr_args=True)
@@ -370,7 +380,7 @@ class VariableVisitor(Visitor):
         self.found = True
 
 
-def get_commands(tree: Node) -> List[str]:
+def get_commands(tree: Node) -> list[str]:
     """
     Extract all command names from the AST.
 
@@ -388,7 +398,7 @@ def get_commands(tree: Node) -> List[str]:
         tree = parse_ast('cat file.txt | grep pattern | sort -u')
         get_commands(tree)  # ['cat', 'grep', 'sort']
     """
-    commands: List[str] = []
+    commands: list[str] = []
 
     def visitor(node):
         if isinstance(node, CallExpr):
@@ -401,17 +411,17 @@ def get_commands(tree: Node) -> List[str]:
             # which may contain CmdSubst with nested commands.
             if node.assigns:
                 for assign in node.assigns:
-                    val = assign.value if hasattr(assign, 'value') else None
+                    val = assign.value if hasattr(assign, "value") else None
                     if val is None:
                         continue
-                    for p in getattr(val, 'parts', []):
+                    for p in getattr(val, "parts", []):
                         _traverse(p, visitor)
 
     _traverse(tree, visitor)
     return commands
 
 
-def find_commands(tree: Node) -> List[CallExpr]:
+def find_commands(tree: Node) -> list[CallExpr]:
     """
     Find all CallExpr nodes (commands) in the AST.
 
@@ -432,7 +442,7 @@ def find_commands(tree: Node) -> List[CallExpr]:
         len(commands)              # 2
         commands[0].args[0]        # Word node for 'ls'
     """
-    commands: List[CallExpr] = []
+    commands: list[CallExpr] = []
 
     def visitor(node):
         if isinstance(node, CallExpr):
@@ -440,10 +450,10 @@ def find_commands(tree: Node) -> List[CallExpr]:
             # Handle Assigns (variable assignments) — recurse into their parts.
             if node.assigns:
                 for assign in node.assigns:
-                    val = assign.value if hasattr(assign, 'value') else None
+                    val = assign.value if hasattr(assign, "value") else None
                     if val is None:
                         continue
-                    for p in getattr(val, 'parts', []):
+                    for p in getattr(val, "parts", []):
                         _traverse(p, visitor)
 
     _traverse(tree, visitor)
@@ -483,7 +493,7 @@ def has_variable(tree: Node) -> bool:
     return visitor.found
 
 
-def get_redirections(tree: Node) -> List[dict]:
+def get_redirections(tree: Node) -> list[dict]:
     """
     Extract file redirections from the AST.
 
@@ -503,21 +513,23 @@ def get_redirections(tree: Node) -> List[dict]:
         redirs[0]['op']            # '>'
         redirs[0]['target']        # 'output.txt'
     """
-    redirs: List[dict] = []
+    redirs: list[dict] = []
 
     def visitor(node):
-        if isinstance(node, Stmt) and node.redirs:
+        if (
+            isinstance(node, Stmt)
+            and node.redirs
+            or isinstance(node, BinaryCmd)
+            and node.redirs
+        ):
             for r in node.redirs:
-                redirs.append({'op': r.op, 'target': _word_value(r.word)})
-        elif isinstance(node, BinaryCmd) and node.redirs:
-            for r in node.redirs:
-                redirs.append({'op': r.op, 'target': _word_value(r.word)})
+                redirs.append({"op": r.op, "target": _word_value(r.word)})
 
     _traverse(tree, visitor)
     return redirs
 
 
-def get_arguments(tree: Node) -> List[List[str]]:
+def get_arguments(tree: Node) -> list[list[str]]:
     """
     Extract command arguments for each call expression.
 
@@ -539,7 +551,7 @@ def get_arguments(tree: Node) -> List[List[str]]:
         tree2 = parse_ast('ls -la | grep -i txt')
         get_arguments(tree2)  # [['-la'], ['-i', 'txt']]
     """
-    args_list: List[List[str]] = []
+    args_list: list[list[str]] = []
 
     def visitor(node):
         if isinstance(node, CallExpr) and node.args:
@@ -549,7 +561,7 @@ def get_arguments(tree: Node) -> List[List[str]]:
     return args_list
 
 
-def find_arguments(tree: Node) -> List[List[Word]]:
+def find_arguments(tree: Node) -> list[list[Word]]:
     """
     Find all argument lists (excluding command names) for each call.
 
@@ -564,7 +576,7 @@ def find_arguments(tree: Node) -> List[List[Word]]:
         List[List[Word]]: Outer list has one entry per command; inner lists
             contain Word objects for each argument
     """
-    args_list: List[List[Word]] = []
+    args_list: list[list[Word]] = []
 
     def visitor(node):
         if isinstance(node, CallExpr) and node.args:
@@ -624,9 +636,7 @@ def _has_pipe_recursive(node: Node) -> bool:
         if any(_has_pipe_recursive(s.cmd) for s in node.cond_stmts):
             return True
         return any(_has_pipe_recursive(s.cmd) for s in node.body)
-    elif isinstance(node, AndCmd):
-        return _has_pipe_recursive(node.left) or _has_pipe_recursive(node.right)
-    elif isinstance(node, OrCmd):
+    elif isinstance(node, (AndCmd, OrCmd)):
         return _has_pipe_recursive(node.left) or _has_pipe_recursive(node.right)
     elif isinstance(node, CaseClause):
         for branch in node.branches:
@@ -636,7 +646,7 @@ def _has_pipe_recursive(node: Node) -> bool:
     return False
 
 
-def get_target_files(tree: Node) -> List[str]:
+def get_target_files(tree: Node) -> list[str]:
     """
     Extract file targets from redirections.
 
@@ -654,15 +664,15 @@ def get_target_files(tree: Node) -> List[str]:
         tree = parse_ast('cat file.txt > output.txt')
         get_target_files(tree)  # ['output.txt']
     """
-    targets: List[str] = []
+    targets: list[str] = []
 
     def visitor(node):
-        if isinstance(node, Stmt) and node.redirs:
-            for r in node.redirs:
-                target = _word_value(r.word)
-                if target:
-                    targets.append(target)
-        elif isinstance(node, BinaryCmd) and node.redirs:
+        if (
+            isinstance(node, Stmt)
+            and node.redirs
+            or isinstance(node, BinaryCmd)
+            and node.redirs
+        ):
             for r in node.redirs:
                 target = _word_value(r.word)
                 if target:
