@@ -109,6 +109,36 @@ class Lit(Node):
 
 
 @dataclass
+class SglQuoted(Node):
+    """A single-quoted shell string.
+    
+    Represents a single-quoted bash string where the content is taken
+    literally with no variable expansion, command substitution, or
+    special character interpretation. Single-quoted strings are the
+    simplest way to quote strings in bash.
+    
+    Unlike Lit, the value is wrapped in single quotes in the source,
+    which means no expansion occurs. For example, in 'echo $HOME',
+    the argument would be SglQuoted with value="$HOME" (the variable
+    is not expanded).
+    
+    shfmt's JSON representation for SglQuoted includes:
+        - Type: "SglQuoted"
+        - Value: The string content without quotes
+        - Pos/End: Position of the entire quoted string
+        - Left/Right: Position of the opening/closing quote characters
+    
+    Attributes:
+        type: Always "SglQuoted"
+        pos: Starting source position of the entire quoted string
+        end: Ending source position of the entire quoted string
+        value: The string content without the surrounding quotes
+    """
+    type: str = "SglQuoted"
+    value: str = ""
+
+
+@dataclass
 class Part:
     """An atomic part of a bash word.
     
@@ -397,6 +427,8 @@ NODE_TYPES = {
     "AndCmd": AndCmd,
     "OrCmd": OrCmd,
     "CaseClause": CaseClause,
+    "Lit": Lit,
+    "SglQuoted": SglQuoted,
 }
 
 
@@ -766,6 +798,13 @@ def part_from_json(data: dict) -> Part:
             value=data.get("Value", ""),
             value_pos=_parse_position(data.get("ValuePos")),
             value_end=_parse_position(data.get("ValueEnd")),
+        )
+    elif data.get("Type") == "SglQuoted":
+        return SglQuoted(
+            type="SglQuoted",
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            value=data.get("Value", ""),
         )
     
     return Part(

@@ -357,3 +357,78 @@ class TestLitNodes:
         """Verify that Lit is imported in the lovely_bash_permissions module."""
         from lovely_bash_permissions import Lit
         assert Lit is not None
+
+
+class TestSglQuotedNodes:
+    """Tests for the SglQuoted node type (Step 2 of node coverage)."""
+
+    def test_simple_single_quoted(self):
+        """Parse echo 'hello world' and verify it produces a SglQuoted node."""
+        tree = parse_ast("echo 'hello world'")
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'CallExpr'
+        assert len(cmd.args) == 2
+        # The second argument is a SglQuoted part
+        assert cmd.args[1].parts[0].type == 'SglQuoted'
+        assert cmd.args[1].parts[0].value == 'hello world'
+
+    def test_single_quoted_with_variable_no_expansion(self):
+        """Parse echo '$HOME' and verify variable is not expanded (single quotes)."""
+        tree = parse_ast("echo '$HOME'")
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].type == 'SglQuoted'
+        assert cmd.args[1].parts[0].value == '$HOME'
+
+    def test_multiple_single_quoted_arguments(self):
+        """Parse echo 'a' 'b' and verify both arguments are SglQuoted."""
+        tree = parse_ast("echo 'a' 'b'")
+        cmd = tree.stmts[0].cmd
+        assert len(cmd.args) == 3
+        assert cmd.args[1].parts[0].type == 'SglQuoted'
+        assert cmd.args[1].parts[0].value == 'a'
+        assert cmd.args[2].parts[0].type == 'SglQuoted'
+        assert cmd.args[2].parts[0].value == 'b'
+
+    def test_single_quoted_with_asterisk(self):
+        """Parse echo 'foo*' and verify asterisk is literal in single quotes."""
+        tree = parse_ast("echo 'foo*'")
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].type == 'SglQuoted'
+        assert cmd.args[1].parts[0].value == 'foo*'
+
+    def test_single_quoted_empty(self):
+        """Parse echo '' and verify an empty SglQuoted is handled."""
+        tree = parse_ast("echo ''")
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].type == 'SglQuoted'
+        assert cmd.args[1].parts[0].value == ''
+
+    def test_single_quoted_backslashes(self):
+        """Parse echo 'hello\nworld' and verify backslashes are literal."""
+        tree = parse_ast("echo 'hello\nworld'")
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].type == 'SglQuoted'
+        assert cmd.args[1].parts[0].value == 'hello\nworld'
+
+    def test_single_quoted_with_dollar_sign(self):
+        """Parse echo 'price $5' and verify the dollar sign is literal."""
+        tree = parse_ast("echo 'price $5'")
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].type == 'SglQuoted'
+        assert cmd.args[1].parts[0].value == 'price $5'
+
+    def test_single_quoted_position_info(self):
+        """Verify that SglQuoted nodes have position information from shfmt."""
+        tree = parse_ast("echo 'hello'")
+        cmd = tree.stmts[0].cmd
+        part = cmd.args[1].parts[0]
+        assert part.type == 'SglQuoted'
+        assert part.pos is not None
+        assert part.end is not None
+        assert isinstance(part.pos.offset, int)
+        assert isinstance(part.end.offset, int)
+
+    def test_sgquoted_imported_in_module(self):
+        """Verify that SglQuoted is imported in the lovely_bash_permissions module."""
+        from lovely_bash_permissions import SglQuoted
+        assert SglQuoted is not None

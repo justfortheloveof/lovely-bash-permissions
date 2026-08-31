@@ -24,7 +24,7 @@ Exported symbols:
 """
 
 from .parser import parse, ParseError
-from .ast import parse_ast, Node, Position, Word, CallExpr, BinaryCmd, Stmt, File, Part, Lit, Redir, Subshell, IfClause, ForClause, WhileClause, AndCmd, OrCmd, CaseClause
+from .ast import parse_ast, Node, Position, Word, CallExpr, BinaryCmd, Stmt, File, Part, Lit, SglQuoted, Redir, Subshell, IfClause, ForClause, WhileClause, AndCmd, OrCmd, CaseClause
 from .inspect import get_commands, get_arguments, has_variable, get_redirections, find_commands, find_arguments, has_pipe, get_target_files, Visitor
 
 __version__ = "0.1.0"
@@ -42,6 +42,7 @@ __all__ = [
     "File",
     "Part",
     "Lit",
+    "SglQuoted",
     "Redir",
     "Subshell",
     "IfClause",

@@ -18,7 +18,7 @@ Key functions:
 """
 
 from typing import List, Callable, Any, Dict, Optional
-from .ast import Node, CallExpr, BinaryCmd, Word, Part, Lit, Stmt, File, Redir, Subshell, IfClause, ForClause, WhileClause, AndCmd, OrCmd, CaseClause, part_from_json, node_from_json
+from .ast import Node, CallExpr, BinaryCmd, Word, Part, Lit, SglQuoted, Stmt, File, Redir, Subshell, IfClause, ForClause, WhileClause, AndCmd, OrCmd, CaseClause, part_from_json, node_from_json
 
 
 class Visitor:
