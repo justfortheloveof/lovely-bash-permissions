@@ -30,35 +30,36 @@ tests/
 
 ### Step 1 — Verify current tests pass
 Run the full test suite and confirm baseline passes before any changes.
+- [x] 276 tests collected, all passing — baseline confirmed.
 
 ### Step 2 — Create `test_ast.py` with all node type tests
-Move every test class that tests AST node types from `test_parser.py` and `test_nodes.py` into this new file. Includes:
-- TestLitNodes, TestSglQuotedNodes, TestParamExpNodes, TestDblQuotedNodes
-- TestCmdSubstNodes, TestArithmExpNodes, TestProcSubstNodes, TestExtGlobNodes
-- TestBlockNodes, TestFuncDeclNodes (from `test_parser.py`)
-- TestBraceExpNode (from `test_nodes.py`, rename class to match naming convention)
-- TestSimpleCommands, TestPipes, TestRedirections, TestVariables, TestComplexCommands,
-  TestEdgeCases, TestASTStructure (from `test_parser.py` — these test parsed AST structure)
+- [x] Created `tests/test_ast.py` from `test_parser.py` and `test_nodes.py`
+- All node-type test classes preserved: TestLitNodes, TestSglQuotedNodes, TestParamExpNodes,
+  TestDblQuotedNodes, TestCmdSubstNodes, TestArithmExpNodes, TestProcSubstNodes,
+  TestExtGlobNodes, TestBlockNodes, TestFuncDeclNodes, TestBraceExpNode,
+  TestSimpleCommands, TestPipes, TestRedirections, TestVariables, TestComplexCommands,
+  TestEdgeCases, TestASTStructure
 
 ### Step 3 — Create `test_inspect.py` from phase2 tests
-Move inspection helper tests from `test_phase2.py`:
-- TestVisitorPattern, TestFindCommands, TestFindArguments, TestHasPipe,
-  TestGetTargetFiles, TestIntegration
+- [x] Created `tests/test_inspect.py` from `test_phase2.py`
+- Test classes moved: TestVisitorPattern, TestFindCommands, TestFindArguments,
+  TestHasPipe, TestGetTargetFiles, TestIntegration
 
 ### Step 4 — Create `test_features.py` from phase3 tests
-Move shell features and edge-case tests from `test_phase3.py`:
-- TestSubshells, TestIfStatements, TestForLoops, TestWhileLoops,
+- [x] Created `tests/test_features.py` from `test_phase3.py`
+- Test classes moved: TestSubshells, TestIfStatements, TestForLoops, TestWhileLoops,
   TestAndOrOperators, TestMultiLineCommands, TestComplexNestedStructures,
   TestEdgeCases, TestCommandSubstitution, TestRedirectionComplex,
   TestVariablesComplex, TestErrorMessages, TestParseErrorAttributes
 
 ### Step 5 — Delete old files and verify
-Remove `test_nodes.py`, `test_phase2.py`, `test_phase3.py`. Run full suite: all tests must pass.
+- [x] Removed `test_nodes.py`, `test_phase2.py`, `test_phase3.py`
+- [x] Full suite rerun: 276 tests passing
 
 ### Step 6 — Add `tests/__init__.py` if missing
 Ensure the tests directory is a proper package (for relative imports).
 
 ## Completion Criteria
-- All original test classes/functions preserved and passing
-- New file names match source module names (ast → ast, inspect → inspect)
-- Zero test duplication between files
+- [x] All original test classes/functions preserved and passing (276 tests)
+- [x] New file names match source module names (ast → ast, inspect → inspect)
+- [x] Zero test duplication between files
