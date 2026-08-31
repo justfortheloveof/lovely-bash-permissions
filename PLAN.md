@@ -10,10 +10,10 @@
 **Files changed:** `src/lovely_bash_permissions/inspect.py`
 **Tests affected:** `tests/test_phase2.py` (TestVisitorPattern) — all 5 visitor tests pass. Full suite: 221/221 passed.
 
-2. **Dead code: unused imports**
-`inspect.py` imports `Any`, `Dict`, `SglQuoted`, and `DblQuoted` from `.ast`. Only `DblQuoted` is used (once in `_has_variable_recursive`). `Any`, `Dict`, and `SglQuoted` are dead imports. Also, `_has_variable_recursive()` is a ~100-line function that uses string-based type checking (`node.type == "DeclClause"`) and manual recursion — it duplicates the traversal logic in a very different style from `_traverse()`.
+2. ~~Dead code: unused imports~~ ✅ DONE
+Removed `Any`, `Dict` (typing) and `SglQuoted` (ast) from inspect.py imports. Kept `DblQuoted` (used in VariableVisitor). Rewrote `has_variable()` using `_traverse()` visitor pattern — created `VariableVisitor` class that collects Var/ParamExp/CmdSubst nodes, deleted ~100-line `_has_variable_recursive()` function.
 
-**Fix:** Remove unused imports; rewrite `has_variable` to use the shared `_traverse()` visitor pattern (a simple visitor that checks for `"Var"`, `"ParamExp"`, `"CmdSubst"` types).
+**Tests:** 221/221 passed.
 
 3. **Dead code: `Range` class and unused node classes**
 The `ast.py` module defines 49 dataclasses (102 classes total including functions), but `Range` is never referenced anywhere else in the codebase. Several node types (`FlagsArithm`, `LetClause`, `TimeClause`, `CoprocClause`, `TestDecl`, `Comment`, `Assign`, `CaseItem`, `WordIter`, `CStyleLoop`, `ArrayExpr`, `ArrayElem`) have **zero tests covering them** — they're likely dead code from an early shfmt feature dump.

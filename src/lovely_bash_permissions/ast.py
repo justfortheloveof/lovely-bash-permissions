@@ -43,16 +43,6 @@ class Position:
 
 
 @dataclass
-class Range:
-    """Source range with start and end positions.
-    
-    Defines a span of text in the source from pos to end.
-    """
-    pos: Position
-    end: Position
-
-
-@dataclass
 class Node:
     """Base AST node for all bash syntax elements.
     
@@ -701,7 +691,6 @@ class Redir:
     end: Position = None
     op_pos: Position = None
 
-@dataclass
 @dataclass
 class TestClause(Node):
     """Extended test: [[ condition ]].
