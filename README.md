@@ -105,9 +105,9 @@ print(has_variable(parse_ast('export PATH="$HOME/bin:$PATH"')))  # True
 print(has_variable(parse_ast('cat /path/to/file')))     # False (path, not variable)
 ```
 
-#### `get_redirections(tree)` → `List[dict]`
+#### `get_redirections(tree)` → `List[RedirectionInfo]`
 
-Extract file redirections from the AST. Returns a list of dicts with `op` (operator) and `target` (file path).
+Extract file redirections from the AST. Returns a list of `RedirectionInfo` typed dicts with `op` (operator) and `target` (file path).
 
 ```python
 from lovely_bash_permissions import parse_ast, get_redirections
@@ -166,65 +166,6 @@ from lovely_bash_permissions import parse_ast, get_target_files
 tree = parse_ast('cat file.txt > output.txt')
 print(get_target_files(tree))  # ['output.txt']
 ```
-
-### Visitor Pattern
-
-#### `Visitor` class
-
-The AST visitor pattern for custom traversal. Subclass `Visitor` and override specific `visit_*` methods to process particular node types.
-
-```python
-from lovely_bash_permissions import parse_ast, Visitor
-
-class CommandCollector(Visitor):
-    def __init__(self):
-        super().__init__()
-        self.commands = []
-    
-    def visit_call_expr(self, node):
-        super().visit_call_expr(node)
-        cmd_name = node.args[0].parts[0].value
-        self.commands.append(cmd_name)
-
-tree = parse_ast('cat file.txt | grep pattern | sort -u')
-collector = CommandCollector()
-collector.walk(tree)
-print(collector.commands)  # ['cat', 'grep', 'sort']
-```
-
-Available visit methods:
-- `visit(node)` — Dispatch to type-specific handler
-- `visit_file(node)` — Top-level File nodes
-- `visit_stmt(node)` — Individual statements
-- `visit_call_expr(node)` — Command invocations
-- `visit_binary_cmd(node)` — Pipe operations
-- `visit_word(node)` — Bash words
-- `visit_redir(node)` — File redirections
-- `visit_part(node)` — Word parts (literals, variables, etc.)
-- `visit_lit(node)` — Literal strings
-- `visit_sgl_quoted(node)` — Single-quoted strings
-- `visit_param_exp(node)` — Parameter expansions ($VAR)
-- `visit_dbl_quoted(node)` — Double-quoted strings
-- `visit_ext_glob(node)` — Extended glob patterns
-- `visit_assign(node)` — Variable assignments
-- `visit_node(node)` — Generic/unmapped node types
-- `visit_subshell(node)` — Parenthesized command groups
-- `visit_cmd_subst(node)` — Command substitutions
-- `visit_if_clause(node)` — If/elif/else conditionals
-- `visit_for_clause(node)` — For loops
-- `visit_while_clause(node)` — While loops
-- `visit_and_cmd(node)` — Logical AND (&&)
-- `visit_or_cmd(node)` — Logical OR (||)
-- `visit_case_clause(node)` — Case/switch statements
-- `visit_block(node)` — Block statements
-- `visit_func_decl(node)` — Function declarations
-- `visit_test_clause(node)` — Extended test expressions
-- `visit_arithm_cmd(node)` — Arithmetic commands
-- `visit_time_clause(node)` — Time-prefixed commands
-- `visit_coproc_clause(node)` — Coprocesses
-- `visit_decl_clause(node)` — Declaration builtins
-- `visit_let_clause(node)` — Let statements
-- `walk(node)` — Recursively visit all nodes
 
 ### AST Node Types
 
@@ -400,50 +341,9 @@ print(len(tree.stmts))       # 2
 print(get_commands(tree))    # ['echo', 'echo']
 ```
 
-### Custom Visitor: Variable Finder
-
-```python
-from lovely_bash_permissions import parse_ast, Visitor
-
-class VariableFinder(Visitor):
-    def __init__(self):
-        super().__init__()
-        self.variables = []
-    
-    def visit_param_exp(self, node):
-        super().visit_param_exp(node)
-        if node.param and node.param not in self.variables:
-            self.variables.append(node.param)
-
-tree = parse_ast('echo $HOME $PATH $USER')
-finder = VariableFinder()
-finder.walk(tree)
-print(finder.variables)
-# ['HOME', 'PATH', 'USER']
-```
-
-### Custom Visitor: Command Counter
-
-```python
-from lovely_bash_permissions import parse_ast, Visitor
-
-class CommandCounter(Visitor):
-    def __init__(self):
-        super().__init__()
-        self.count = 0
-    
-    def visit_call_expr(self, node):
-        super().visit_call_expr(node)
-        self.count += 1
-
-tree = parse_ast('ls | grep txt | sort | uniq | tee output.txt')
-counter = CommandCounter()
-counter.walk(tree)
-print(counter.count)
-# 5
-```
-
 ## Running Tests
+
+### Permission Checker
 
 ```bash
 uv sync

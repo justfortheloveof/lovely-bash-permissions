@@ -1,6 +1,6 @@
 """
-Tests for AST node types — dataclass structure, NODE_TYPES registry,
-and node types not covered by test_parser.py.
+Tests for AST node types — dataclass structure and node types
+not covered by test_parser.py.
 """
 
 from lovely_bash_permissions import (
@@ -9,7 +9,6 @@ from lovely_bash_permissions import (
     Word,
     parse_ast,
 )
-from lovely_bash_permissions.converter import NODE_TYPES
 
 
 class TestBraceExpNode:
@@ -30,65 +29,9 @@ class TestBraceExpNode:
         node = BraceExp()
         assert node.elems == []
 
-    def test_brace_exp_registered_in_node_types(self):
-        assert "BraceExp" in NODE_TYPES
-
     def test_brace_exp_instantiation(self):
         node = BraceExp(sequence=True, elems=[Word(parts=[])])
         assert node.sequence is True
-
-
-class TestNodeTypesRegistry:
-    """Verify all expected types are registered in NODE_TYPES."""
-
-    def test_all_core_types_registered(self):
-        expected = [
-            "File",
-            "CallExpr",
-            "BinaryCmd",
-            "Word",
-            "DeclClause",
-            "Subshell",
-            "IfClause",
-            "ForClause",
-            "WhileClause",
-            "AndCmd",
-            "OrCmd",
-            "CaseClause",
-            "Lit",
-            "SglQuoted",
-            "ParamExp",
-            "DblQuoted",
-            "CmdSubst",
-            "ProcSubst",
-            "ArithmExp",
-            "BraceExp",
-            "BinaryArithm",
-            "ExtGlob",
-            "Block",
-            "FuncDecl",
-            "TestClause",
-            "UnaryTest",
-            "BinaryTest",
-            "ParenTest",
-            "ArithmCmd",
-            "UnaryArithm",
-            "ParenArithm",
-            "FlagsArithm",
-            "LetClause",
-            "TimeClause",
-            "CoprocClause",
-            "TestDecl",
-            "Comment",
-            "Assign",
-            "CaseItem",
-            "WordIter",
-            "CStyleLoop",
-            "ArrayExpr",
-            "ArrayElem",
-        ]
-        for name in expected:
-            assert name in NODE_TYPES, f"{name} missing from NODE_TYPES"
 
 
 class TestNodeFromJsonNoneGuard:
@@ -100,9 +43,9 @@ class TestNodeFromJsonNoneGuard:
         assert node_from_json(None) is None
 
     def test_word_from_json_returns_none_for_none(self):
-        from lovely_bash_permissions.converter import word_from_json
+        from lovely_bash_permissions.converter import _convert_word
 
-        assert word_from_json(None) is None
+        assert _convert_word(None) is None
 
     def test_parse_position_returns_none_for_none(self):
         from lovely_bash_permissions.converter import _parse_position
@@ -149,10 +92,6 @@ class TestDeclClauseNode:
         assert DeclClause is not None
         node = DeclClause()
         assert node.type == "DeclClause"
-
-    def test_decl_clause_registered(self):
-        assert "DeclClause" in NODE_TYPES
-        assert NODE_TYPES["DeclClause"] is DeclClause
 
     def test_decl_clause_isinstance(self):
         tree = parse_ast("export FOO=bar")

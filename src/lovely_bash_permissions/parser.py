@@ -21,11 +21,12 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 _VALID_DIALECTS = frozenset({"bash", "posix", "mksh", "bats", "zsh"})
 
 
-def parse(command: str, dialect: str = "bash") -> dict:
+def parse(command: str, dialect: str = "bash") -> dict[str, Any]:
     """
     Parse a bash command using shfmt-py's --to-json flag.
 
@@ -35,7 +36,7 @@ def parse(command: str, dialect: str = "bash") -> dict:
                 "mksh", "bats", or "zsh".
 
     Returns:
-        dict: The shfmt JSON AST representation as a Python dictionary.
+        dict[str, Any]: The shfmt JSON AST representation as a Python dictionary.
 
     Raises:
         ParseError: If parsing fails (syntax error, invalid JSON, missing binary).
@@ -61,6 +62,7 @@ def parse(command: str, dialect: str = "bash") -> dict:
         input=command,
         capture_output=True,
         text=True,
+        timeout=30,
     )
 
     if result.returncode != 0:
@@ -84,6 +86,10 @@ def parse(command: str, dialect: str = "bash") -> dict:
 def find_shfmt() -> str:
     """
     Locate the shfmt binary on the system.
+
+    The result is cached for the lifetime of the process.  If the binary
+    is moved or removed after the first successful lookup, the stale path
+    will be returned.  Call ``find_shfmt.cache_clear()`` to reset.
 
     Searches the following locations in order:
         1. ``$VIRTUAL_ENV/bin/shfmt`` (if the env var is set)

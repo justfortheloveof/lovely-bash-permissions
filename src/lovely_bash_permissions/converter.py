@@ -8,8 +8,10 @@ dataclass nodes defined in ``ast.py``. It uses a dispatch table
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from collections.abc import Callable
+from typing import Any
 
 from .ast import (
     AndCmd,
@@ -69,54 +71,6 @@ _log = logging.getLogger(__name__)
 # Type mapping from shfmt's JSON to our dataclasses
 # ---------------------------------------------------------------------------
 
-#: Registry mapping shfmt type-name strings to the corresponding Python
-#: dataclass.  Useful for dynamic dispatch, serialisation round-trips, or
-#: plugin code that needs to resolve a type name at runtime.
-NODE_TYPES: dict[str, type] = {
-    "File": File,
-    "CallExpr": CallExpr,
-    "BinaryCmd": BinaryCmd,
-    "Word": Word,
-    "DeclClause": DeclClause,
-    "Subshell": Subshell,
-    "IfClause": IfClause,
-    "ForClause": ForClause,
-    "WhileClause": WhileClause,
-    "AndCmd": AndCmd,
-    "OrCmd": OrCmd,
-    "CaseClause": CaseClause,
-    "Lit": Lit,
-    "SglQuoted": SglQuoted,
-    "ParamExp": ParamExp,
-    "DblQuoted": DblQuoted,
-    "CmdSubst": CmdSubst,
-    "ProcSubst": ProcSubst,
-    "ArithmExp": ArithmExp,
-    "BraceExp": BraceExp,
-    "BinaryArithm": BinaryArithm,
-    "ExtGlob": ExtGlob,
-    "Block": Block,
-    "FuncDecl": FuncDecl,
-    "TestClause": TestClause,
-    "UnaryTest": UnaryTest,
-    "BinaryTest": BinaryTest,
-    "ParenTest": ParenTest,
-    "ArithmCmd": ArithmCmd,
-    "UnaryArithm": UnaryArithm,
-    "ParenArithm": ParenArithm,
-    "FlagsArithm": FlagsArithm,
-    "LetClause": LetClause,
-    "TimeClause": TimeClause,
-    "CoprocClause": CoprocClause,
-    "TestDecl": TestDecl,
-    "Comment": Comment,
-    "Assign": Assign,
-    "CaseItem": CaseItem,
-    "WordIter": WordIter,
-    "CStyleLoop": CStyleLoop,
-    "ArrayExpr": ArrayExpr,
-    "ArrayElem": ArrayElem,
-}
 
 # ---------------------------------------------------------------------------
 # Position helpers
@@ -147,11 +101,10 @@ def _parse_pos_end(data: dict) -> tuple[Position | None, Position | None]:
 # ---------------------------------------------------------------------------
 
 
-def _lit_from_json(data: dict) -> Lit:
+def _convert_lit(data: dict) -> Lit:
     """Convert shfmt JSON to a Lit node."""
     pos, end = _parse_pos_end(data)
     return Lit(
-        type="Lit",
         pos=pos,
         end=end,
         value=data.get("Value", ""),
@@ -160,22 +113,21 @@ def _lit_from_json(data: dict) -> Lit:
     )
 
 
-def _sgl_quoted_from_json(data: dict) -> SglQuoted:
+def _convert_sgl_quoted(data: dict) -> SglQuoted:
     pos, end = _parse_pos_end(data)
-    return SglQuoted(type="SglQuoted", pos=pos, end=end, value=data.get("Value", ""))
+    return SglQuoted(pos=pos, end=end, value=data.get("Value", ""))
 
 
-def _paramexp_from_json(data: dict) -> ParamExp:
+def _convert_param_exp(data: dict) -> ParamExp:
     """Convert shfmt JSON to a ParamExp node."""
     pos, end = _parse_pos_end(data)
     param_data = data.get("Param", {})
     param_value = param_data.get("Value", "") if isinstance(param_data, dict) else ""
     index_data = data.get("Index")
-    index_node = word_from_json(index_data) if isinstance(index_data, dict) else None
+    index_node = _convert_word(index_data) if isinstance(index_data, dict) else None
     exp_data = data.get("Exp")
     exp_value = exp_data if isinstance(exp_data, dict) else None
     return ParamExp(
-        type="ParamExp",
         pos=pos,
         end=end,
         param=param_value,
@@ -187,64 +139,65 @@ def _paramexp_from_json(data: dict) -> ParamExp:
     )
 
 
-def _cmd_subst_from_json(data: dict) -> CmdSubst:
+def _convert_cmd_subst(data: dict) -> CmdSubst:
     pos, end = _parse_pos_end(data)
     return CmdSubst(
-        type="CmdSubst",
         pos=pos,
         end=end,
-        stmts=[stmt_from_json(s) for s in data.get("Stmts", [])],
+        stmts=[_convert_stmt(s) for s in data.get("Stmts", [])],
         backquotes=data.get("Backquotes", False),
     )
 
 
-def _proc_subst_from_json(data: dict) -> ProcSubst:
+def _convert_proc_subst(data: dict) -> ProcSubst:
     pos, end = _parse_pos_end(data)
     return ProcSubst(
-        type="ProcSubst",
         pos=pos,
         end=end,
         op=data.get("Op", ""),
         op_pos=_parse_position(data.get("OpPos")),
         rparen=_parse_position(data.get("Rparen")),
-        stmts=[stmt_from_json(s) for s in data.get("Stmts", [])],
+        stmts=[_convert_stmt(s) for s in data.get("Stmts", [])],
     )
 
 
-def _arithm_exp_from_json(data: dict) -> ArithmExp:
+def _convert_arithm_exp(data: dict) -> ArithmExp:
     pos, end = _parse_pos_end(data)
     return ArithmExp(
-        type="ArithmExp",
         pos=pos,
         end=end,
         x=node_from_json(data.get("X")),
     )
 
 
-def _extglob_from_json(data: dict) -> ExtGlob:
+def _convert_ext_glob(data: dict) -> ExtGlob:
     """Convert shfmt JSON to an ExtGlob node."""
     pos, end = _parse_pos_end(data)
     pattern_data = data.get("Pattern", {})
     return ExtGlob(
-        type="ExtGlob",
         pos=pos,
         end=end,
         op=data.get("Op", ""),
         op_pos=_parse_position(data.get("OpPos")),
-        pattern=_lit_from_json(pattern_data) if pattern_data else None,
+        pattern=_convert_lit(pattern_data) if pattern_data else None,
     )
 
 
-def _dbl_quoted_from_json(data: dict) -> DblQuoted:
-    parts = [part_from_json(p) for p in data.get("Parts", [])]
+def _convert_dbl_quoted(data: dict) -> DblQuoted:
+    parts = [_convert_part(p) for p in data.get("Parts", [])]
     value = None
     if parts:
-        value = "".join(
-            str(p.value) if hasattr(p, "value") and p.value is not None else ""
-            for p in parts
-        )
+        vals: list[str] = []
+        for p in parts:
+            if isinstance(p, (Lit, SglQuoted)):  # noqa: SIM114
+                vals.append(p.value)
+            elif isinstance(p, DblQuoted) and p.value is not None:
+                vals.append(p.value)
+            else:
+                vals.append("")
+        value = "".join(vals)
     pos, end = _parse_pos_end(data)
-    return DblQuoted(type="DblQuoted", pos=pos, end=end, parts=parts, value=value)
+    return DblQuoted(pos=pos, end=end, parts=parts, value=value)
 
 
 # ---------------------------------------------------------------------------
@@ -255,45 +208,44 @@ def _dbl_quoted_from_json(data: dict) -> DblQuoted:
 def _parse_stmt_list(raw: list | None) -> list[Stmt]:
     """Convert a list of raw JSON statement dicts to typed Stmt objects.
 
-    Filters entries that don't look like statements (no ``Cmd`` key)
-    and logs a warning for dropped entries.
+    Entries without a ``Cmd`` key (e.g., comment-only lines) are converted
+    to Stmt nodes with ``cmd=None``.  This preserves the statement count
+    but lets callers skip empty-cmd statements if they wish.
     """
     if not raw:
         return []
     result: list[Stmt] = []
     for item in raw:
-        if isinstance(item, dict) and "Cmd" in item:
-            result.append(stmt_from_json(item))
+        if isinstance(item, dict):
+            result.append(_convert_stmt(item))
         else:
-            _log.warning("Dropped non-statement entry in stmt list: %r", item)
+            _log.warning("Dropped non-dict entry in stmt list: %r", item)
     return result
 
 
-def assign_from_json(data: dict) -> Assign:
+def _convert_assign(data: dict) -> Assign:
     """Convert shfmt JSON assignment data to a typed Assign object."""
     name_data = data.get("Name", {})
-    name_node = _lit_from_json(name_data) if isinstance(name_data, dict) else None
+    name_node = _convert_lit(name_data) if isinstance(name_data, dict) else None
 
     index_data = data.get("Index")
-    index_node = word_from_json(index_data) if isinstance(index_data, dict) else None
+    index_node = _convert_word(index_data) if isinstance(index_data, dict) else None
 
     value_data = data.get("Value")
-    value_node = word_from_json(value_data) if isinstance(value_data, dict) else None
+    value_node = _convert_word(value_data) if isinstance(value_data, dict) else None
 
     array_data = data.get("Array")
     array_node = None
     if isinstance(array_data, dict):
         pos, end = _parse_pos_end(array_data)
         array_node = ArrayExpr(
-            type="ArrayExpr",
             pos=pos,
             end=end,
-            elems=[_array_elem_from_json(e) for e in array_data.get("Elems", [])],
+            elems=[_convert_array_elem(e) for e in array_data.get("Elems", [])],
         )
 
     pos, end = _parse_pos_end(data)
     return Assign(
-        type="Assign",
         pos=pos,
         end=end,
         name=name_node,
@@ -305,17 +257,16 @@ def assign_from_json(data: dict) -> Assign:
     )
 
 
-def _array_elem_from_json(data: dict) -> ArrayElem:
+def _convert_array_elem(data: dict) -> ArrayElem:
     """Convert shfmt JSON array element data to a typed ArrayElem object."""
     index_data = data.get("Index")
-    index_node = word_from_json(index_data) if isinstance(index_data, dict) else None
+    index_node = _convert_word(index_data) if isinstance(index_data, dict) else None
 
     value_data = data.get("Value")
-    value_node = word_from_json(value_data) if isinstance(value_data, dict) else None
+    value_node = _convert_word(value_data) if isinstance(value_data, dict) else None
 
     pos, end = _parse_pos_end(data)
     return ArrayElem(
-        type="ArrayElem",
         pos=pos,
         end=end,
         index=index_node,
@@ -323,29 +274,42 @@ def _array_elem_from_json(data: dict) -> ArrayElem:
     )
 
 
-def redir_from_json(data: dict) -> Redir:
+def _convert_redir(data: dict) -> Redir:
     """Convert shfmt JSON redirection data to a typed Redir object."""
     pos, end = _parse_pos_end(data)
+    n_raw = data.get("N")
+    n_val: int | None = None
+    if isinstance(n_raw, int):
+        n_val = n_raw
+    elif isinstance(n_raw, dict):
+        # shfmt encodes N as a Lit-like dict with a "Value" key
+        with contextlib.suppress(ValueError, TypeError):
+            n_val = int(n_raw.get("Value", ""))
     return Redir(
         op=data.get("Op", ""),
-        word=word_from_json(data.get("Word")),
+        n=n_val,
+        word=_convert_word(data.get("Word")),
         pos=pos,
         end=end,
         op_pos=_parse_position(data.get("OpPos")),
     )
 
 
-def stmt_from_json(data: dict) -> Stmt:
-    """Convert shfmt JSON statement data to a typed Stmt object."""
+def _convert_stmt(data: dict) -> Stmt:
+    """Convert shfmt JSON statement data to a typed Stmt object.
+
+    When the statement has no ``Cmd`` key (e.g., comment-only lines),
+    ``cmd`` is set to ``None``.
+    """
     cmd_json = data.get("Cmd")
-    cmd = node_from_json(cmd_json)
+    cmd = node_from_json(cmd_json) if cmd_json is not None else None
     redirs: list[Redir] = []
     if "Redirs" in data:
-        redirs = [redir_from_json(r) for r in data.get("Redirs", [])]
+        redirs = [_convert_redir(r) for r in data.get("Redirs", [])]
     elif isinstance(cmd, BinaryCmd):
         y_json = cmd_json.get("Y") if isinstance(cmd_json, dict) else None
         if isinstance(y_json, dict) and "Redirs" in y_json:
-            redirs = [redir_from_json(r) for r in y_json.get("Redirs", [])]
+            redirs = [_convert_redir(r) for r in y_json.get("Redirs", [])]
     pos, end = _parse_pos_end(data)
     return Stmt(
         cmd=cmd,
@@ -356,24 +320,23 @@ def stmt_from_json(data: dict) -> Stmt:
     )
 
 
-def word_from_json(data: dict | None) -> Word | None:
+def _convert_word(data: dict | None) -> Word | None:
     """Convert shfmt JSON word data to a typed Word object.
 
     Returns None when *data* is None (key absent in JSON).
     """
     if data is None:
         return None
-    parts = [part_from_json(p) for p in data.get("Parts", [])]
+    parts = [_convert_part(p) for p in data.get("Parts", [])]
     pos, end = _parse_pos_end(data)
     return Word(
-        type="Word",
         pos=pos,
         end=end,
         parts=parts,
     )
 
 
-def part_from_json(data: dict) -> Node:
+def _convert_part(data: dict) -> Node:
     """Convert shfmt JSON part data to a typed Node object.
 
     Delegates to ``_CONVERTERS`` for all known types. Falls back to a
@@ -396,7 +359,7 @@ def part_from_json(data: dict) -> Node:
 # ---------------------------------------------------------------------------
 
 
-def _parse_if_clause(data: dict) -> IfClause:
+def _convert_if_clause(data: dict) -> IfClause:
     """Parse an IfClause from shfmt JSON, handling nested elif/else structures."""
     cond_stmts = _parse_stmt_list(data.get("Cond", []))
     then_stmts = _parse_stmt_list(data.get("Then", []))
@@ -424,7 +387,6 @@ def _parse_if_clause(data: dict) -> IfClause:
 
     pos, end = _parse_pos_end(data)
     return IfClause(
-        type="IfClause",
         pos=pos,
         end=end,
         cond_stmts=cond_stmts,
@@ -465,22 +427,20 @@ def _collect_elif_chain(
 def _convert_file(data: dict) -> File:
     pos, end = _parse_pos_end(data)
     return File(
-        type="File",
         pos=pos,
         end=end,
-        stmts=[stmt_from_json(s) for s in data.get("Stmts", [])],
+        stmts=[_convert_stmt(s) for s in data.get("Stmts", [])],
     )
 
 
 def _convert_call_expr(data: dict) -> CallExpr:
     assigns_raw = data.get("Assigns")
-    assigns = [assign_from_json(a) for a in assigns_raw] if assigns_raw else None
+    assigns = [_convert_assign(a) for a in assigns_raw] if assigns_raw else None
     pos, end = _parse_pos_end(data)
     return CallExpr(
-        type="CallExpr",
         pos=pos,
         end=end,
-        args=[w for a in data.get("Args", []) if (w := word_from_json(a)) is not None],
+        args=[w for a in data.get("Args", []) if (w := _convert_word(a)) is not None],
         assigns=assigns,
     )
 
@@ -488,7 +448,6 @@ def _convert_call_expr(data: dict) -> CallExpr:
 def _convert_binary_cmd(data: dict) -> BinaryCmd:
     pos, end = _parse_pos_end(data)
     return BinaryCmd(
-        type="BinaryCmd",
         pos=pos,
         end=end,
         op=data.get("Op", ""),
@@ -514,15 +473,16 @@ def _convert_decl_clause(data: dict) -> DeclClause:
     args: list[Word] = []
     for arg in data.get("Args", []):
         if isinstance(arg, dict):
-            assigns.append(assign_from_json(arg))
+            assigns.append(_convert_assign(arg))
             # Also extract the value as a Word for backwards compat
             val = arg.get("Value", {})
             if isinstance(val, dict) and val.get("Parts"):
-                args.append(word_from_json(val))
+                word = _convert_word(val)
+                if word is not None:
+                    args.append(word)
 
     pos, end = _parse_pos_end(data)
     return DeclClause(
-        type="DeclClause",
         pos=pos,
         end=end,
         variant=variant_value,
@@ -534,10 +494,9 @@ def _convert_decl_clause(data: dict) -> DeclClause:
 def _convert_subshell(data: dict) -> Subshell:
     pos, end = _parse_pos_end(data)
     return Subshell(
-        type="Subshell",
         pos=pos,
         end=end,
-        stmts=[stmt_from_json(s) for s in data.get("Stmts", [])],
+        stmts=[_convert_stmt(s) for s in data.get("Stmts", [])],
     )
 
 
@@ -552,13 +511,14 @@ def _convert_for_clause(data: dict) -> ForClause:
             var_name = name_info.get("Value")
         for w in loop.get("Items", []):
             if isinstance(w, dict):
-                items.append(word_from_json(w))
+                word = _convert_word(w)
+                if word is not None:
+                    items.append(word)
 
     body = _parse_stmt_list(data.get("Do", []))
 
     pos, end = _parse_pos_end(data)
     return ForClause(
-        type="ForClause",
         pos=pos,
         end=end,
         var=var_name,
@@ -570,18 +530,16 @@ def _convert_for_clause(data: dict) -> ForClause:
 def _convert_while_clause(data: dict) -> WhileClause:
     pos, end = _parse_pos_end(data)
     return WhileClause(
-        type="WhileClause",
         pos=pos,
         end=end,
-        cond_stmts=[stmt_from_json(s) for s in data.get("Cond", [])],
-        body=[stmt_from_json(s) for s in data.get("Do", [])],
+        cond_stmts=[_convert_stmt(s) for s in data.get("Cond", [])],
+        body=[_convert_stmt(s) for s in data.get("Do", [])],
     )
 
 
 def _convert_and_cmd(data: dict) -> AndCmd:
     pos, end = _parse_pos_end(data)
     return AndCmd(
-        type="AndCmd",
         pos=pos,
         end=end,
         left=node_from_json(data.get("X")),
@@ -592,7 +550,6 @@ def _convert_and_cmd(data: dict) -> AndCmd:
 def _convert_or_cmd(data: dict) -> OrCmd:
     pos, end = _parse_pos_end(data)
     return OrCmd(
-        type="OrCmd",
         pos=pos,
         end=end,
         left=node_from_json(data.get("X")),
@@ -603,25 +560,26 @@ def _convert_or_cmd(data: dict) -> OrCmd:
 def _convert_case_clause(data: dict) -> CaseClause:
     pos, end = _parse_pos_end(data)
     return CaseClause(
-        type="CaseClause",
         pos=pos,
         end=end,
-        expr=word_from_json(data.get("Word")),
+        expr=_convert_word(data.get("Word")),
         branches=[
             CaseBranch(
-                patterns=[word_from_json(w) for w in b.get("Patterns", [])],
-                body=[stmt_from_json(s) for s in b.get("Stmts", [])],
+                patterns=[
+                    w
+                    for p in b.get("Patterns", [])
+                    if (w := _convert_word(p)) is not None
+                ],
+                body=[_convert_stmt(s) for s in b.get("Stmts", [])],
             )
             for b in data.get("Items", [])
         ],
-        default_body=[stmt_from_json(s) for s in data.get("Default", [])],
     )
 
 
 def _convert_binary_arithm(data: dict) -> BinaryArithm:
     pos, end = _parse_pos_end(data)
     return BinaryArithm(
-        type="BinaryArithm",
         pos=pos,
         end=end,
         op=data.get("Op", ""),
@@ -634,18 +592,17 @@ def _convert_binary_arithm(data: dict) -> BinaryArithm:
 def _convert_block(data: dict) -> Block:
     pos, end = _parse_pos_end(data)
     return Block(
-        type="Block",
         pos=pos,
         end=end,
         left_pos=_parse_position(data.get("Lbrace")),
         right_pos=_parse_position(data.get("Rbrace")),
-        stmts=[stmt_from_json(s) for s in data.get("Stmts", [])],
+        stmts=[_convert_stmt(s) for s in data.get("Stmts", [])],
     )
 
 
 def _convert_func_decl(data: dict) -> FuncDecl:
     name_data = data.get("Name", {})
-    name_node = _lit_from_json(name_data) if isinstance(name_data, dict) else None
+    name_node = _convert_lit(name_data) if isinstance(name_data, dict) else None
 
     body_data = data.get("Body")
     body_node = None
@@ -654,7 +611,6 @@ def _convert_func_decl(data: dict) -> FuncDecl:
 
     pos, end = _parse_pos_end(data)
     return FuncDecl(
-        type="FuncDecl",
         pos=pos,
         end=end,
         rsrv_word=data.get("RsrvWord", False),
@@ -667,7 +623,6 @@ def _convert_func_decl(data: dict) -> FuncDecl:
 def _convert_test_clause(data: dict) -> TestClause:
     pos, end = _parse_pos_end(data)
     return TestClause(
-        type="TestClause",
         pos=pos,
         end=end,
         left_pos=_parse_position(data.get("Left")),
@@ -679,7 +634,6 @@ def _convert_test_clause(data: dict) -> TestClause:
 def _convert_unary_test(data: dict) -> UnaryTest:
     pos, end = _parse_pos_end(data)
     return UnaryTest(
-        type="UnaryTest",
         pos=pos,
         end=end,
         op=data.get("Op", ""),
@@ -691,7 +645,6 @@ def _convert_unary_test(data: dict) -> UnaryTest:
 def _convert_binary_test(data: dict) -> BinaryTest:
     pos, end = _parse_pos_end(data)
     return BinaryTest(
-        type="BinaryTest",
         pos=pos,
         end=end,
         op=data.get("Op", ""),
@@ -704,7 +657,6 @@ def _convert_binary_test(data: dict) -> BinaryTest:
 def _convert_paren_test(data: dict) -> ParenTest:
     pos, end = _parse_pos_end(data)
     return ParenTest(
-        type="ParenTest",
         pos=pos,
         end=end,
         left_pos=_parse_position(data.get("Lparen")),
@@ -716,7 +668,6 @@ def _convert_paren_test(data: dict) -> ParenTest:
 def _convert_arithm_cmd(data: dict) -> ArithmCmd:
     pos, end = _parse_pos_end(data)
     return ArithmCmd(
-        type="ArithmCmd",
         pos=pos,
         end=end,
         left_pos=_parse_position(data.get("Left")),
@@ -728,7 +679,6 @@ def _convert_arithm_cmd(data: dict) -> ArithmCmd:
 def _convert_unary_arithm(data: dict) -> UnaryArithm:
     pos, end = _parse_pos_end(data)
     return UnaryArithm(
-        type="UnaryArithm",
         pos=pos,
         end=end,
         op=data.get("Op", ""),
@@ -741,7 +691,6 @@ def _convert_unary_arithm(data: dict) -> UnaryArithm:
 def _convert_paren_arithm(data: dict) -> ParenArithm:
     pos, end = _parse_pos_end(data)
     return ParenArithm(
-        type="ParenArithm",
         pos=pos,
         end=end,
         left_pos=_parse_position(data.get("Lparen")),
@@ -753,10 +702,9 @@ def _convert_paren_arithm(data: dict) -> ParenArithm:
 def _convert_flags_arithm(data: dict) -> FlagsArithm:
     pos, end = _parse_pos_end(data)
     return FlagsArithm(
-        type="FlagsArithm",
         pos=pos,
         end=end,
-        flags=Lit(type="Lit", value=data.get("Flags", "")),
+        flags=Lit(value=data.get("Flags", "")),
         x=node_from_json(data.get("X")),
     )
 
@@ -764,18 +712,18 @@ def _convert_flags_arithm(data: dict) -> FlagsArithm:
 def _convert_let_clause(data: dict) -> LetClause:
     pos, end = _parse_pos_end(data)
     return LetClause(
-        type="LetClause",
         pos=pos,
         end=end,
         let_pos=_parse_position(data.get("Let")),
-        exprs=[node_from_json(e) for e in data.get("Exprs", [])],
+        exprs=[
+            n for e in data.get("Exprs", []) if (n := node_from_json(e)) is not None
+        ],
     )
 
 
 def _convert_time_clause(data: dict) -> TimeClause:
     pos, end = _parse_pos_end(data)
     return TimeClause(
-        type="TimeClause",
         pos=pos,
         end=end,
         time_pos=_parse_position(data.get("Time")),
@@ -787,11 +735,10 @@ def _convert_time_clause(data: dict) -> TimeClause:
 def _convert_coproc_clause(data: dict) -> CoprocClause:
     pos, end = _parse_pos_end(data)
     return CoprocClause(
-        type="CoprocClause",
         pos=pos,
         end=end,
         coproc_pos=_parse_position(data.get("Coproc")),
-        name=word_from_json(data.get("Name")),
+        name=_convert_word(data.get("Name")),
         stmt=node_from_json(data.get("Stmt")),
     )
 
@@ -799,10 +746,9 @@ def _convert_coproc_clause(data: dict) -> CoprocClause:
 def _convert_test_decl(data: dict) -> TestDecl:
     pos, end = _parse_pos_end(data)
     return TestDecl(
-        type="TestDecl",
         pos=pos,
         end=end,
-        description=word_from_json(data.get("Description")),
+        description=_convert_word(data.get("Description")),
         body=node_from_json(data.get("Body")),
     )
 
@@ -810,7 +756,6 @@ def _convert_test_decl(data: dict) -> TestDecl:
 def _convert_comment(data: dict) -> Comment:
     pos, end = _parse_pos_end(data)
     return Comment(
-        type="Comment",
         pos=pos,
         end=end,
         hash_pos=_parse_position(data.get("Hash")),
@@ -821,12 +766,13 @@ def _convert_comment(data: dict) -> Comment:
 def _convert_case_item(data: dict) -> CaseItem:
     pos, end = _parse_pos_end(data)
     return CaseItem(
-        type="CaseItem",
         pos=pos,
         end=end,
         op=data.get("Op", ""),
-        patterns=[word_from_json(w) for w in data.get("Patterns", [])],
-        stmts=[stmt_from_json(s) for s in data.get("Stmts", [])],
+        patterns=[
+            w for p in data.get("Patterns", []) if (w := _convert_word(p)) is not None
+        ],
+        stmts=[_convert_stmt(s) for s in data.get("Stmts", [])],
     )
 
 
@@ -834,23 +780,21 @@ def _convert_word_iter(data: dict) -> WordIter:
     pos, end = _parse_pos_end(data)
     name_data = data.get("Name")
     name_node = (
-        _lit_from_json(name_data)
+        _convert_lit(name_data)
         if isinstance(name_data, dict)
-        else Lit(type="Lit", value=str(name_data) if name_data else "")
+        else Lit(value=str(name_data) if name_data else "")
     )
     return WordIter(
-        type="WordIter",
         pos=pos,
         end=end,
         name=name_node,
-        items=[word_from_json(w) for w in data.get("Items", [])],
+        items=[w for i in data.get("Items", []) if (w := _convert_word(i)) is not None],
     )
 
 
 def _convert_cstyle_loop(data: dict) -> CStyleLoop:
     pos, end = _parse_pos_end(data)
     return CStyleLoop(
-        type="CStyleLoop",
         pos=pos,
         end=end,
         init=node_from_json(data.get("Init")),
@@ -862,21 +806,19 @@ def _convert_cstyle_loop(data: dict) -> CStyleLoop:
 def _convert_array_expr(data: dict) -> ArrayExpr:
     pos, end = _parse_pos_end(data)
     return ArrayExpr(
-        type="ArrayExpr",
         pos=pos,
         end=end,
-        elems=[node_from_json(e) for e in data.get("Elems", [])],
+        elems=[_convert_array_elem(e) for e in data.get("Elems", [])],
     )
 
 
 def _convert_brace_exp(data: dict) -> BraceExp:
     pos, end = _parse_pos_end(data)
     return BraceExp(
-        type="BraceExp",
         pos=pos,
         end=end,
         sequence=data.get("Sequence", False),
-        elems=[word_from_json(e) for e in data.get("Elems", [])],
+        elems=[w for e in data.get("Elems", []) if (w := _convert_word(e)) is not None],
     )
 
 
@@ -884,21 +826,21 @@ def _convert_brace_exp(data: dict) -> BraceExp:
 # Dispatch table mapping shfmt Type strings to converter functions
 # ---------------------------------------------------------------------------
 
-_CONVERTERS: dict[str, Callable[[dict], Node | None]] = {
+_CONVERTERS: dict[str, Callable[[dict[str, Any]], Node | None]] = {
     "File": _convert_file,
     "CallExpr": _convert_call_expr,
     "BinaryCmd": _convert_binary_cmd,
     "DeclClause": _convert_decl_clause,
     "Subshell": _convert_subshell,
-    "IfClause": _parse_if_clause,
+    "IfClause": _convert_if_clause,
     "ForClause": _convert_for_clause,
     "WhileClause": _convert_while_clause,
     "AndCmd": _convert_and_cmd,
     "OrCmd": _convert_or_cmd,
     "CaseClause": _convert_case_clause,
-    "ArithmExp": _arithm_exp_from_json,
+    "ArithmExp": _convert_arithm_exp,
     "BinaryArithm": _convert_binary_arithm,
-    "ExtGlob": _extglob_from_json,
+    "ExtGlob": _convert_ext_glob,
     "Block": _convert_block,
     "FuncDecl": _convert_func_decl,
     "TestClause": _convert_test_clause,
@@ -914,21 +856,21 @@ _CONVERTERS: dict[str, Callable[[dict], Node | None]] = {
     "CoprocClause": _convert_coproc_clause,
     "TestDecl": _convert_test_decl,
     "Comment": _convert_comment,
-    "Assign": assign_from_json,
+    "Assign": _convert_assign,
     "CaseItem": _convert_case_item,
     "WordIter": _convert_word_iter,
     "CStyleLoop": _convert_cstyle_loop,
     "ArrayExpr": _convert_array_expr,
-    "ArrayElem": _array_elem_from_json,
+    "ArrayElem": _convert_array_elem,
     "BraceExp": _convert_brace_exp,
-    "Lit": _lit_from_json,
-    "SglQuoted": _sgl_quoted_from_json,
-    "ParamExp": _paramexp_from_json,
-    "DblQuoted": _dbl_quoted_from_json,
-    "CmdSubst": _cmd_subst_from_json,
-    "ProcSubst": _proc_subst_from_json,
-    "Word": word_from_json,
-    "Stmt": stmt_from_json,
+    "Lit": _convert_lit,
+    "SglQuoted": _convert_sgl_quoted,
+    "ParamExp": _convert_param_exp,
+    "DblQuoted": _convert_dbl_quoted,
+    "CmdSubst": _convert_cmd_subst,
+    "ProcSubst": _convert_proc_subst,
+    "Word": _convert_word,
+    "Stmt": _convert_stmt,
 }
 
 
@@ -959,22 +901,18 @@ def node_from_json(data: dict | None) -> Node | None:
 
 
 def parse_ast(command: str) -> File:
-    """Parse a bash command string into a typed AST node.
+    """Parse a bash command string into a typed AST.
 
-    This is the main entry point for parsing bash commands. It invokes
-    shfmt via the parser module and converts the resulting JSON into
-    a typed Python AST rooted at a File node.
-
-    The function lives in ``converter`` (rather than ``parser`` or
-    ``__init__``) because it depends on ``node_from_json`` and the full
-    converter machinery.  It is re-exported from the package root for
-    convenience.
+    This is the main entry point for parsing bash commands.  It invokes
+    shfmt via :func:`~lovely_bash_permissions.parser.parse` and converts
+    the resulting JSON into a typed Python AST rooted at a :class:`File`
+    node.  Re-exported from the package root for convenience.
 
     Args:
         command: Bash command string to parse
 
     Returns:
-        File: Root File node of the parsed AST tree
+        Root File node of the parsed AST tree
 
     Raises:
         ParseError: If shfmt cannot parse the command

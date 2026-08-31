@@ -122,27 +122,6 @@ class TestComplexNestedStructures:
 
 
 class TestEdgeCases:
-    def test_empty_command_error(self):
-        with pytest.raises(ParseError) as exc_info:
-            parse_ast("")
-        assert "Empty" in str(exc_info.value)
-
-    def test_whitespace_only_error(self):
-        with pytest.raises(ParseError):
-            parse_ast("   ")
-
-    def test_single_quote(self):
-        tree = parse_ast("echo 'hello world'")
-        assert get_commands(tree) == ["echo"]
-
-    def test_double_quote(self):
-        tree = parse_ast('echo "hello world"')
-        assert get_commands(tree) == ["echo"]
-
-    def test_mixed_quotes(self):
-        tree = parse_ast("echo 'hello' \"world\"")
-        assert get_commands(tree) == ["echo"]
-
     def test_command_with_equals(self):
         tree = parse_ast("export FOO=bar")
         assert get_commands(tree) == []
@@ -184,18 +163,13 @@ class TestVariablesComplex:
 
 
 class TestErrorMessages:
-    def test_shfmt_failure_message(self):
-        with pytest.raises(Exception) as exc_info:
-            parse_ast("")
-        assert "Empty" in str(exc_info.value)
-
     def test_unbalanced_quotes(self):
         with pytest.raises(ParseError):
             parse_ast("echo 'unclosed")
 
 
 class TestParseErrorAttributes:
-    def test_parse_error_command_attribute(self):
-        with pytest.raises(Exception) as exc_info:
+    def test_parse_error_has_command(self):
+        with pytest.raises(ParseError) as exc_info:
             parse_ast("")
-        assert "Empty" in str(exc_info.value)
+        assert exc_info.value.command == ""

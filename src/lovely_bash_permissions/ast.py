@@ -42,6 +42,8 @@ def _node_repr(obj: object, depth: int = 1) -> str:
         return repr(obj)
     parts: list[str] = []
     for f in dataclasses.fields(cls):
+        if f.name in _POSITION_FIELDS:
+            continue
         val = getattr(obj, f.name, None)
         if val is None or val == "" or val == []:
             continue
@@ -79,13 +81,15 @@ class Node:
         type: shfmt node type name (e.g., "File", "CallExpr", "Word")
         pos: Starting source position
         end: Ending source position
-        extra: Additional context or metadata (parser-specific)
     """
 
     type: str = ""
     pos: Position | None = None
     end: Position | None = None
-    extra: dict | None = None
+
+    def __post_init__(self) -> None:
+        if not self.type:
+            self.type = self.__class__.__name__
 
     def __repr__(self) -> str:
         return _node_repr(self)
@@ -118,7 +122,6 @@ class Lit(Node):
         value_end: Source position of the value's end
     """
 
-    type: str = "Lit"
     value: str = ""
     value_pos: Position | None = None
     value_end: Position | None = None
@@ -137,7 +140,6 @@ class ParamExp(Node):
         dollar_pos: Position of the $ character
     """
 
-    type: str = "ParamExp"
     param: str = ""
     short: bool = False
     exp: dict | None = None
@@ -157,7 +159,6 @@ class SglQuoted(Node):
         value: The string content without the surrounding quotes
     """
 
-    type: str = "SglQuoted"
     value: str = ""
 
 
@@ -170,12 +171,27 @@ class DblQuoted(Node):
 
     Attributes:
         parts: List of Node objects that make up the quoted content
-        value: Computed string value (concatenation of part values)
+        value: Best-effort concatenation of literal part values.  Non-literal
+            parts (e.g., ParamExp, CmdSubst) contribute empty strings, so
+            this field is lossy and should only be used for display or
+            heuristic matching — not for faithful reconstruction.
     """
 
-    type: str = "DblQuoted"
     parts: list[Node] = field(default_factory=list)
     value: str | None = None
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.value is None and self.parts:
+            vals: list[str] = []
+            for p in self.parts:
+                if isinstance(p, (Lit, SglQuoted)):  # noqa: SIM114
+                    vals.append(p.value)
+                elif isinstance(p, DblQuoted) and p.value is not None:
+                    vals.append(p.value)
+                else:
+                    vals.append("")
+            self.value = "".join(vals)
 
 
 @dataclass(slots=True, repr=False)
@@ -187,7 +203,6 @@ class CmdSubst(Node):
         backquotes: True if backtick syntax, False for $(...)
     """
 
-    type: str = "CmdSubst"
     stmts: list[Stmt] = field(default_factory=list)
     backquotes: bool = False
 
@@ -203,7 +218,6 @@ class ProcSubst(Node):
         stmts: List of Stmt objects representing commands to execute
     """
 
-    type: str = "ProcSubst"
     op: str = ""
     op_pos: Position | None = None
     rparen: Position | None = None
@@ -218,7 +232,6 @@ class ArithmExp(Node):
         x: The inner arithmetic expression
     """
 
-    type: str = "ArithmExp"
     x: Node | None = None
 
 
@@ -231,7 +244,6 @@ class BraceExp(Node):
         elems: List of Word nodes representing expansion elements
     """
 
-    type: str = "BraceExp"
     sequence: bool = False
     elems: list[Word] = field(default_factory=list)
 
@@ -246,7 +258,6 @@ class ExtGlob(Node):
         pattern: Pattern specification as a Lit node
     """
 
-    type: str = "ExtGlob"
     op: str = ""
     op_pos: Position | None = None
     pattern: Lit | None = None
@@ -263,7 +274,6 @@ class BinaryArithm(Node):
         right: Right operand
     """
 
-    type: str = "BinaryArithm"
     op: str = ""
     op_pos: Position | None = None
     left: Node | None = None
@@ -281,7 +291,6 @@ class CallExpr(Node):
         assigns: Variable assignments before the command (e.g., "x=1 ls")
     """
 
-    type: str = "CallExpr"
     args: list[Word] = field(default_factory=list)
     assigns: list[Assign] | None = None
 
@@ -298,7 +307,6 @@ class Block(Node):
         stmts: List of Stmt objects representing commands in the block
     """
 
-    type: str = "Block"
     left_pos: Position | None = None
     right_pos: Position | None = None
     stmts: list[Stmt] = field(default_factory=list)
@@ -315,7 +323,6 @@ class FuncDecl(Node):
         body: Block node containing the function body statements
     """
 
-    type: str = "FuncDecl"
     rsrv_word: bool = False
     parens: bool = False
     name: Lit | None = None
@@ -324,16 +331,19 @@ class FuncDecl(Node):
 
 @dataclass(slots=True, repr=False)
 class BinaryCmd(Node):
-    """A binary command operation (primarily pipes).
+    """A binary command with two operands joined by a pipe operator.
+
+    This node is produced by shfmt for pipe (``|``) and pipe-both (``|&``)
+    operators.  Logical ``&&`` and ``||`` are represented by :class:`AndCmd`
+    and :class:`OrCmd` respectively.
 
     Attributes:
-        op: Operator symbol ("|" for pipe, "&&", "||", etc.)
+        op: Operator symbol ("|" for pipe, "|&" for pipe-both)
         left: Left operand (a command or nested expression)
         right: Right operand (a command or nested expression)
         redirs: Redirections applied at the pipe level
     """
 
-    type: str = "BinaryCmd"
     op: str = ""
     left: Node | None = None
     right: Node | None = None
@@ -348,12 +358,11 @@ class Subshell(Node):
         stmts: List of Stmt objects executed within the subshell
     """
 
-    type: str = "Subshell"
     stmts: list[Stmt] = field(default_factory=list)
 
 
-@dataclass(slots=True)
-class ElifBranch:
+@dataclass(slots=True, repr=False)
+class ElifBranch(Node):
     """A typed elif branch in an IfClause.
 
     Attributes:
@@ -361,8 +370,8 @@ class ElifBranch:
         body: List of Stmt objects for the elif body
     """
 
-    cond: list[Stmt]
-    body: list[Stmt]
+    cond: list[Stmt] = field(default_factory=list)
+    body: list[Stmt] = field(default_factory=list)
 
 
 @dataclass(slots=True, repr=False)
@@ -436,8 +445,8 @@ class OrCmd(Node):
     right: Node | None = None
 
 
-@dataclass(slots=True)
-class CaseBranch:
+@dataclass(slots=True, repr=False)
+class CaseBranch(Node):
     """A typed case branch in a CaseClause.
 
     Attributes:
@@ -445,8 +454,8 @@ class CaseBranch:
         body: List of Stmt objects for the branch body
     """
 
-    patterns: list[Word]
-    body: list[Stmt]
+    patterns: list[Word] = field(default_factory=list)
+    body: list[Stmt] = field(default_factory=list)
 
 
 @dataclass(slots=True, repr=False)
@@ -455,13 +464,12 @@ class CaseClause(Node):
 
     Attributes:
         expr: Word expression to evaluate for matching
-        branches: List of CaseBranch objects
-        default_body: List of Stmt objects for the default (*) branch
+        branches: List of CaseBranch objects (the last branch with no
+            patterns acts as the default ``*`` case)
     """
 
     expr: Word | None = None
     branches: list[CaseBranch] = field(default_factory=list)
-    default_body: list[Stmt] = field(default_factory=list)
 
 
 @dataclass(slots=True, repr=False)
@@ -469,12 +477,15 @@ class Redir(Node):
     """A file redirection operation.
 
     Attributes:
-        op: Redirection operator string (e.g., ">", ">>", "<", "2>")
+        op: Redirection operator string (e.g., ">", ">>", "<")
+        n: File descriptor number (e.g., 2 in ``2>file``), or None
+            when no explicit descriptor is given.
         word: Word specifying the file target
         op_pos: Source position of the redirection operator itself
     """
 
     op: str = ""
+    n: int | None = None
     word: Word | None = None
     op_pos: Position | None = None
 
@@ -489,7 +500,6 @@ class TestClause(Node):
         body: The test expression node
     """
 
-    type: str = "TestClause"
     left_pos: Position | None = None
     right_pos: Position | None = None
     body: Node | None = None
@@ -505,7 +515,6 @@ class UnaryTest(Node):
         x: The test operand
     """
 
-    type: str = "UnaryTest"
     op: str = ""
     op_pos: Position | None = None
     x: Node | None = None
@@ -522,7 +531,6 @@ class BinaryTest(Node):
         right: Right operand
     """
 
-    type: str = "BinaryTest"
     op: str = ""
     op_pos: Position | None = None
     left: Node | None = None
@@ -539,7 +547,6 @@ class ParenTest(Node):
         body: The inner test expression
     """
 
-    type: str = "ParenTest"
     left_pos: Position | None = None
     right_pos: Position | None = None
     body: Node | None = None
@@ -549,7 +556,6 @@ class ParenTest(Node):
 class ArithmCmd(Node):
     """Arithmetic command: (( expr ))."""
 
-    type: str = "ArithmCmd"
     left_pos: Position | None = None
     right_pos: Position | None = None
     body: Node | None = None
@@ -559,7 +565,6 @@ class ArithmCmd(Node):
 class UnaryArithm(Node):
     """Unary arithmetic: -x, !x, x++, x--."""
 
-    type: str = "UnaryArithm"
     op: str = ""
     op_pos: Position | None = None
     post: bool = False
@@ -570,7 +575,6 @@ class UnaryArithm(Node):
 class ParenArithm(Node):
     """Parenthesized arithmetic: (expr)."""
 
-    type: str = "ParenArithm"
     left_pos: Position | None = None
     right_pos: Position | None = None
     body: Node | None = None
@@ -580,7 +584,6 @@ class ParenArithm(Node):
 class FlagsArithm(Node):
     """Zsh subscript flags: ${array[(flags)expr]}."""
 
-    type: str = "FlagsArithm"
     flags: Lit | None = None
     x: Node | None = None
 
@@ -589,7 +592,6 @@ class FlagsArithm(Node):
 class LetClause(Node):
     """Let statement: let expr."""
 
-    type: str = "LetClause"
     let_pos: Position | None = None
     exprs: list[Node] = field(default_factory=list)
 
@@ -598,7 +600,6 @@ class LetClause(Node):
 class TimeClause(Node):
     """Time-prefixed command: time cmd."""
 
-    type: str = "TimeClause"
     time_pos: Position | None = None
     posix_format: bool = False
     stmt: Node | None = None
@@ -608,7 +609,6 @@ class TimeClause(Node):
 class CoprocClause(Node):
     """Coprocess: coproc NAME { cmd }."""
 
-    type: str = "CoprocClause"
     coproc_pos: Position | None = None
     name: Word | None = None
     stmt: Node | None = None
@@ -618,7 +618,6 @@ class CoprocClause(Node):
 class TestDecl(Node):
     """Bats test: @test "description" { body }."""
 
-    type: str = "TestDecl"
     description: Word | None = None
     body: Node | None = None
 
@@ -627,7 +626,6 @@ class TestDecl(Node):
 class Comment(Node):
     """Shell comment: # text."""
 
-    type: str = "Comment"
     hash_pos: Position | None = None
     text: str = ""
 
@@ -636,7 +634,6 @@ class Comment(Node):
 class Assign(Node):
     """Variable assignment: var=val, arr[i]=val, var+=val."""
 
-    type: str = "Assign"
     name: Lit | None = None
     index: Node | None = None
     value: Word | None = None
@@ -649,7 +646,6 @@ class Assign(Node):
 class CaseItem(Node):
     """Case statement branch: patterns) stmts;;"""
 
-    type: str = "CaseItem"
     op: str = ""
     patterns: list[Word] = field(default_factory=list)
     stmts: list[Node] = field(default_factory=list)
@@ -659,7 +655,6 @@ class CaseItem(Node):
 class WordIter(Node):
     """For-loop word iteration: for var in words."""
 
-    type: str = "WordIter"
     name: Lit | None = None
     items: list[Word] = field(default_factory=list)
 
@@ -668,7 +663,6 @@ class WordIter(Node):
 class CStyleLoop(Node):
     """C-style for loop: for (init; cond; post)."""
 
-    type: str = "CStyleLoop"
     init: Node | None = None
     cond: Node | None = None
     post: Node | None = None
@@ -678,7 +672,6 @@ class CStyleLoop(Node):
 class ArrayExpr(Node):
     """Array expression: ( elem1 elem2 )."""
 
-    type: str = "ArrayExpr"
     elems: list[Node] = field(default_factory=list)
 
 
@@ -686,7 +679,6 @@ class ArrayExpr(Node):
 class ArrayElem(Node):
     """Array element: index=value or just value."""
 
-    type: str = "ArrayElem"
     index: Node | None = None
     value: Word | None = None
 
@@ -701,7 +693,6 @@ class DeclClause(Node):
         assigns: Variable assignments in the declaration
     """
 
-    type: str = "DeclClause"
     variant: str = ""
     args: list[Word] = field(default_factory=list)
     assigns: list[Assign] = field(default_factory=list)
@@ -733,3 +724,57 @@ class File(Node):
     """
 
     stmts: list[Stmt] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Structural equality
+# ---------------------------------------------------------------------------
+
+_POSITION_FIELDS = frozenset(
+    {
+        "pos",
+        "end",
+        "position",
+        "op_pos",
+        "value_pos",
+        "value_end",
+        "dollar_pos",
+        "left_pos",
+        "right_pos",
+        "hash_pos",
+        "let_pos",
+        "time_pos",
+        "coproc_pos",
+    }
+)
+
+
+def structurally_equal(a: object, b: object) -> bool:
+    """Compare two AST nodes by structure, ignoring source positions.
+
+    Two nodes are structurally equal when all their non-position fields
+    are recursively equal.  This is useful for testing and diffing ASTs
+    produced from different source locations.
+    """
+    if a is None or b is None:
+        return a is b
+    if type(a) is not type(b):
+        return False
+    if not dataclasses.is_dataclass(a):
+        return a == b
+    for f in dataclasses.fields(a):  # type: ignore[arg-type]
+        if f.name in _POSITION_FIELDS:
+            continue
+        va = getattr(a, f.name)
+        vb = getattr(b, f.name)
+        if isinstance(va, list):
+            if len(va) != len(vb):
+                return False
+            if not all(structurally_equal(x, y) for x, y in zip(va, vb, strict=True)):
+                return False
+        elif dataclasses.is_dataclass(va):
+            if not structurally_equal(va, vb):
+                return False
+        elif va != vb:
+            return False
+    return True

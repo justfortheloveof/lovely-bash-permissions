@@ -14,6 +14,8 @@ Quick start:
     get_commands(tree)  # Returns list of command names: ['ls', 'grep']
 """
 
+from importlib.metadata import version as _metadata_version
+
 from .ast import (
     AndCmd,
     ArithmCmd,
@@ -64,10 +66,11 @@ from .ast import (
     WhileClause,
     Word,
     WordIter,
+    structurally_equal,
 )
-from .converter import NODE_TYPES, parse_ast
+from .converter import parse_ast
 from .inspect import (
-    Visitor,
+    RedirectionInfo,
     find_arguments,
     find_commands,
     get_arguments,
@@ -79,7 +82,7 @@ from .inspect import (
 )
 from .parser import ParseError, parse
 
-__version__ = "0.1.0"
+__version__ = _metadata_version("lovely-bash-permissions")
 
 __all__ = [
     # Parser
@@ -136,9 +139,9 @@ __all__ = [
     "DeclClause",
     "ElifBranch",
     "CaseBranch",
-    # Registry
-    "NODE_TYPES",
+    "structurally_equal",
     # Inspection
+    "RedirectionInfo",
     "get_commands",
     "get_arguments",
     "has_variable",
@@ -147,5 +150,4 @@ __all__ = [
     "find_arguments",
     "has_pipe",
     "get_target_files",
-    "Visitor",
 ]

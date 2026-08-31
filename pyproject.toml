@@ -43,3 +43,8 @@ ignore = ["E501"]
 
 [tool.ruff.format]
 quote-style = "double"
+
+[tool.pytest.ini_options]
+markers = [
+    "linting: ruff lint and format checks (deselect with '-m not linting')",
+]
