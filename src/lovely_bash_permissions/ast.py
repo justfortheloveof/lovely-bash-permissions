@@ -298,6 +298,53 @@ class ArithmExp(Node):
 
 
 @dataclass
+class ExtGlob(Node):
+    """Extended glob pattern.
+
+    Represents bash extended globbing with the `extglob` shell option.
+    Matches files/directories against complex patterns using special
+    operators. Extended globs must be enabled with `shopt -s extglob`
+    in bash.
+
+    Extended glob operators:
+        @(pattern)     - Match exactly one occurrence of any pattern
+        +(pattern)     - Match one or more occurrences of any pattern
+        *(pattern)     - Match zero or more occurrences of any pattern
+        ?(pattern)     - Match zero or one occurrence of any pattern
+        !(pattern)     - Match anything except the specified patterns
+
+    Patterns are separated by the pipe character (|) within the parentheses.
+    Extended globs can be combined with regular globs and file paths.
+
+    Examples:
+        ls *.@(txt|md)          -> Match files ending in .txt or .md
+        rm -rf *.+(js|css)      -> Match files ending in .js, .css, etc.
+        cp *?(bak|orig) dest/   -> Match files with no extension or .bak/.orig
+        echo *.!(zip|tar)       -> Match files except .zip or .tar
+        find . -name *@(exe|so) -> Find executable/shared library files
+    
+    shfmt's JSON representation for ExtGlob includes:
+        - Type: "ExtGlob"
+        - Pos/End: Position of the entire extended glob expression
+        - OpPos: Position of the extended glob operator character
+        - Op: Extended glob operator string ("@(", "+(", "*(", "?(", "!(")
+        - Pattern: Pattern specification as a Lit node (pipe-separated patterns)
+    
+    Attributes:
+        type: Always "ExtGlob"
+        pos: Starting source position of the extended glob
+        end: Ending source position of the extended glob
+        op: Extended glob operator string ("@(", "+(", "*(", "?(", "!(")
+        op_pos: Source position of the extended glob operator character
+        pattern: Pattern specification as a Lit node
+    """
+    type: str = "ExtGlob"
+    op: str = ""
+    op_pos: Position = None
+    pattern: Optional['Lit'] = None
+
+
+@dataclass
 class BinaryArithm(Node):
     """A binary arithmetic operation.
 
@@ -630,6 +677,7 @@ NODE_TYPES = {
     "ProcSubst": ProcSubst,
     "ArithmExp": ArithmExp,
     "BinaryArithm": BinaryArithm,
+    "ExtGlob": ExtGlob,
 }
 
 
@@ -933,6 +981,23 @@ def node_from_json(data: dict) -> Node:
             x=node_from_json(data.get("X")),
             y=node_from_json(data.get("Y")),
         )
+    elif node_type == "ExtGlob":
+        pattern_data = data.get("Pattern", {})
+        return ExtGlob(
+            type=node_type,
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            op=data.get("Op", ""),
+            op_pos=_parse_position(data.get("OpPos")),
+            pattern=Lit(
+                type="Lit",
+                pos=_parse_position(pattern_data.get("Pos")),
+                end=_parse_position(pattern_data.get("End")),
+                value=pattern_data.get("Value", ""),
+                value_pos=_parse_position(pattern_data.get("ValuePos")),
+                value_end=_parse_position(pattern_data.get("ValueEnd")),
+            ),
+        )
     
     return Node(
         type=node_type,
@@ -1076,6 +1141,23 @@ def part_from_json(data: dict) -> Part:
             pos=_parse_position(data.get("Pos")),
             end=_parse_position(data.get("End")),
             x=node_from_json(data.get("X")),
+        )
+    elif data.get("Type") == "ExtGlob":
+        pattern_data = data.get("Pattern", {})
+        return ExtGlob(
+            type="ExtGlob",
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            op=data.get("Op", ""),
+            op_pos=_parse_position(data.get("OpPos")),
+            pattern=Lit(
+                type="Lit",
+                pos=_parse_position(pattern_data.get("Pos")),
+                end=_parse_position(pattern_data.get("End")),
+                value=pattern_data.get("Value", ""),
+                value_pos=_parse_position(pattern_data.get("ValuePos")),
+                value_end=_parse_position(pattern_data.get("ValueEnd")),
+            ),
         )
     
     return Part(

@@ -928,3 +928,107 @@ class TestProcSubstNodes:
         """Verify that ProcSubst is imported in the lovely_bash_permissions module."""
         from lovely_bash_permissions import ProcSubst
         assert ProcSubst is not None
+
+
+class TestExtGlobNodes:
+    """Tests for the ExtGlob node type (Step 8 of node coverage).
+    
+    Extended globs require `shopt -s extglob` in bash. shfmt parses
+    them regardless. Syntax: @(pat|pat), +(pat|pat), *(pat|pat),
+    ?(pat|pat), !(pat|pat). See https://www.gnu.org/software/bash/manual/bash.html#Pattern-Matching
+    """
+
+    def test_at_extended_glob(self):
+        """Parse ls *.@(txt|md) and verify ExtGlob with op='@('."""
+        tree = parse_ast('ls *.@(txt|md)')
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'CallExpr'
+        assert len(cmd.args) == 2
+        arg1 = cmd.args[1]
+        assert arg1.parts[0].type == 'Lit'
+        assert arg1.parts[0].value == '*.'
+        assert arg1.parts[1].type == 'ExtGlob'
+        extglob = arg1.parts[1]
+        assert extglob.op == '@('
+        assert extglob.pattern.type == 'Lit'
+        assert extglob.pattern.value == 'txt|md'
+
+    def test_plus_extended_glob(self):
+        """Parse ls *.+(txt|md) and verify ExtGlob with op='+('."""
+        tree = parse_ast('ls *.+(txt|md)')
+        cmd = tree.stmts[0].cmd
+        extglob = cmd.args[1].parts[1]
+        assert extglob.type == 'ExtGlob'
+        assert extglob.op == '+('
+        assert extglob.pattern.value == 'txt|md'
+
+    def test_question_extended_glob(self):
+        """Parse ls *.?(txt|md) and verify ExtGlob with op='?('."""
+        tree = parse_ast('ls *.?(txt|md)')
+        cmd = tree.stmts[0].cmd
+        extglob = cmd.args[1].parts[1]
+        assert extglob.type == 'ExtGlob'
+        assert extglob.op == '?('
+        assert extglob.pattern.value == 'txt|md'
+
+    def test_bang_extended_glob(self):
+        """Parse ls *.!(txt|md) and verify ExtGlob with op='!('."""
+        tree = parse_ast('ls *.!(txt|md)')
+        cmd = tree.stmts[0].cmd
+        extglob = cmd.args[1].parts[1]
+        assert extglob.type == 'ExtGlob'
+        assert extglob.op == '!('
+        assert extglob.pattern.value == 'txt|md'
+
+    def test_star_extended_glob(self):
+        """Parse ls *.*(txt|md) and verify ExtGlob with op='*(.'"""
+        tree = parse_ast('ls *.*(txt|md)')
+        cmd = tree.stmts[0].cmd
+        extglob = cmd.args[1].parts[1]
+        assert extglob.type == 'ExtGlob'
+        assert extglob.op == '*('
+        assert extglob.pattern.value == 'txt|md'
+
+    def test_extglob_with_multiple_patterns(self):
+        """Parse ls *.@(txt|md|json|yaml) with four patterns."""
+        tree = parse_ast('ls *.@(txt|md|json|yaml)')
+        cmd = tree.stmts[0].cmd
+        extglob = cmd.args[1].parts[1]
+        assert extglob.type == 'ExtGlob'
+        assert extglob.pattern.value == 'txt|md|json|yaml'
+
+    def test_extglob_position_info(self):
+        """Verify ExtGlob nodes have position information from shfmt."""
+        tree = parse_ast('ls *.@(txt|md)')
+        cmd = tree.stmts[0].cmd
+        extglob = cmd.args[1].parts[1]
+        assert extglob.type == 'ExtGlob'
+        assert extglob.pos is not None
+        assert extglob.end is not None
+        assert extglob.op_pos is not None
+        assert isinstance(extglob.pos.offset, int)
+        assert isinstance(extglob.end.offset, int)
+
+    def test_extglob_in_double_quotes(self):
+        """Parse echo \"@(cmd)\" - extglob in double quotes is literal text."""
+        # Note: bash does NOT expand @() inside double quotes without extglob
+        tree = parse_ast('echo "@(txt|md)"')
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].type == 'DblQuoted'
+        assert cmd.args[1].parts[0].parts[0].type == 'Lit'
+        assert cmd.args[1].parts[0].parts[0].value == '@(txt|md)'
+
+    def test_extglob_combined_with_procsubst(self):
+        """Parse complex expression combining ExtGlob with other features."""
+        tree = parse_ast('ls *.@(txt|md) | grep -i foo')
+        assert tree.stmts[0].cmd.type == 'BinaryCmd'
+        assert tree.stmts[0].cmd.op == '|'
+        # Left side should have ExtGlob
+        left_arg = tree.stmts[0].cmd.x.args[1].parts[1]
+        assert left_arg.type == 'ExtGlob'
+        assert left_arg.pattern.value == 'txt|md'
+
+    def test_extglob_imported_in_module(self):
+        """Verify that ExtGlob is imported in the lovely_bash_permissions module."""
+        from lovely_bash_permissions import ExtGlob
+        assert ExtGlob is not None

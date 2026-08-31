@@ -379,7 +379,9 @@ class ProcSubst(Node):
 
 **Dependencies**: None
 
-## [ ] Step 8: ExtGlob (Extended Glob)
+## [x] Step 8: ExtGlob (Extended Glob)
+
+Completed: ExtGlob dataclass implemented in ast.py with op, op_pos, pattern fields. Registered in NODE_TYPES. Updated parser in part_from_json() and node_from_json(). Added TestExtGlobNodes test class with 10 comprehensive test cases. All 187 tests pass.
 
 **Priority**: LOW
 
