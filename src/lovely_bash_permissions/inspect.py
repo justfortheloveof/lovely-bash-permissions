@@ -350,7 +350,7 @@ class VariableVisitor(Visitor):
     def visit_part(self, node: Part) -> None:
         if self.found:
             return
-        if node.type in ("Var", "ParamExp", "CmdSubst"):
+        if isinstance(node, (ParamExp, CmdSubst)):
             self.found = True
         elif node.type == "DblQuoted" and node.parts:
             for p in node.parts:
@@ -378,6 +378,10 @@ class VariableVisitor(Visitor):
     def visit_cmd_subst(self, node: CmdSubst) -> None:
         """CmdSubst ($() or backtick substitution) IS a variable reference."""
         self.found = True
+        # Also check for nested ParamExp/Var within the substitution's stmts
+        if node.stmts:
+            for stmt in node.stmts:
+                _traverse(stmt, self.visit, recurse_call_expr_args=True)
 
 
 def get_commands(tree: Node) -> list[str]:
@@ -417,7 +421,7 @@ def get_commands(tree: Node) -> list[str]:
                     for p in getattr(val, "parts", []):
                         _traverse(p, visitor)
 
-    _traverse(tree, visitor)
+    _traverse(tree, visitor, recurse_call_expr_args=True)
     return commands
 
 
@@ -456,7 +460,7 @@ def find_commands(tree: Node) -> list[CallExpr]:
                     for p in getattr(val, "parts", []):
                         _traverse(p, visitor)
 
-    _traverse(tree, visitor)
+    _traverse(tree, visitor, recurse_call_expr_args=True)
     return commands
 
 
@@ -608,42 +612,18 @@ def has_pipe(tree: Node) -> bool:
 
 
 def _has_pipe_recursive(node: Node) -> bool:
-    """Recursively check for pipes."""
-    if isinstance(node, BinaryCmd):
-        return True
-    elif isinstance(node, File):
-        return any(_has_pipe_recursive(s.cmd) for s in node.stmts)
-    elif isinstance(node, Stmt):
-        return _has_pipe_recursive(node.cmd)
-    elif isinstance(node, CallExpr):
-        return False
-    elif isinstance(node, Subshell):
-        return any(_has_pipe_recursive(s.cmd) for s in node.stmts)
-    elif isinstance(node, IfClause):
-        if any(_has_pipe_recursive(s.cmd) for s in node.cond_stmts):
-            return True
-        if any(_has_pipe_recursive(s.cmd) for s in node.then_stmts):
-            return True
-        for branch in node.elif_branches:
-            if any(_has_pipe_recursive(s.cmd) for s in branch["cond"]):
-                return True
-            if any(_has_pipe_recursive(s.cmd) for s in branch["body"]):
-                return True
-        return any(_has_pipe_recursive(s.cmd) for s in node.else_stmts)
-    elif isinstance(node, ForClause):
-        return any(_has_pipe_recursive(s.cmd) for s in node.body)
-    elif isinstance(node, WhileClause):
-        if any(_has_pipe_recursive(s.cmd) for s in node.cond_stmts):
-            return True
-        return any(_has_pipe_recursive(s.cmd) for s in node.body)
-    elif isinstance(node, (AndCmd, OrCmd)):
-        return _has_pipe_recursive(node.left) or _has_pipe_recursive(node.right)
-    elif isinstance(node, CaseClause):
-        for branch in node.branches:
-            if any(_has_pipe_recursive(s.cmd) for s in branch["body"]):
-                return True
-        return any(_has_pipe_recursive(s.cmd) for s in node.default)
-    return False
+    """Recursively check for pipes using shared traversal logic."""
+    found = False
+
+    def visitor(n: Node):
+        nonlocal found
+        if found:
+            return
+        if isinstance(n, BinaryCmd):
+            found = True
+
+    _traverse(node, visitor, recurse_call_expr_args=True)
+    return found
 
 
 def get_target_files(tree: Node) -> list[str]:

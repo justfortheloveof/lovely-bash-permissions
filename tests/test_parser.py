@@ -167,7 +167,7 @@ class TestComplexCommands:
         tree = parse_ast(
             'tar -czvf archive.tar.gz $(find . -name "*.py" -not -path "./.venv/*" -not -path "./tests/*")'
         )
-        assert get_commands(tree) == ["tar"]
+        assert get_commands(tree) == ["tar", "find"]
         assert has_variable(tree)
 
 

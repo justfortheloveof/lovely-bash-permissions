@@ -155,15 +155,15 @@ class TestEdgeCases:
 class TestCommandSubstitution:
     def test_backtick_substitution(self):
         tree = parse_ast("echo `date`")
-        assert get_commands(tree) == ["echo"]
+        assert get_commands(tree) == ["echo", "date"]
 
     def test_dollar_paren_substitution(self):
         tree = parse_ast("echo $(date)")
-        assert get_commands(tree) == ["echo"]
+        assert get_commands(tree) == ["echo", "date"]
 
     def test_nested_command_substitution(self):
         tree = parse_ast('echo "$(ls -la)"')
-        assert get_commands(tree) == ["echo"]
+        assert get_commands(tree) == ["echo", "ls"]
 
 
 class TestRedirectionComplex:

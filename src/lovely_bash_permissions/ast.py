@@ -1188,6 +1188,10 @@ def node_from_json(data: dict) -> Node:
     if not node_type and "Cmd" in data:
         return node_from_json(data["Cmd"])
 
+    # Handle nodes that have 'Cmd' but no 'Type' (wrapped statements)
+    if not node_type and "Cmd" in data:
+        return node_from_json(data["Cmd"])
+
     if node_type not in NODE_TYPES:
         return Node(
             type=node_type,
