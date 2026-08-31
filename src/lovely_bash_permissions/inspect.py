@@ -21,13 +21,24 @@ from typing import List, Callable, Any, Dict, Optional
 from .ast import Node, CallExpr, BinaryCmd, Word, Part, Lit, SglQuoted, ParamExp, DblQuoted, CmdSubst, Stmt, File, Redir, Subshell, IfClause, ForClause, WhileClause, AndCmd, OrCmd, CaseClause, part_from_json, node_from_json
 
 
-def _traverse(node: Node, visitor: Callable[[Node], None]) -> None:
+def _traverse(
+    node: Node,
+    visitor: Callable[[Node], None],
+    recurse_call_expr_args: bool = False,
+) -> None:
     """Shared AST traversal helper.
 
     Calls ``visitor(node)`` on every node, then recurses into children
     based on node type.  Visitor functions for leaf types (CallExpr, Redir)
     extract data; visitor functions for container types are no-ops —
     recursion is handled uniformly here.
+
+    When ``recurse_call_expr_args`` is True, child nodes inside CallExpr
+    arguments are also visited (used by ``walk()`` so visitors reach words
+    and variables inside command arguments).  When False (the default),
+    CallExpr arguments are skipped — this preserves the original behavior
+    where ``get_commands()`` does not extract commands nested inside
+    arguments (e.g. ``echo $(date)`` returns only ``['echo']``).
 
     This replaces the near-duplicate traversal logic previously spread
     across ``_collect_commands``, ``_find_commands``, ``_collect_arguments``,
@@ -42,98 +53,99 @@ def _traverse(node: Node, visitor: Callable[[Node], None]) -> None:
     # --- recursion into children (shared across all callers) -----
     if isinstance(node, File):
         for stmt in node.stmts:
-            _traverse(stmt, visitor)
+            _traverse(stmt, visitor, recurse_call_expr_args)
     elif isinstance(node, Stmt):
         if node.cmd:
-            _traverse(node.cmd, visitor)
+            _traverse(node.cmd, visitor, recurse_call_expr_args)
         if node.redirs:
             for redir in node.redirs:
-                _traverse(redir, visitor)
+                _traverse(redir, visitor, recurse_call_expr_args)
     elif isinstance(node, CallExpr):
-        # Do NOT recurse into args — matches original HEAD behavior where
-        # commands inside arguments (e.g. echo $(date)) are NOT extracted,
-        # but commands inside assigns' values (files=$(find ...)) ARE.
-        pass
+        # Recurse into args only when recurse_call_expr_args is True
+        # (walk() needs it; get_commands intentionally skips nested commands).
+        if recurse_call_expr_args and node.args:
+            for arg in node.args:
+                _traverse(arg, visitor)
     elif isinstance(node, BinaryCmd):
         if node.left:
-            _traverse(node.left, visitor)
+            _traverse(node.left, visitor, recurse_call_expr_args)
         if node.right:
-            _traverse(node.right, visitor)
+            _traverse(node.right, visitor, recurse_call_expr_args)
         if node.redirs:
             for redir in node.redirs:
-                _traverse(redir, visitor)
+                _traverse(redir, visitor, recurse_call_expr_args)
     elif isinstance(node, Word):
         if node.parts:
             for part in node.parts:
-                _traverse(part, visitor)
+                _traverse(part, visitor, recurse_call_expr_args)
     elif isinstance(node, Redir):
         if node.word:
-            _traverse(node.word, visitor)
+            _traverse(node.word, visitor, recurse_call_expr_args)
     elif isinstance(node, Lit):
         pass  # leaf — no children
     elif isinstance(node, Part):
         if node.parts:
             for subpart in node.parts:
-                _traverse(subpart, visitor)
+                _traverse(subpart, visitor, recurse_call_expr_args)
     elif isinstance(node, CmdSubst):
         # Command substitution ($() or backtick) — recurse into stmts
         if node.stmts:
             for stmt in node.stmts:
-                _traverse(stmt, visitor)
+                _traverse(stmt, visitor, recurse_call_expr_args)
     elif isinstance(node, Subshell):
         if node.stmts:
             for stmt in node.stmts:
-                _traverse(stmt, visitor)
+                _traverse(stmt, visitor, recurse_call_expr_args)
     elif isinstance(node, IfClause):
         for stmt in node.cond_stmts:
-            _traverse(stmt, visitor)
+            _traverse(stmt, visitor, recurse_call_expr_args)
         for stmt in node.then_stmts:
-            _traverse(stmt, visitor)
+            _traverse(stmt, visitor, recurse_call_expr_args)
         for branch in node.elif_branches:
             for stmt in branch["cond"]:
-                _traverse(stmt, visitor)
+                _traverse(stmt, visitor, recurse_call_expr_args)
             for stmt in branch["body"]:
-                _traverse(stmt, visitor)
+                _traverse(stmt, visitor, recurse_call_expr_args)
         if node.else_stmts:
             for stmt in node.else_stmts:
-                _traverse(stmt, visitor)
+                _traverse(stmt, visitor, recurse_call_expr_args)
     elif isinstance(node, ForClause):
         if node.var:
-            _traverse(node.var, visitor)
+            _traverse(node.var, visitor, recurse_call_expr_args)
         if node.words:
             for word in node.words:
-                _traverse(word, visitor)
+                _traverse(word, visitor, recurse_call_expr_args)
         if node.body:
             for stmt in node.body:
-                _traverse(stmt, visitor)
+                _traverse(stmt, visitor, recurse_call_expr_args)
     elif isinstance(node, WhileClause):
         if node.cond_stmts:
             for stmt in node.cond_stmts:
-                _traverse(stmt, visitor)
+                _traverse(stmt, visitor, recurse_call_expr_args)
         if node.body:
             for stmt in node.body:
-                _traverse(stmt, visitor)
+                _traverse(stmt, visitor, recurse_call_expr_args)
     elif isinstance(node, AndCmd):
         if node.left:
-            _traverse(node.left, visitor)
+            _traverse(node.left, visitor, recurse_call_expr_args)
         if node.right:
-            _traverse(node.right, visitor)
+            _traverse(node.right, visitor, recurse_call_expr_args)
     elif isinstance(node, OrCmd):
         if node.left:
-            _traverse(node.left, visitor)
+            _traverse(node.left, visitor, recurse_call_expr_args)
         if node.right:
-            _traverse(node.right, visitor)
+            _traverse(node.right, visitor, recurse_call_expr_args)
     elif isinstance(node, CaseClause):
         if node.expr:
-            _traverse(node.expr, visitor)
+            _traverse(node.expr, visitor, recurse_call_expr_args)
         for branch in node.branches:
             for pattern in branch["patterns"]:
-                _traverse(pattern, visitor)
+                _traverse(pattern, visitor, recurse_call_expr_args)
             for stmt in branch["body"]:
-                _traverse(stmt, visitor)
+                _traverse(stmt, visitor, recurse_call_expr_args)
         if node.default:
             for stmt in node.default:
-                _traverse(stmt, visitor)
+                _traverse(stmt, visitor, recurse_call_expr_args)
 
 
 class Visitor:
@@ -293,114 +305,8 @@ class Visitor:
         pass
 
     def walk(self, node: Node):
-        """
-        Walk the entire AST tree, visiting all nodes recursively.
-
-        Visits each node by dispatching to the appropriate visit method,
-        then recursively visits all child nodes based on the node type.
-        This ensures the complete tree is traversed.
-
-        Args:
-            node: Starting node (typically the root File node)
-        """
-        self.visit(node)
-        # Recursively visit children based on node type
-        if isinstance(node, File):
-            for stmt in node.stmts:
-                self.walk(stmt)
-        elif isinstance(node, Stmt):
-            if node.cmd:
-                self.walk(node.cmd)
-            if node.redirs:
-                for redir in node.redirs:
-                    self.walk(redir)
-        elif isinstance(node, CallExpr):
-            if node.args:
-                for arg in node.args:
-                    self.walk(arg)
-        elif isinstance(node, BinaryCmd):
-            if node.left:
-                self.walk(node.left)
-            if node.right:
-                self.walk(node.right)
-            if node.redirs:
-                for redir in node.redirs:
-                    self.walk(redir)
-        elif isinstance(node, Word):
-            if node.parts:
-                for part in node.parts:
-                    self.walk(part)
-        elif isinstance(node, Redir):
-            if node.word:
-                self.walk(node.word)
-        elif isinstance(node, Lit):
-            # Lit is a leaf node, no nested parts to walk
-            pass
-        elif isinstance(node, Part):
-            if node.parts:
-                for subpart in node.parts:
-                    self.walk(subpart)
-            # CmdSubst also has Stmts that need to be visited
-            if node.type == "CmdSubst" and hasattr(node, 'extra') and node.extra:
-                stmts = node.extra.get('stmts', node.extra.get('Stmts', []))
-                for stmt in stmts:
-                    self.walk(stmt)
-        elif isinstance(node, Subshell):
-            if node.stmts:
-                for stmt in node.stmts:
-                    self.walk(stmt)
-        elif isinstance(node, IfClause):
-            if node.cond_stmts:
-                for stmt in node.cond_stmts:
-                    self.walk(stmt)
-            if node.then_stmts:
-                for stmt in node.then_stmts:
-                    self.walk(stmt)
-            for branch in node.elif_branches:
-                for stmt in branch["cond"]:
-                    self.walk(stmt)
-                for stmt in branch["body"]:
-                    self.walk(stmt)
-            if node.else_stmts:
-                for stmt in node.else_stmts:
-                    self.walk(stmt)
-        elif isinstance(node, ForClause):
-            if node.var:
-                self.walk(node.var)
-            if node.words:
-                for word in node.words:
-                    self.walk(word)
-            if node.body:
-                for stmt in node.body:
-                    self.walk(stmt)
-        elif isinstance(node, WhileClause):
-            if node.cond_stmts:
-                for stmt in node.cond_stmts:
-                    self.walk(stmt)
-            if node.body:
-                for stmt in node.body:
-                    self.walk(stmt)
-        elif isinstance(node, AndCmd):
-            if node.left:
-                self.walk(node.left)
-            if node.right:
-                self.walk(node.right)
-        elif isinstance(node, OrCmd):
-            if node.left:
-                self.walk(node.left)
-            if node.right:
-                self.walk(node.right)
-        elif isinstance(node, CaseClause):
-            if node.expr:
-                self.walk(node.expr)
-            for branch in node.branches:
-                for pattern in branch["patterns"]:
-                    self.walk(pattern)
-                for stmt in branch["body"]:
-                    self.walk(stmt)
-            if node.default:
-                for stmt in node.default:
-                    self.walk(stmt)
+        """Walk the entire AST tree, visiting all nodes recursively."""
+        _traverse(node, self.visit, recurse_call_expr_args=True)
 
 
 def get_commands(tree: Node) -> List[str]:
