@@ -5,7 +5,7 @@ Comprehensive tests for the lovely-bash-permissions parser.
 import pytest
 from lovely_bash_permissions import (
     parse_ast, get_commands, get_arguments, has_variable, get_redirections,
-    Lit, SglQuoted, ParamExp, DblQuoted, CmdSubst, ProcSubst, ArithmExp, BinaryArithm, Block
+    Lit, SglQuoted, ParamExp, DblQuoted, CmdSubst, ProcSubst, ArithmExp, BinaryArithm, Block, FuncDecl
 )
 
 
@@ -1204,3 +1204,260 @@ class TestBlockNodes:
         """Verify that Block is imported in the lovely_bash_permissions module."""
         from lovely_bash_permissions import Block
         assert Block is not None
+
+
+class TestFuncDeclNodes:
+    """Tests for the FuncDecl node type (Step 11 of node coverage).
+
+    Bash function declarations: name() { body }, function name { body },
+    function name() { body }. The function body is always a Block node.
+    """
+
+    def test_func_decl_with_parens(self):
+        """Parse hello() { echo 'hi'; } and verify FuncDecl node."""
+        tree = parse_ast("hello() { echo 'hi'; }")
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'FuncDecl'
+        assert isinstance(cmd, FuncDecl)
+        # No 'function' keyword used
+        assert cmd.rsrv_word is False
+        # Parens used
+        assert cmd.parens is True
+        # Function name
+        assert cmd.name is not None
+        assert cmd.name.type == 'Lit'
+        assert cmd.name.value == 'hello'
+        # Body is a Block with one statement
+        assert cmd.body is not None
+        assert cmd.body.type == 'Block'
+        assert len(cmd.body.stmts) == 1
+        body_stmt = cmd.body.stmts[0].cmd
+        assert body_stmt.args[0].parts[0].value == 'echo'
+        assert body_stmt.args[1].parts[0].value == 'hi'
+
+    def test_func_decl_function_keyword_no_parens(self):
+        """Parse function hello { echo 'hi'; } (POSIX style, no parens)."""
+        tree = parse_ast("function hello { echo 'hi'; }")
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'FuncDecl'
+        # Function keyword used
+        assert cmd.rsrv_word is True
+        # No parens used in this style
+        assert cmd.parens is False
+        # Function name
+        assert cmd.name is not None
+        assert cmd.name.type == 'Lit'
+        assert cmd.name.value == 'hello'
+        # Body is a Block with one statement
+        assert cmd.body is not None
+        assert cmd.body.type == 'Block'
+        assert len(cmd.body.stmts) == 1
+        body_stmt = cmd.body.stmts[0].cmd
+        assert body_stmt.args[0].parts[0].value == 'echo'
+        assert body_stmt.args[1].parts[0].value == 'hi'
+
+    def test_func_decl_function_keyword_with_parens(self):
+        """Parse function hello() { echo 'hi'; } (function keyword + parens)."""
+        tree = parse_ast("function hello() { echo 'hi'; }")
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'FuncDecl'
+        # Function keyword used
+        assert cmd.rsrv_word is True
+        # Parens also used
+        assert cmd.parens is True
+        # Function name
+        assert cmd.name is not None
+        assert cmd.name.type == 'Lit'
+        assert cmd.name.value == 'hello'
+        # Body is a Block with one statement
+        assert cmd.body is not None
+        assert cmd.body.type == 'Block'
+        assert len(cmd.body.stmts) == 1
+        body_stmt = cmd.body.stmts[0].cmd
+        assert body_stmt.args[0].parts[0].value == 'echo'
+        assert body_stmt.args[1].parts[0].value == 'hi'
+
+    def test_func_decl_multiple_statements(self):
+        """Parse a function with multiple statements in the body."""
+        tree = parse_ast("greet() { echo 'hello'; echo 'world'; }")
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'FuncDecl'
+        assert cmd.name.value == 'greet'
+        # Body should have two statements
+        assert cmd.body.type == 'Block'
+        assert len(cmd.body.stmts) == 2
+        first = cmd.body.stmts[0].cmd
+        second = cmd.body.stmts[1].cmd
+        assert first.args[0].parts[0].value == 'echo'
+        assert first.args[1].parts[0].value == 'hello'
+        assert second.args[0].parts[0].value == 'echo'
+        assert second.args[1].parts[0].value == 'world'
+
+    def test_func_decl_with_args(self):
+        """Parse a function that uses parameters ($1, $2)."""
+        tree = parse_ast("say() { echo $1 $2; }")
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'FuncDecl'
+        assert cmd.name.value == 'say'
+        # Body should have one statement
+        assert cmd.body.type == 'Block'
+        assert len(cmd.body.stmts) == 1
+        body_stmt = cmd.body.stmts[0].cmd
+        assert body_stmt.args[0].parts[0].value == 'echo'
+        # $1 is ParamExp
+        assert body_stmt.args[1].parts[0].type == 'ParamExp'
+        assert body_stmt.args[1].parts[0].param == '1'
+        # $2 is ParamExp
+        assert body_stmt.args[2].parts[0].type == 'ParamExp'
+        assert body_stmt.args[2].parts[0].param == '2'
+
+    def test_func_decl_with_variables(self):
+        """Parse a function that references external variables."""
+        tree = parse_ast("show() { echo $HOME; }")
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'FuncDecl'
+        assert cmd.name.value == 'show'
+        # Body should have one statement
+        assert cmd.body.type == 'Block'
+        assert len(cmd.body.stmts) == 1
+        body_stmt = cmd.body.stmts[0].cmd
+        assert body_stmt.args[0].parts[0].value == 'echo'
+        # $HOME is ParamExp
+        assert body_stmt.args[1].parts[0].type == 'ParamExp'
+        assert body_stmt.args[1].parts[0].param == 'HOME'
+
+    def test_func_decl_cmdsubst_inside(self):
+        """Parse a function with command substitution inside."""
+        tree = parse_ast("now() { echo $(date); }")
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'FuncDecl'
+        assert cmd.name.value == 'now'
+        # Body should have one statement
+        assert cmd.body.type == 'Block'
+        assert len(cmd.body.stmts) == 1
+        body_stmt = cmd.body.stmts[0].cmd
+        assert body_stmt.args[0].parts[0].value == 'echo'
+        # Argument should be CmdSubst
+        assert body_stmt.args[1].parts[0].type == 'CmdSubst'
+        # Nested statement in CmdSubst should be CallExpr with 'date'
+        subst_stmt = body_stmt.args[1].parts[0].stmts[0].cmd
+        assert subst_stmt.args[0].parts[0].value == 'date'
+
+    def test_func_decl_complex_body(self):
+        """Parse a function with a complex body (pipe, redirect, if, etc.)."""
+        tree = parse_ast("""process() {
+    if [ -f "$1" ]; then
+        cat "$1" | sort | uniq > "$2"
+    fi
+}""")
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'FuncDecl'
+        assert cmd.name.value == 'process'
+        # Body should be a Block with one statement
+        assert cmd.body.type == 'Block'
+        assert len(cmd.body.stmts) == 1
+        # The inner statement should be IfClause
+        inner = cmd.body.stmts[0].cmd
+        assert inner.type == 'IfClause'
+        assert len(inner.cond) == 1
+        assert len(inner.then) == 1
+        # The body of the if should be a BinaryCmd (pipe chain)
+        then_stmt = inner.then[0]
+        assert then_stmt.cmd.type == 'BinaryCmd'
+        # The structure is: BinaryCmd(op="|", x=BinaryCmd(cat|sort), y=CallExpr(uniq > file))
+        # Nested BinaryCmd: cat "$1" | sort
+        x = then_stmt.cmd.x
+        assert x.type == 'BinaryCmd'
+        assert x.op == '|'
+        # x.x should be CallExpr for cat "$1"
+        assert x.x.type == 'CallExpr'
+        assert x.x.args[0].parts[0].value == 'cat'
+        # "$1" is a DblQuoted containing a ParamExp for $1
+        assert x.x.args[1].parts[0].type == 'DblQuoted'
+        inner_param = x.x.args[1].parts[0].parts[0]
+        assert inner_param.type == 'ParamExp'
+        assert inner_param.param == '1'
+        # x.y should be CallExpr for sort
+        assert x.y.type == 'CallExpr'
+        assert x.y.args[0].parts[0].value == 'sort'
+        # The outer y should be CallExpr for uniq with redirection
+        y = then_stmt.cmd.y
+        assert y.type == 'CallExpr'
+        assert y.args[0].parts[0].value == 'uniq'
+        # Redirection on the y side: > "$2"
+        assert len(then_stmt.redirs) == 1
+        assert then_stmt.redirs[0].op == '>'
+        redir_part = then_stmt.redirs[0].word.parts[0]
+        # "$2" is a DblQuoted containing a ParamExp for $2
+        assert redir_part.type == 'DblQuoted'
+        inner_redir_param = redir_part.parts[0]
+        assert inner_redir_param.type == 'ParamExp'
+        assert inner_redir_param.param == '2'
+
+    def test_func_decl_position_info(self):
+        """Verify FuncDecl nodes have position information from shfmt."""
+        tree = parse_ast("hello() { echo 'hi'; }")
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'FuncDecl'
+        assert cmd.pos is not None
+        assert cmd.end is not None
+        assert isinstance(cmd.pos.offset, int)
+        assert isinstance(cmd.end.offset, int)
+        # Body should also have position info
+        assert cmd.body is not None
+        assert cmd.body.pos is not None
+        assert cmd.body.end is not None
+        # Body should start after function declaration
+        assert cmd.body.pos.offset > cmd.pos.offset
+
+    def test_func_decl_nested_calls(self):
+        """Parse a function that calls other commands."""
+        tree = parse_ast("setup() { mkdir -p out; cd out; }")
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'FuncDecl'
+        assert cmd.name.value == 'setup'
+        # Body should have two statements
+        assert cmd.body.type == 'Block'
+        assert len(cmd.body.stmts) == 2
+        # First: mkdir -p out
+        first = cmd.body.stmts[0].cmd
+        assert first.args[0].parts[0].value == 'mkdir'
+        assert first.args[1].parts[0].value == '-p'
+        assert first.args[2].parts[0].value == 'out'
+        # Second: cd out
+        second = cmd.body.stmts[1].cmd
+        assert second.args[0].parts[0].value == 'cd'
+        assert second.args[1].parts[0].value == 'out'
+
+    def test_func_decl_with_double_quotes(self):
+        """Parse a function using double-quoted strings."""
+        tree = parse_ast('hello() { echo "hello world"; }')
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'FuncDecl'
+        assert cmd.name.value == 'hello'
+        # Body should have one statement
+        assert cmd.body.type == 'Block'
+        assert len(cmd.body.stmts) == 1
+        body_stmt = cmd.body.stmts[0].cmd
+        assert body_stmt.args[0].parts[0].value == 'echo'
+        # Argument should be DblQuoted
+        assert body_stmt.args[1].parts[0].type == 'DblQuoted'
+        assert body_stmt.args[1].parts[0].value == 'hello world'
+
+    def test_func_decl_empty_body(self):
+        """Parse a function with empty body (noop using `:` builtin)."""
+        # bash requires a statement in the function body
+        # `:` is the no-op builtin, so noop() { :; } is an empty-function equivalent
+        tree = parse_ast("noop() { :; }")
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'FuncDecl'
+        assert cmd.name.value == 'noop'
+        # Body should be a Block with one statement (the `:` no-op)
+        assert cmd.body.type == 'Block'
+        assert len(cmd.body.stmts) == 1
+        assert cmd.body.stmts[0].cmd.args[0].parts[0].value == ':'
+
+    def test_func_decl_imported_in_module(self):
+        """Verify that FuncDecl is imported in the lovely_bash_permissions module."""
+        from lovely_bash_permissions import FuncDecl
+        assert FuncDecl is not None

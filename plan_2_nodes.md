@@ -494,7 +494,9 @@ class Block(Node):
 
 **Dependencies**: None
 
-## [ ] Step 11: FuncDecl (Function Declaration)
+## [x] Step 11: FuncDecl (Function Declaration)
+
+Completed: FuncDecl dataclass implemented in ast.py with rsrv_word, parens, name, body fields. Registered in NODE_TYPES. Updated node_from_json() in parser.py. Exported in __init__.py. Added TestFuncDeclNodes test class with 13 comprehensive test cases covering: basic function declarations, function keyword variants, arguments, variables, command substitution, nested calls, complex bodies, empty bodies, position info. All 215 tests pass.
 
 **Priority**: HIGH
 

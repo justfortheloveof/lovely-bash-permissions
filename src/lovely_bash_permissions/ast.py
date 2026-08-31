@@ -464,6 +464,35 @@ class Block(Node):
 
 
 @dataclass
+class FuncDecl(Node):
+    """A bash function declaration.
+
+    Represents bash function definitions in both forms:
+        - name() { body }          (traditional, with parentheses)
+        - function name { body }    (POSIX-style, with 'function' keyword)
+
+    shfmt's JSON representation for FuncDecl includes:
+        - Type: "FuncDecl"
+        - Pos/End: Position of the entire function declaration
+        - Parens: True if () is used (absent or false for 'function name' form)
+        - Name: Lit node containing the function name
+        - Body: Statement wrapping the function body block
+
+    Attributes:
+        type: Always "FuncDecl"
+        pos: Starting source position of the entire declaration
+        end: Ending source position of the entire declaration
+        parens: True if the function uses () syntax
+        name: Lit node containing the function name
+        body: Block node containing the function body statements
+    """
+    type: str = "FuncDecl"
+    parens: bool = False
+    name: Optional['Lit'] = None
+    body: Optional['Block'] = None
+
+
+@dataclass
 class BinaryCmd(Node):
     """A binary command operation (primarily pipes).
     
@@ -632,6 +661,40 @@ class Redir:
     end: Position = None
     op_pos: Position = None
 
+@dataclass
+class FuncDecl(Node):
+    """A bash function declaration.
+
+    Represents bash function declarations in both traditional and
+    alternative syntax forms:
+        - name() { body }          (traditional, function name with parens)
+        - function name { body }    (POSIX, "function" keyword, no parens)
+        - function name() { body }  (POSIX with parens)
+
+    shfmt's JSON representation for FuncDecl includes:
+        - Type: "FuncDecl"
+        - Pos/End: Position of the entire declaration
+        - RsrvWord: True if "function" keyword was used
+        - Parens: True if () syntax was used
+        - Name: The function name as a Lit node
+        - Body: The function body (typically a Block node)
+
+    Attributes:
+        type: Always "FuncDecl"
+        pos: Starting source position of the declaration
+        end: Ending source position of the declaration
+        rsrv_word: True if "function" keyword was used, False for name() style
+        parens: True if () syntax was used, False for function name style
+        name: Lit node containing the function name
+        body: The function body (typically a Block node with nested statements)
+    """
+    type: str = "FuncDecl"
+    rsrv_word: bool = False
+    parens: bool = False
+    name: Optional['Lit'] = None
+    body: Optional['Node'] = None
+
+
 def redir_from_json(data: dict) -> Redir:
     """Convert shfmt JSON redirection data to a typed Redir object.
     
@@ -714,6 +777,7 @@ NODE_TYPES = {
     "BinaryArithm": BinaryArithm,
     "ExtGlob": ExtGlob,
     "Block": Block,
+    "FuncDecl": FuncDecl,
 }
 
 
@@ -772,10 +836,6 @@ def node_from_json(data: dict) -> Node:
         y = data.get("Y")
         x_node = node_from_json(x)
         y_node = node_from_json(y)
-        redirs = []
-        # Check if Y has redirs
-        if isinstance(y, dict) and "Redirs" in y:
-            redirs = [redir_from_json(r) for r in y["Redirs"]]
         return BinaryCmd(
             type=node_type,
             pos=_parse_position(data.get("Pos")),
@@ -783,7 +843,7 @@ def node_from_json(data: dict) -> Node:
             op=data.get("Op", ""),
             x=x_node,
             y=y_node,
-            redirs=redirs,
+            redirs=None,
         )
     elif node_type == "DeclClause":
         # Export/declare/readonly: convert Arg objects (with name/value) to Words
@@ -1043,6 +1103,35 @@ def node_from_json(data: dict) -> Node:
             rbrace=_parse_position(data.get("Rbrace")),
             stmts=[stmt_from_json(s) for s in data.get("Stmts", [])],
         )
+    elif node_type == "FuncDecl":
+        # Name is a Lit node
+        name_data = data.get("Name", {})
+        name_node = Lit(
+            type="Lit",
+            pos=_parse_position(name_data.get("Pos")),
+            end=_parse_position(name_data.get("End")),
+            value=name_data.get("Value", ""),
+            value_pos=_parse_position(name_data.get("ValuePos")),
+            value_end=_parse_position(name_data.get("ValueEnd")),
+        )
+        # Body is a Stmt that wraps a Block (cmd field inside Body contains the Block)
+        body_data = data.get("Body")
+        body_node = None
+        if isinstance(body_data, dict):
+            # Body has a "Cmd" field that wraps the Block
+            if "Cmd" in body_data:
+                body_node = node_from_json(body_data["Cmd"])
+            else:
+                body_node = node_from_json(body_data)
+        return FuncDecl(
+            type=node_type,
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            rsrv_word=data.get("RsrvWord", False),
+            parens=data.get("Parens", False),
+            name=name_node,
+            body=body_node,
+        )
     
     return Node(
         type=node_type,
@@ -1063,10 +1152,16 @@ def stmt_from_json(data: dict) -> Stmt:
     Returns:
         Stmt: Typed statement with parsed command and redirections
     """
-    cmd = node_from_json(data.get("Cmd"))
+    cmd_json = data.get("Cmd")
+    cmd = node_from_json(cmd_json)
     redirs = None
     if "Redirs" in data:
         redirs = [redir_from_json(r) for r in data.get("Redirs", [])]
+    elif cmd.type == "BinaryCmd":
+        # Redirects on Y side of pipes should be on the statement, not BinaryCmd
+        y_json = cmd_json.get("Y")
+        if isinstance(y_json, dict) and "Redirs" in y_json:
+            redirs = [redir_from_json(r) for r in y_json.get("Redirs", [])]
     return Stmt(
         cmd=cmd,
         position=_parse_position(data.get("Position")),
