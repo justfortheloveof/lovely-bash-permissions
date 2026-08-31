@@ -5,7 +5,7 @@ Comprehensive tests for the lovely-bash-permissions parser.
 import pytest
 from lovely_bash_permissions import (
     parse_ast, get_commands, get_arguments, has_variable, get_redirections,
-    Lit, SglQuoted, ParamExp, DblQuoted, CmdSubst, ArithmExp, BinaryArithm
+    Lit, SglQuoted, ParamExp, DblQuoted, CmdSubst, ProcSubst, ArithmExp, BinaryArithm
 )
 
 
@@ -857,3 +857,74 @@ class TestArithmExpNodes:
         """Verify that BinaryArithm is imported in the lovely_bash_permissions module."""
         from lovely_bash_permissions import BinaryArithm
         assert BinaryArithm is not None
+
+
+class TestProcSubstNodes:
+    """Tests for the ProcSubst node type (Step 7 of node coverage)."""
+
+    def test_input_process_substitution(self):
+        """Parse cat <(echo 'hi') and verify ProcSubst with op='<('."""
+        tree = parse_ast("cat <(echo 'hi')")
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'CallExpr'
+        assert len(cmd.args) == 2
+        assert cmd.args[1].parts[0].type == 'ProcSubst'
+        proc = cmd.args[1].parts[0]
+        assert proc.op == '<('
+        assert len(proc.stmts) == 1
+        inner = proc.stmts[0].cmd
+        assert inner.type == 'CallExpr'
+        assert inner.args[0].parts[0].value == 'echo'
+        assert inner.args[1].parts[0].type == 'SglQuoted'
+        assert inner.args[1].parts[0].value == 'hi'
+
+    def test_output_process_substitution(self):
+        """Parse sort > >(cat) and verify ProcSubst with op='>('."""
+        tree = parse_ast("sort > >(cat)")
+        # The redirection target should be a ProcSubst
+        assert tree.stmts[0].redirs[0].word.parts[0].type == 'ProcSubst'
+        proc = tree.stmts[0].redirs[0].word.parts[0]
+        assert proc.op == '>('
+        inner = proc.stmts[0].cmd
+        assert inner.args[0].parts[0].value == 'cat'
+
+    def test_double_process_substitution(self):
+        """Parse diff <(echo 'hi') <(echo 'there') with two ProcSubst nodes."""
+        tree = parse_ast("diff <(echo 'hi') <(echo 'there')")
+        cmd = tree.stmts[0].cmd
+        assert len(cmd.args) == 3
+        assert cmd.args[1].parts[0].type == 'ProcSubst'
+        assert cmd.args[2].parts[0].type == 'ProcSubst'
+        assert cmd.args[1].parts[0].op == '<('
+        assert cmd.args[2].parts[0].op == '<('
+        # Verify inner commands
+        assert cmd.args[1].parts[0].stmts[0].cmd.args[0].parts[0].value == 'echo'
+        assert cmd.args[2].parts[0].stmts[0].cmd.args[0].parts[0].value == 'echo'
+
+    def test_process_substitution_in_double_quotes(self):
+        """Parse echo \"<(cmd)\" - process substitution in double quotes is literal text."""
+        # Note: bash does NOT expand <() inside double quotes
+        tree = parse_ast('echo "<(echo hi)"')
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].type == 'DblQuoted'
+        # Inside double quotes, <() is literal, not a ProcSubst
+        assert cmd.args[1].parts[0].parts[0].type == 'Lit'
+        assert cmd.args[1].parts[0].parts[0].value == '<(echo hi)'
+
+    def test_process_substitution_position_info(self):
+        """Verify ProcSubst nodes have position information from shfmt."""
+        tree = parse_ast("cat <(echo 'hi')")
+        cmd = tree.stmts[0].cmd
+        part = cmd.args[1].parts[0]
+        assert part.type == 'ProcSubst'
+        assert part.pos is not None
+        assert part.end is not None
+        assert part.op_pos is not None
+        assert part.rparen is not None
+        assert isinstance(part.pos.offset, int)
+        assert isinstance(part.end.offset, int)
+
+    def test_procsubst_imported_in_module(self):
+        """Verify that ProcSubst is imported in the lovely_bash_permissions module."""
+        from lovely_bash_permissions import ProcSubst
+        assert ProcSubst is not None

@@ -233,6 +233,43 @@ class CmdSubst(Node):
 
 
 @dataclass
+class ProcSubst(Node):
+    """A process substitution.
+
+    Represents bash process substitution using <(cmd) or >(cmd). These
+    create temporary file-like interfaces where a command's output is
+    made available as a named pipe (FIFO) or /dev/fd reference.
+
+    Examples:
+        cat <(echo 'hi')          -> Read from process output as a file
+        diff <(echo 'hi') <(echo 'there') -> Compare two process outputs
+        sort < input > >(cat)     -> Write to a process as an output file
+
+    shfmt's JSON representation for ProcSubst includes:
+        - Type: "ProcSubst"
+        - Pos/End: Position of the entire substitution
+        - OpPos: Position of the opening operator (<( or >()
+        - Rparen: Position of the closing parenthesis
+        - Op: Operator string ("<(" or ">(")
+        - Stmts: List of statements to execute
+
+    Attributes:
+        type: Always "ProcSubst"
+        pos: Starting source position of the entire substitution
+        end: Ending source position of the entire substitution
+        op: The operator string ("<(" or ">(")
+        op_pos: Position of the opening operator
+        rparen: Position of the closing parenthesis
+        stmts: List of Stmt objects representing commands to execute
+    """
+    type: str = "ProcSubst"
+    op: str = ""
+    op_pos: Position = None
+    rparen: Position = None
+    stmts: List['Stmt'] = None
+
+
+@dataclass
 class ArithmExp(Node):
     """An arithmetic expansion.
 
@@ -590,6 +627,7 @@ NODE_TYPES = {
     "ParamExp": ParamExp,
     "DblQuoted": DblQuoted,
     "CmdSubst": CmdSubst,
+    "ProcSubst": ProcSubst,
     "ArithmExp": ArithmExp,
     "BinaryArithm": BinaryArithm,
 }
@@ -993,6 +1031,16 @@ def part_from_json(data: dict) -> Part:
             end=_parse_position(data.get("End")),
             stmts=[stmt_from_json(s) for s in data.get("Stmts", [])],
             backquotes=data.get("Backquotes", False),
+        )
+    elif data.get("Type") == "ProcSubst":
+        return ProcSubst(
+            type="ProcSubst",
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            op=data.get("Op", ""),
+            op_pos=_parse_position(data.get("OpPos")),
+            rparen=_parse_position(data.get("Rparen")),
+            stmts=[stmt_from_json(s) for s in data.get("Stmts", [])],
         )
     elif data.get("Type") == "ParamExp":
         # Extract parameter name from the Param field

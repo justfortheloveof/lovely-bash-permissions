@@ -298,7 +298,9 @@ class CmdSubst(Node):
 
 **Dependencies**: None
 
-## [ ] Step 6: ArithmExp (Arithmetic Expansion)
+## [x] Step 6: ArithmExp (Arithmetic Expansion)
+
+Completed: ArithmExp and BinaryArithm dataclasses implemented in ast.py, registered in NODE_TYPES, parser updated in part_from_json(), and test cases added in TestArithmExpNodes. 9 tests pass including $((2 + 2)), ${var}, $((a + b * c)), position info, and imports.
 
 **Priority**: HIGH
 
@@ -335,7 +337,9 @@ class ArithmExp(Node):
 
 **Dependencies**: None
 
-## [ ] Step 7: ProcSubst (Process Substitution)
+## [x] Step 7: ProcSubst (Process Substitution)
+
+Completed: ProcSubst dataclass implemented in ast.py with comprehensive docstring, registered in NODE_TYPES, parser updated in part_from_json(), and test cases added in TestProcSubstNodes. 6 tests pass including cat <(echo 'hi'), sort > >(cat), diff <(...) <(...), position info, and imports.
 
 **Priority**: MEDIUM
 
