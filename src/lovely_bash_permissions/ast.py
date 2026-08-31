@@ -176,6 +176,31 @@ class SglQuoted(Node):
 
 
 @dataclass
+class DblQuoted(Node):
+    """A double-quoted shell string with nested parts.
+    
+    Represents a double-quoted bash string where the content is parsed as
+    a list of parts. Unlike single-quoted strings, double-quoted strings
+    allow variable expansion, command substitution, and escape sequences,
+    but protect words from splitting and globbing.
+    
+    shfmt's JSON representation for DblQuoted includes:
+        - Type: "DblQuoted"
+        - Pos/End: Position of the entire quoted string
+        - Left/Right: Position of the opening/closing quote characters
+        - Parts: Nested parts (Lit, ParamExp, CmdSubst, Esc, etc.)
+    
+    Attributes:
+        type: Always "DblQuoted"
+        pos: Starting source position of the entire quoted string
+        end: Ending source position of the entire quoted string
+        parts: List of Part objects that make up the quoted content
+    """
+    type: str = "DblQuoted"
+    parts: List['Part'] = None
+
+
+@dataclass
 class Part:
     """An atomic part of a bash word.
     
@@ -467,6 +492,7 @@ NODE_TYPES = {
     "Lit": Lit,
     "SglQuoted": SglQuoted,
     "ParamExp": ParamExp,
+    "DblQuoted": DblQuoted,
 }
 
 

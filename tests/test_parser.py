@@ -544,3 +544,118 @@ class TestParamExpNodes:
         """Verify that ParamExp is imported in the lovely_bash_permissions module."""
         from lovely_bash_permissions import ParamExp
         assert ParamExp is not None
+
+
+class TestDblQuotedNodes:
+    """Tests for the DblQuoted node type (Step 3 of node coverage)."""
+
+    def test_simple_double_quoted(self):
+        """Parse echo "hello" and verify it produces a DblQuoted node with Lit parts."""
+        tree = parse_ast('echo "hello"')
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'CallExpr'
+        assert len(cmd.args) == 2
+        assert cmd.args[1].parts[0].type == 'DblQuoted'
+        assert len(cmd.args[1].parts[0].parts) == 1
+        assert cmd.args[1].parts[0].parts[0].type == 'Lit'
+        assert cmd.args[1].parts[0].parts[0].value == 'hello'
+
+    def test_double_quoted_with_variable_expansion(self):
+        """Parse echo "hello $world" and verify DblQuoted with Lit + ParamExp parts."""
+        tree = parse_ast('echo "hello $world"')
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].type == 'DblQuoted'
+        parts = cmd.args[1].parts[0].parts
+        assert len(parts) == 2
+        assert parts[0].type == 'Lit'
+        assert parts[0].value == 'hello '
+        assert parts[1].type == 'ParamExp'
+        assert parts[1].param == 'world'
+
+    def test_double_quoted_multiple_variables(self):
+        """Parse echo "$USER is here" and verify DblQuoted with multiple ParamExp parts."""
+        tree = parse_ast('echo "$USER is here"')
+        cmd = tree.stmts[0].cmd
+        parts = cmd.args[1].parts[0].parts
+        assert parts[0].type == 'ParamExp'
+        assert parts[0].param == 'USER'
+        assert parts[1].type == 'Lit'
+        assert parts[1].value == ' is here'
+
+    def test_empty_double_quoted(self):
+        """Parse echo "" and verify an empty DblQuoted is handled."""
+        tree = parse_ast('echo ""')
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].type == 'DblQuoted'
+        # shfmt-py: Empty DblQuoted has NO parts field at all (None in Python)
+        assert cmd.args[1].parts[0].parts is None
+        # shfmt Go: Would have an empty array: assert ...parts == []
+        
+    def test_empty_double_quoted_shfmt_go(self):
+        """Test shfmt Go-style empty DblQuoted handling (for completeness)."""
+        # In shfmt Go, empty double quotes would give a DblQuoted with an empty parts array.
+        # Our parser should handle both: None parts (shfmt-py) and [] parts (shfmt Go).
+        from lovely_bash_permissions.ast import DblQuoted, Part
+        dq_go = DblQuoted(type="DblQuoted", pos=None, end=None, parts=[])
+        assert dq_go.parts == []
+
+    def test_double_quoted_preserves_spaces(self):
+        """Parse echo "a b c" and verify spaces are preserved in Lit parts."""
+        tree = parse_ast('echo "a b c"')
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].type == 'DblQuoted'
+        assert len(cmd.args[1].parts[0].parts) == 1
+        assert cmd.args[1].parts[0].parts[0].type == 'Lit'
+        assert cmd.args[1].parts[0].parts[0].value == 'a b c'
+
+    def test_nested_quotes(self):
+        """Parse echo "$HOME is $USER" and verify multiple nested parts."""
+        tree = parse_ast('echo "$HOME is $USER"')
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].type == 'DblQuoted'
+        parts = cmd.args[1].parts[0].parts
+        assert len(parts) == 3
+        assert parts[0].type == 'ParamExp'
+        assert parts[0].param == 'HOME'
+        assert parts[1].type == 'Lit'
+        assert parts[1].value == ' is '
+        assert parts[2].type == 'ParamExp'
+        assert parts[2].param == 'USER'
+
+    def test_escape_sequences_in_double_quotes(self):
+        """Parse echo with escaped characters in double quotes."""
+        tree = parse_ast('echo "\\n\\t\\r"')
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].type == 'DblQuoted'
+        # In shfmt-py, escaped sequences in double quotes become Lit parts with the literal escape sequences
+        assert cmd.args[1].parts[0].parts[0].type == 'Lit'
+        assert cmd.args[1].parts[0].parts[0].value == '\\n\\t\\r'
+
+    def test_mixed_literal_variable_escape(self):
+        """Parse complex DblQuoted with lit, variable, and escapes mixed."""
+        tree = parse_ast('echo "\\n$USER\\n"')
+        cmd = tree.stmts[0].cmd
+        parts = cmd.args[1].parts[0].parts
+        assert len(parts) == 3
+        assert parts[0].type == 'Lit'
+        assert parts[0].value == '\\n'
+        assert parts[1].type == 'ParamExp'
+        assert parts[1].param == 'USER'
+        assert parts[2].type == 'Lit'
+        assert parts[2].value == '\\n'
+
+    def test_dblquoted_position_info(self):
+        """Verify that DblQuoted nodes have position information from shfmt."""
+        tree = parse_ast('echo "hello"')
+        cmd = tree.stmts[0].cmd
+        part = cmd.args[1].parts[0]
+        assert part.type == 'DblQuoted'
+        assert part.pos is not None
+        assert part.end is not None
+        assert isinstance(part.pos.offset, int)
+        assert isinstance(part.end.offset, int)
+
+    def test_dblquoted_imported_in_module(self):
+        """Verify that DblQuoted is imported in the lovely_bash_permissions module."""
+        from lovely_bash_permissions import DblQuoted
+        assert DblQuoted is not None

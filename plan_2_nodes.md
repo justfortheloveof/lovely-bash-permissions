@@ -140,7 +140,9 @@ class SglQuoted(Node):
 
 **Dependencies**: None
 
-## [ ] Step 3: DblQuoted (Double-Quoted String)
+## [ ] Step 3: DblQuoted (Double-Quoted String) (depends on: 1,2,4)
+
+Dependencies met: Lit (done), SglQuoted (done), ParamExp (done)
 
 **Priority**: HIGH
 
@@ -187,7 +189,9 @@ class DblQuoted(Node):
 
 **Dependencies**: Step 1 (Lit), Step 2 (SglQuoted), Step 4 (ParamExp)
 
-## [ ] Step 4: ParamExp (Parameter Expansion)
+## [x] Step 4: ParamExp (Parameter Expansion)
+
+Completed: ParamExp dataclass implemented in ast.py with param, short, exp, index, length, dollar_pos fields. Registered in NODE_TYPES. Updated part_from_json() to parse ParamExp nodes. Added 13 new test cases in TestParamExpNodes. All 142 tests pass (129 existing + 13 new). Tested $HOME, ${HOME}, ${HOME:-default}, ${array[0]}, ${#VAR}, etc.
 
 **Priority**: HIGH
 
