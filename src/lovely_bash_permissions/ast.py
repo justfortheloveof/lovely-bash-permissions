@@ -19,6 +19,12 @@ Node types:
     - CaseClause: Case/switch statements
 
 JSON node types not explicitly mapped are stored in generic Node objects.
+
+File organization: this module is intentionally monolithic rather than split
+(e.g. into ``types/words.py``, ``types/commands.py``, etc.). The project is small,
+all types serve inspection/traversal use cases uniformly, and splitting would add
+import complexity without a clear benefit. See plan_3.md (priority 8) for the
+decision record — documented here rather than restructured.
 """
 
 from dataclasses import dataclass, field
@@ -1863,9 +1869,9 @@ def parse_ast(command: str) -> Node:
     
     Example:
         tree = parse_ast('ls -la | grep txt')
-        print(tree.type)        # 'File'
-        print(len(tree.stmts))  # 1
-        print(tree.stmts[0].cmd.type)  # 'BinaryCmd'
+        tree.type            # 'File'
+        len(tree.stmts)      # 1
+        tree.stmts[0].cmd.type  # 'BinaryCmd'
     """
     from .parser import parse
     raw = parse(command)

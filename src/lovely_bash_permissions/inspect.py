@@ -160,7 +160,7 @@ class Visitor:
 
         collector = CommandCollector()
         collector.walk(tree)
-        print(collector.commands)
+        commands = collector.commands  # List of command names found
 
     Visitor methods:
         visit(node) - Dispatch to type-specific handler
@@ -461,8 +461,9 @@ def find_commands(tree: Node) -> List[CallExpr]:
     Example:
         tree = parse_ast('ls -la | grep txt')
         commands = find_commands(tree)
-        print(len(commands))           # 2
-        print(commands[0].args[0])     # Word for 'ls'
+        commands  # List of CallExpr nodes
+        len(commands)              # 2
+        commands[0].args[0]        # Word node for 'ls'
     """
     commands: List[CallExpr] = []
 
@@ -605,8 +606,8 @@ def get_redirections(tree: Node) -> List[dict]:
     Example:
         tree = parse_ast('cat file.txt > output.txt')
         redirs = get_redirections(tree)
-        print(redirs[0]['op'])      # '>'
-        print(redirs[0]['target'])  # 'output.txt'
+        redirs[0]['op']            # '>'
+        redirs[0]['target']        # 'output.txt'
     """
     redirs: List[dict] = []
 

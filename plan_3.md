@@ -70,6 +70,6 @@ Plan_2 file organization mentions `types/words.py`, `types/commands.py`, etc. �
 3. ~~Priority 4 (deduplicate traversal helpers — biggest win)~~ ✅ Done — committed as 6edd368, file reduced ~1250→790 lines
 4. ~~Priority 6 (fix exports)~~ ✅ Done — committed as 4ff2df6, FuncDecl added to __all__
 5. ~~Priority 3 (field naming — large refactor, do last)~~ ✅ Done — committed as 36c054a
-6. Priority 5 (extra field consistency)
-7. Priority 7 (print statements — cosmetic, optional)
-8. Priority 8 (visit split decision — document, don't implement)
+6. ~~Priority 5 (extra field consistency)~~ ✅ Done — committed as 1470c36, CallExpr assigns now direct field
+7. ~~Priority 7 (print statements — cosmetic, optional)~~ ✅ Done — converted print examples to descriptive text
+8. ~~Priority 8 (visit split decision — document, don't implement)~~ ✅ Done — documented monolithic preference in ast.py docstring

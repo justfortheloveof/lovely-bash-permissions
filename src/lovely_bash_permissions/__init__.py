@@ -11,7 +11,8 @@ easy inspection and traversal.
 Quick start:
     from lovely_bash_permissions import parse_ast, get_commands
     tree = parse_ast('ls -la | grep txt')
-    print(get_commands(tree))  # ['ls', 'grep']
+    commands = get_commands(tree)
+    get_commands(tree)  # Returns list of command names: ['ls', 'grep']
 
 Exported symbols:
     Parser: parse, parse_ast, ParseError
