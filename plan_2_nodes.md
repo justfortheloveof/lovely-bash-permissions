@@ -584,7 +584,9 @@ class TestClause(Node):
 
 **Dependencies**: Step 1 (Lit)
 
-## [ ] Step 13: ArithmCmd (Arithmetic Command)
+## [x] Step 13: ArithmCmd (Arithmetic Command)
+
+Completed: ArithmCmd dataclass implemented with left/right position fields. Registered in NODE_TYPES. Parser handles (( expr )) syntax. Tested with (( i = i + 1 )).
 
 **Priority**: MEDIUM
 
@@ -624,7 +626,9 @@ class ArithmCmd(Node):
 
 **Dependencies**: None
 
-## [ ] Step 14: LetClause (Let Statement)
+## [x] Step 14: LetClause (Let Statement)
+
+Completed: LetClause dataclass implemented. Registered in NODE_TYPES. Parser handles `let expr` syntax. Tested with `let x=5`. Note: shfmt requires no spaces around the = in let.
 
 **Priority**: LOW
 
@@ -662,7 +666,9 @@ class LetClause(Node):
 
 **Dependencies**: None
 
-## [ ] Step 15: TimeClause (Time-Prefixed Command)
+## [x] Step 15: TimeClause (Time-Prefixed Command)
+
+Completed: TimeClause dataclass implemented. Registered in NODE_TYPES. Parser handles `time cmd` syntax. Tested with `time sleep 5`.
 
 **Priority**: LOW
 
@@ -702,7 +708,9 @@ class TimeClause(Node):
 
 **Dependencies**: None
 
-## [ ] Step 16: CoprocClause (Coprocess)
+## [x] Step 16: CoprocClause (Coprocess)
+
+Completed: CoprocClause dataclass implemented. Registered in NODE_TYPES. Parser handles `coproc NAME { cmd }` syntax. Tested with `coproc myproc { echo 'hi'; }`.
 
 **Priority**: LOW
 
@@ -742,7 +750,9 @@ class CoprocClause(Node):
 
 **Dependencies**: Step 10 (Block)
 
-## [ ] Step 17: TestDecl (Bats Test)
+## [x] Step 17: TestDecl (Bats Test)
+
+Completed: TestDecl dataclass implemented. Registered in NODE_TYPES. Parser handles `@test "description" { body }` syntax. Requires -ln=bats shfmt flag.
 
 **Priority**: LOW
 
@@ -782,7 +792,9 @@ class TestDecl(Node):
 
 **Dependencies**: Step 10 (Block)
 
-## [ ] Step 18: Comment (Shell Comments)
+## [x] Step 18: Comment (Shell Comments)
+
+Completed: Comment dataclass implemented. Registered in NODE_TYPES. Parser handles `# text` syntax. Comments appear in various node positions (inline, end-of-line).
 
 **Priority**: HIGH
 
@@ -822,7 +834,9 @@ class Comment(Node):
 
 **Dependencies**: None
 
-## [ ] Step 19: Assign (Variable Assignments)
+## [x] Step 19: Assign (Variable Assignments)
+
+Completed: Assign dataclass implemented. Registered in NODE_TYPES. Parser handles `var=val`, `arr[i]=val`, `var+=val` syntax. Appears in CallExpr.Assigns.
 
 **Priority**: HIGH
 
@@ -873,7 +887,9 @@ class Assign(Node):
 
 **Dependencies**: None
 
-## [ ] Step 20: CaseItem (Case Branches)
+## [x] Step 20: CaseItem (Case Branches)
+
+Completed: CaseItem dataclass implemented. Registered in NODE_TYPES. Parser handles case statement branches.
 
 **Priority**: HIGH
 
@@ -916,7 +932,9 @@ class CaseItem(Node):
 
 **Dependencies**: Step 12 (CaseClause already exists)
 
-## [ ] Step 21: UnaryArithm, BinaryArithm, ParenArithm, FlagsArithm (Arithmetic Expressions)
+## [x] Step 21: UnaryArithm, BinaryArithm, ParenArithm, FlagsArithm (Arithmetic Expressions)
+
+Completed: All four arithmetic expression types implemented. BinaryArithm already existed; added UnaryArithm, ParenArithm, and FlagsArithm. All registered in NODE_TYPES.
 
 **Priority**: MEDIUM
 
@@ -995,7 +1013,9 @@ class FlagsArithm(Node):
 
 **Dependencies**: Step 13 (ArithmCmd)
 
-## [ ] Step 22: UnaryTest, BinaryTest, ParenTest (Test Expressions)
+## [x] Step 22: UnaryTest, BinaryTest, ParenTest (Test Expressions)
+
+Completed: All three test expression types implemented. Registered in NODE_TYPES. Used by TestClause.
 
 **Priority**: MEDIUM
 
@@ -1060,7 +1080,9 @@ class ParenTest(Node):
 
 **Dependencies**: Step 12 (TestClause)
 
-## [ ] Step 23: WordIter, CStyleLoop (Loop Types)
+## [x] Step 23: WordIter, CStyleLoop (Loop Types)
+
+Completed: Both loop types implemented. Registered in NODE_TYPES. WordIter handles `for var in words`, CStyleLoop handles `for (init; cond; post)`.
 
 **Priority**: HIGH
 
@@ -1116,7 +1138,9 @@ class CStyleLoop(Node):
 
 **Dependencies**: None
 
-## [ ] Step 24: ArrayExpr, ArrayElem (Arrays)
+## [x] Step 24: ArrayExpr, ArrayElem (Arrays)
+
+Completed: Both array types implemented. Registered in NODE_TYPES. ArrayExpr handles `(elem1 elem2)` and ArrayElem handles `index=value`. Appears in Assign.array.
 
 **Priority**: HIGH
 
