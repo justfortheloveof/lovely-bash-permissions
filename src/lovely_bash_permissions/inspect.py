@@ -188,9 +188,6 @@ class Visitor:
         Args:
             node: Starting node (typically the root File node)
         """
-        """
-        Walk the entire AST tree, visiting all nodes.
-        """
         self.visit(node)
         # Recursively visit children based on node type
         if isinstance(node, File):
