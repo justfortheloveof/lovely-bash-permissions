@@ -1,29 +1,14 @@
 # Top 5 code cleanup tasks
 
-1. **Massive duplicated traversal logic** (highest impact)
-`inspect.py` has two nearly-identical recursive traversal functions: `_traverse()` (~130 lines) and `Visitor.walk()` (~130 more lines). They contain the same 20+ `isinstance` branches for every node type. The comment in `_traverse()` explicitly says it "replaces the near-duplicate traversal logic previously spread across" several functions, but `walk()` is still a duplicate. This is ~260 lines of near-identical code maintained in two places — a bug magnet (fix one, forget the other).
+1. ~~Massive duplicated traversal logic~~ (highest impact) ✅ DONE
+`inspect.py` had two nearly-identical recursive traversal functions: `_traverse()` (~130 lines) and `Visitor.walk()` (~130 more lines). They contained the same 20+ `isinstance` branches for every node type.
 
-**Analysis of duplication:** Both functions share identical child-recursion logic for these 14 node types: File, Stmt, CallExpr, BinaryCmd, Word, Redir, Lit, Part, CmdSubst (via Part.type check), Subshell, IfClause, ForClause, WhileClause, AndCmd, OrCmd, CaseClause. The only difference is that `walk()` dispatches through `self.visit(node)` before recursing, while `_traverse()` calls a passed-in visitor callable.
+**Fix:** Made `Visitor.walk()` delegate to `_traverse()`. Renamed walk's body to a thin wrapper: `def walk(self, node): _traverse(node, self.visit)`. Removed the 130-line recursive body from walk() — all recursion logic now lives only in `_traverse()`.
 
-**Fix:** Make `Visitor.walk()` delegate to `_traverse()`. Strategy:
-- Keep `_traverse(node, visitor)` as the single canonical traversal function (it's used by `get_commands`, `find_commands`, `_has_variable_recursive`'s callers, `get_redirections`, `get_arguments`, `find_arguments`, `get_target_files`).
-- Rewrite `walk()` to become a thin wrapper: `def walk(self, node): _traverse(node, self.visit)`.
-- Remove the 130-line recursive body from `walk()` — all recursion logic now lives only in `_traverse()`.
-- The visitor subclasses (CountVisitor, WordCountVisitor, etc. in test_phase2.py) override `visit_*()` methods; those continue to work because `_traverse()` calls the visitor callable on each node.
-
-**Implementation steps:**
-a. In `Visitor.walk()`, replace the entire method body with just:
-   ```python
-   def walk(self, node: Node):
-       """Walk the entire AST tree, visiting all nodes recursively."""
-       _traverse(node, self.visit)
-   ```
-b. Delete all the `if isinstance(...)` recursion branches from inside `walk()` (lines ~208–315).
-c. Verify all tests pass (`uv run pytest`) — the Visitor subclasses in test_phase2.py will still work because `_traverse()` calls `self.visit(node)` on each node.
-d. Run the full test suite to confirm behavior is unchanged: `uv run pytest tests/test_phase2.py::TestVisitorPattern -v`.
+**Discovery:** `_traverse()` originally skipped recursing into CallExpr args (the `pass` branch). Since walk() must visit Word/Lit nodes inside command arguments (e.g. `file.txt` in `cat file.txt`), added a `recurse_call_expr_args: bool = False` parameter to `_traverse()` — walk() passes `True`, all other callers pass `False` (preserving original behavior for get_commands, find_arguments, etc.).
 
 **Files changed:** `src/lovely_bash_permissions/inspect.py`
-**Tests affected:** `tests/test_phase2.py` (TestVisitorPattern) — verify they still pass.
+**Tests affected:** `tests/test_phase2.py` (TestVisitorPattern) — all 5 visitor tests pass. Full suite: 221/221 passed.
 
 2. **Dead code: unused imports**
 `inspect.py` imports `Any`, `Dict`, `SglQuoted`, and `DblQuoted` from `.ast`. Only `DblQuoted` is used (once in `_has_variable_recursive`). `Any`, `Dict`, and `SglQuoted` are dead imports. Also, `_has_variable_recursive()` is a ~100-line function that uses string-based type checking (`node.type == "DeclClause"`) and manual recursion — it duplicates the traversal logic in a very different style from `_traverse()`.
