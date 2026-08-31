@@ -15,17 +15,11 @@ Removed `Any`, `Dict` (typing) and `SglQuoted` (ast) from inspect.py imports. Ke
 
 **Tests:** 221/221 passed.
 
-3. **Dead code: `Range` class and unused node classes**
-The `ast.py` module defines 49 dataclasses (102 classes total including functions), but `Range` is never referenced anywhere else in the codebase. Several node types (`FlagsArithm`, `LetClause`, `TimeClause`, `CoprocClause`, `TestDecl`, `Comment`, `Assign`, `CaseItem`, `WordIter`, `CStyleLoop`, `ArrayExpr`, `ArrayElem`) have **zero tests covering them** — they're likely dead code from an early shfmt feature dump.
+3. ~~Dead code: `Range` class and unused node classes~~ ✅ DONE
+Removed unused `Range` class (never referenced or exported). Audited other node types — some have zero tests but are used internally by shfmt JSON parsing, so left them.
 
-**Fix:** Remove `Range` (or add tests if it's needed); audit and remove/unexport node types that no shfmt version produces, or add tests for them.
+4. ~~Inconsistency: `Part` and `Redir` lack `@dataclass`~~ ✅ DONE
+Verified Part, Redir, and Stmt already have @dataclass decorators (plan was based on older version).
 
-4. **Inconsistency: `Part` and `Redir` lack `@dataclass`**
-Most node types use `@dataclass`, but `Part` (line ~421), `Redir` (~681), and `Stmt` (~1047) are plain classes with manual `__init__`-style defaults via dataclass-like field annotations. This is inconsistent — they should either all be `@dataclass` or none.
-
-**Fix:** Add `@dataclass` decorator to these classes for consistency.
-
-5. **Bug-prone: inconsistent `@dataclass` placement on `TestClause`**
-On line ~705, there's a stray `@dataclass` followed by `class TestClause(Node):` — but looking more carefully, there are **two `@dataclass` decorators** before it (the second is actually for something else, but the formatting looks suspicious — check exact lines 703–710). Also, `Redir` lacks `@dataclass`, meaning it doesn't get auto-generated `__eq__`, `__repr__`, etc., which will cause subtle bugs in tests that compare redirection objects.
-
-**Fix:** Audit and fix the `@dataclass` decorators; ensure all comparable node classes get them.
+5. ~~Bug-prone: inconsistent `@dataclass` placement on `TestClause`~~ ✅ DONE
+Removed duplicate @dataclass decorator from TestClause (two decorators, second shadowed first — clearly a mistake).
