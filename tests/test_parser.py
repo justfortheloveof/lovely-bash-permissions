@@ -432,3 +432,115 @@ class TestSglQuotedNodes:
         """Verify that SglQuoted is imported in the lovely_bash_permissions module."""
         from lovely_bash_permissions import SglQuoted
         assert SglQuoted is not None
+
+
+class TestParamExpNodes:
+    """Tests for the ParamExp node type (Step 4 of node coverage)."""
+
+    def test_short_param_expansion(self):
+        """Parse echo $HOME and verify it produces a ParamExp node with Short=True."""
+        tree = parse_ast('echo $HOME')
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'CallExpr'
+        assert len(cmd.args) == 2
+        # The second argument is a ParamExp part
+        assert cmd.args[1].parts[0].type == 'ParamExp'
+        assert cmd.args[1].parts[0].param == 'HOME'
+        assert cmd.args[1].parts[0].short is True
+
+    def test_braced_param_expansion(self):
+        """Parse echo ${HOME} and verify it produces a ParamExp node with Short=False."""
+        tree = parse_ast('echo ${HOME}')
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].type == 'ParamExp'
+        assert cmd.args[1].parts[0].param == 'HOME'
+        assert cmd.args[1].parts[0].short is False
+
+    def test_param_expansion_with_default(self):
+        """Parse echo ${HOME:-default} and verify the Exp field."""
+        tree = parse_ast('echo ${HOME:-default}')
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].type == 'ParamExp'
+        assert cmd.args[1].parts[0].param == 'HOME'
+        assert cmd.args[1].parts[0].exp is not None
+        assert cmd.args[1].parts[0].exp['Op'] == ':-'
+
+    def test_array_index_param_expansion(self):
+        """Parse echo ${arr[0]} and verify the Index field."""
+        tree = parse_ast('echo ${arr[0]}')
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].type == 'ParamExp'
+        assert cmd.args[1].parts[0].param == 'arr'
+        assert cmd.args[1].parts[0].index is not None
+        assert cmd.args[1].parts[0].index.parts[0].value == '0'
+
+    def test_param_expansion_in_double_quotes(self):
+        """Parse echo "$HOME" and verify ParamExp inside DblQuoted."""
+        tree = parse_ast('echo "$HOME"')
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].type == 'DblQuoted'
+        assert cmd.args[1].parts[0].parts[0].type == 'ParamExp'
+        assert cmd.args[1].parts[0].parts[0].param == 'HOME'
+
+    def test_multiple_param_expansions(self):
+        """Parse echo "$HOME is $USER" and verify multiple ParamExp parts."""
+        tree = parse_ast('echo "$HOME is $USER"')
+        cmd = tree.stmts[0].cmd
+        # Inside the DblQuoted, we should have: ParamExp, Lit, ParamExp
+        assert cmd.args[1].parts[0].type == 'DblQuoted'
+        parts = cmd.args[1].parts[0].parts
+        assert parts[0].type == 'ParamExp'
+        assert parts[0].param == 'HOME'
+        assert parts[1].type == 'Lit'
+        assert parts[1].value == ' is '
+        assert parts[2].type == 'ParamExp'
+        assert parts[2].param == 'USER'
+
+    def test_adjacent_param_expansions(self):
+        """Parse echo "$HOME$USER" and verify two adjacent ParamExp parts."""
+        tree = parse_ast('echo "$HOME$USER"')
+        cmd = tree.stmts[0].cmd
+        parts = cmd.args[1].parts[0].parts
+        assert len(parts) == 2
+        assert parts[0].type == 'ParamExp'
+        assert parts[0].param == 'HOME'
+        assert parts[1].type == 'ParamExp'
+        assert parts[1].param == 'USER'
+
+    def test_length_param_expansion(self):
+        """Parse echo ${#HOME} and verify Length field."""
+        tree = parse_ast('echo ${#HOME}')
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].type == 'ParamExp'
+        assert cmd.args[1].parts[0].param == 'HOME'
+        assert cmd.args[1].parts[0].length is True
+
+    def test_special_param_expansion(self):
+        """Parse echo "$@" and verify ParamExp with special parameter."""
+        tree = parse_ast('echo "$@"')
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].parts[0].type == 'ParamExp'
+        assert cmd.args[1].parts[0].parts[0].param == '@'
+
+    def test_position_param_expansion(self):
+        """Parse echo "$0" and verify ParamExp with positional parameter."""
+        tree = parse_ast('echo "$0"')
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].parts[0].type == 'ParamExp'
+        assert cmd.args[1].parts[0].parts[0].param == '0'
+
+    def test_param_expansion_position_info(self):
+        """Verify that ParamExp nodes have position information from shfmt."""
+        tree = parse_ast('echo $HOME')
+        cmd = tree.stmts[0].cmd
+        part = cmd.args[1].parts[0]
+        assert part.type == 'ParamExp'
+        assert part.pos is not None
+        assert part.end is not None
+        assert isinstance(part.pos.offset, int)
+        assert isinstance(part.end.offset, int)
+
+    def test_param_exp_imported_in_module(self):
+        """Verify that ParamExp is imported in the lovely_bash_permissions module."""
+        from lovely_bash_permissions import ParamExp
+        assert ParamExp is not None

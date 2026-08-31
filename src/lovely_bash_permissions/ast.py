@@ -109,6 +109,43 @@ class Lit(Node):
 
 
 @dataclass
+class ParamExp(Node):
+    """A shell parameter expansion.
+
+    Represents $VAR, ${VAR}, ${VAR:-default}, ${arr[0]}, ${#VAR}, and
+    all other bash parameter expansion forms.
+
+    shfmt's JSON representation includes:
+        - Type: "ParamExp"
+        - Param: The parameter name (Value is the name)
+        - Short: true if $VAR form (no braces), false if ${VAR} form
+        - Exp: Expansion info (Op, Word) for default/substituted value expressions
+        - Index: Array index (Word node) for ${arr[0]} style
+        - Length: true for ${#VAR} length expansion
+        - Pos/End: Position of the entire expansion
+        - Dollar: Position of the $ character
+
+    Attributes:
+        type: Always "ParamExp"
+        pos: Starting source position of the entire expansion
+        end: Ending source position of the entire expansion
+        param: The parameter name (e.g., "HOME", "@", "0")
+        short: True for $VAR form, False for ${VAR} form
+        exp: Expansion expression dict with Op/Word fields
+        index: Array index Word node (for ${arr[0]})
+        length: True for ${#VAR} length expansion
+        dollar_pos: Position of the $ character
+    """
+    type: str = "ParamExp"
+    param: str = ""
+    short: bool = False
+    exp: Optional[dict] = None
+    index: Optional['Word'] = None
+    length: bool = False
+    dollar_pos: Position = None
+
+
+@dataclass
 class SglQuoted(Node):
     """A single-quoted shell string.
     
@@ -429,6 +466,7 @@ NODE_TYPES = {
     "CaseClause": CaseClause,
     "Lit": Lit,
     "SglQuoted": SglQuoted,
+    "ParamExp": ParamExp,
 }
 
 
@@ -788,7 +826,7 @@ def part_from_json(data: dict) -> Part:
     # For DblQuoted, the value is the concatenation of inner parts
     value = data.get("Value")
     if data.get("Type") == "DblQuoted" and parts:
-        value = "".join(p.value for p in parts if p.value)
+        value = "".join(str(p.value) if hasattr(p, "value") and p.value is not None else "" for p in parts)
     
     if data.get("Type") == "Lit":
         return Lit(
@@ -805,6 +843,33 @@ def part_from_json(data: dict) -> Part:
             pos=_parse_position(data.get("Pos")),
             end=_parse_position(data.get("End")),
             value=data.get("Value", ""),
+        )
+    elif data.get("Type") == "ParamExp":
+        # Extract parameter name from the Param field
+        param_data = data.get("Param", {})
+        param_value = ""
+        if isinstance(param_data, dict):
+            param_value = param_data.get("Value", "")
+        # Extract index (if present)
+        index_data = data.get("Index")
+        index_node = None
+        if isinstance(index_data, dict):
+            index_node = word_from_json(index_data)
+        # Extract exp (if present)
+        exp_data = data.get("Exp")
+        exp_value = None
+        if isinstance(exp_data, dict):
+            exp_value = exp_data
+        return ParamExp(
+            type="ParamExp",
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            param=param_value,
+            short=data.get("Short", False),
+            exp=exp_value,
+            index=index_node,
+            length=data.get("Length", False),
+            dollar_pos=_parse_position(data.get("Dollar")),
         )
     
     return Part(

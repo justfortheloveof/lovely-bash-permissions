@@ -93,7 +93,9 @@ class Lit(Node):
 /home/alx/repos/lovely-bash-permissions/.venv/bin/shfmt --to-json <<< "echo hello"
 ```
 
-## [ ] Step 2: SglQuoted (Single-Quoted String)
+## [x] Step 2: SglQuoted (Single-Quoted String)
+
+Completed: SglQuoted dataclass implemented in ast.py with comprehensive documentation, registered in NODE_TYPES, parser updated in part_from_json(), imported in inspect.py, exported from __init__.py. Added TestSglQuotedNodes test class with 9 test cases in test_parser.py. All 130 tests pass (121 existing + 9 new). Tested echo 'hello world', echo '$HOME' (no expansion), echo 'a' 'b', echo 'foo*', echo '', echo 'foo\\bar', echo '$', and position info. Verified with shfmt --to-json.
 
 **Priority**: HIGH
 

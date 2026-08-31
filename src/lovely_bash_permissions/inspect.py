@@ -18,7 +18,7 @@ Key functions:
 """
 
 from typing import List, Callable, Any, Dict, Optional
-from .ast import Node, CallExpr, BinaryCmd, Word, Part, Lit, SglQuoted, Stmt, File, Redir, Subshell, IfClause, ForClause, WhileClause, AndCmd, OrCmd, CaseClause, part_from_json, node_from_json
+from .ast import Node, CallExpr, BinaryCmd, Word, Part, Lit, SglQuoted, ParamExp, Stmt, File, Redir, Subshell, IfClause, ForClause, WhileClause, AndCmd, OrCmd, CaseClause, part_from_json, node_from_json
 
 
 class Visitor:
@@ -83,6 +83,8 @@ class Visitor:
             return self.visit_redir(node)
         elif isinstance(node, Lit):
             return self.visit_lit(node)
+        elif isinstance(node, ParamExp):
+            return self.visit_part(node)
         elif isinstance(node, Part):
             return self.visit_part(node)
         elif isinstance(node, Subshell):
@@ -540,6 +542,8 @@ def _has_variable_recursive(node: Node) -> bool:
         if node.type == "DblQuoted" and node.parts:
             return any(_has_variable_recursive(p) for p in node.parts)
         return False
+    elif hasattr(node, 'type') and node.type in ("Var", "ParamExp", "CmdSubst"):
+        return True
     elif isinstance(node, Word):
         return any(_has_variable_recursive(p) for p in node.parts)
     elif isinstance(node, CallExpr):
