@@ -41,7 +41,7 @@ def _node_repr(obj: object, depth: int = 1) -> str:
     parts: list[str] = []
     for name in fields:
         val = getattr(obj, name, None)
-        if val is None or val == "" or val == [] or val is False:
+        if val is None or val == "" or val == []:
             continue
         if isinstance(val, list):
             items = ", ".join(
@@ -174,7 +174,7 @@ class DblQuoted(Node):
     """
 
     type: str = "DblQuoted"
-    parts: list[Node] | None = None
+    parts: list[Node] = field(default_factory=list)
     value: str | None = None
 
 
@@ -281,6 +281,7 @@ class CallExpr(Node):
         assigns: Variable assignments before the command (e.g., "x=1 ls")
     """
 
+    type: str = "CallExpr"
     args: list[Word] = field(default_factory=list)
     assigns: list[Assign] | None = None
 
@@ -332,6 +333,7 @@ class BinaryCmd(Node):
         redirs: Redirections applied at the pipe level
     """
 
+    type: str = "BinaryCmd"
     op: str = ""
     left: Node | None = None
     right: Node | None = None
@@ -346,6 +348,7 @@ class Subshell(Node):
         stmts: List of Stmt objects executed within the subshell
     """
 
+    type: str = "Subshell"
     stmts: list[Stmt] = field(default_factory=list)
 
 

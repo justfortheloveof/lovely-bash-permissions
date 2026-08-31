@@ -603,8 +603,8 @@ class TestDblQuotedNodes:
         tree = parse_ast('echo ""')
         cmd = tree.stmts[0].cmd
         assert cmd.args[1].parts[0].type == "DblQuoted"
-        # shfmt-py: Empty DblQuoted has NO parts field at all (None in Python)
-        assert cmd.args[1].parts[0].parts is None
+        # Empty DblQuoted has an empty parts list
+        assert cmd.args[1].parts[0].parts == []
         # shfmt Go: Would have an empty array: assert ...parts == []
 
     def test_empty_double_quoted_shfmt_go(self):
