@@ -26,11 +26,11 @@ Goal: Configure ruff for linting and formatting, integrated into the development
 - Add a `[tool.ruff.format]` section with:
   - `quote-style = "double"` (consistent style; match existing code).
 
-## Step 3 — Run ruff check and fix any lint errors
+## Step 3 — Run ruff check and fix any lint errors ✅
 
-- Run `uv run ruff check src/ tests/` to discover issues.
-- Run `uv run ruff check --fix src/ tests/` to auto-fix what's safe.
-- Manually review remaining issues; commit fixes.
+- Ran `uv run ruff check src/ tests/` — found 11 issues (2×F841, 3×SIM101, 1×SIM102, 1×B904, 4×B017).
+- All fixed: removed unused variables, merged isinstance calls, combined nested ifs, added `raise ... from e`, replaced blind `pytest.raises(Exception)` with `pytest.raises(ParseError)`.
+- Verification: `uv run ruff check src/ tests/` → "All checks passed!"
 
 ## Step 4 — Run ruff format to style all code
 
