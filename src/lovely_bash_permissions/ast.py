@@ -455,8 +455,10 @@ class CallExpr(Node):
     
     Attributes:
         args: List of Word objects - first is the command name, rest are arguments
+        assigns: Variable assignments before the command (e.g., "x=1 ls")
     """
     args: List['Word'] = None
+    assigns: List['Assign'] = None
 
 
 @dataclass
@@ -1167,15 +1169,12 @@ def node_from_json(data: dict) -> Node:
         assigns = None
         if assigns_raw:
             assigns = [assign_from_json(a) for a in assigns_raw]
-        extra = None
-        if assigns:
-            extra = {"assigns": assigns}
         return CallExpr(
             type=node_type,
             pos=_parse_position(data.get("Pos")),
             end=_parse_position(data.get("End")),
             args=[word_from_json(a) for a in data.get("Args", [])],
-            extra=extra,
+            assigns=assigns,
         )
     elif node_type == "BinaryCmd":
         x = data.get("X")

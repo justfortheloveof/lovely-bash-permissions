@@ -432,19 +432,13 @@ def get_commands(tree: Node) -> List[str]:
                     commands.append(cmd_name)
             # Handle Assigns (variable assignments) — recurse into their parts,
             # which may contain CmdSubst with nested commands.
-            if node.extra and "assigns" in node.extra:
-                for assign in node.extra["assigns"]:
+            if node.assigns:
+                for assign in node.assigns:
                     val = assign.value if hasattr(assign, 'value') else None
                     if val is None:
                         continue
                     for p in getattr(val, 'parts', []):
                         _traverse(p, visitor)
-            # Legacy: CallExpr with assigns via direct attribute
-            if hasattr(node, 'assigns') and node.assigns:
-                for assign in node.assigns:
-                    if hasattr(assign, 'value') and assign.value:
-                        for part in assign.value:
-                            _traverse(part, visitor)
 
     _traverse(tree, visitor)
     return commands
@@ -476,20 +470,13 @@ def find_commands(tree: Node) -> List[CallExpr]:
         if isinstance(node, CallExpr):
             commands.append(node)
             # Handle Assigns (variable assignments) — recurse into their parts.
-            if node.extra and "assigns" in node.extra:
-                for assign in node.extra["assigns"]:
-                    val = assign.get("value", assign.get("Value", {}))
-                    for p in val.get("parts", val.get("Parts", [])):
-                        if isinstance(p, dict):
-                            _traverse(part_from_json(p), visitor)
-                        else:
-                            _traverse(p, visitor)
-            # Legacy: CallExpr with assigns via direct attribute
-            if hasattr(node, 'assigns') and node.assigns:
+            if node.assigns:
                 for assign in node.assigns:
-                    if hasattr(assign, 'value') and assign.value:
-                        for part in assign.value:
-                            _traverse(part, visitor)
+                    val = assign.value if hasattr(assign, 'value') else None
+                    if val is None:
+                        continue
+                    for p in getattr(val, 'parts', []):
+                        _traverse(p, visitor)
 
     _traverse(tree, visitor)
     return commands

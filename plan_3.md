@@ -69,7 +69,7 @@ Plan_2 file organization mentions `types/words.py`, `types/commands.py`, etc. �
 2. Priority 1 (wire dead visitor methods into dispatch)
 3. ~~Priority 4 (deduplicate traversal helpers — biggest win)~~ ✅ Done — committed as 6edd368, file reduced ~1250→790 lines
 4. ~~Priority 6 (fix exports)~~ ✅ Done — committed as 4ff2df6, FuncDecl added to __all__
-5. Priority 3 (field naming — large refactor, do last)
+5. ~~Priority 3 (field naming — large refactor, do last)~~ ✅ Done — committed as 36c054a
 6. Priority 5 (extra field consistency)
 7. Priority 7 (print statements — cosmetic, optional)
 8. Priority 8 (visit split decision — document, don't implement)
