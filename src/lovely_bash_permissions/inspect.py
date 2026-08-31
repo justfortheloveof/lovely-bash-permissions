@@ -4,30 +4,24 @@ AST inspection and traversal utilities.
 This module provides functions for querying parsed bash AST trees, including
 command extraction, argument collection, variable detection, redirection
 analysis, and the AST visitor pattern for custom traversal.
-
-Key functions:
-    - get_commands(): Extract command names
-    - get_arguments(): Extract arguments for each command
-    - find_commands(): Get CallExpr nodes
-    - find_arguments(): Get argument lists
-    - has_variable(): Detect variable usage
-    - get_redirections(): Find file redirections
-    - has_pipe(): Check for pipe operators
-    - get_target_files(): Extract redirection file targets
-    - Visitor: Custom AST traversal pattern
 """
 
 from collections.abc import Callable
 
 from .ast import (
     AndCmd,
+    ArithmCmd,
     BinaryCmd,
+    Block,
     CallExpr,
     CaseClause,
     CmdSubst,
+    CoprocClause,
     File,
     ForClause,
+    FuncDecl,
     IfClause,
+    LetClause,
     Lit,
     Node,
     OrCmd,
@@ -36,6 +30,8 @@ from .ast import (
     Redir,
     Stmt,
     Subshell,
+    TestClause,
+    TimeClause,
     WhileClause,
     Word,
 )
@@ -49,28 +45,15 @@ def _traverse(
     """Shared AST traversal helper.
 
     Calls ``visitor(node)`` on every node, then recurses into children
-    based on node type.  Visitor functions for leaf types (CallExpr, Redir)
-    extract data; visitor functions for container types are no-ops —
-    recursion is handled uniformly here.
+    based on node type.
 
     When ``recurse_call_expr_args`` is True, child nodes inside CallExpr
-    arguments are also visited (used by ``walk()`` so visitors reach words
-    and variables inside command arguments).  When False (the default),
-    CallExpr arguments are skipped — this preserves the original behavior
-    where ``get_commands()`` does not extract commands nested inside
-    arguments (e.g. ``echo $(date)`` returns only ``['echo']``).
-
-    This replaces the near-duplicate traversal logic previously spread
-    across ``_collect_commands``, ``_find_commands``, ``_collect_arguments``,
-    ``_find_arguments``, ``_collect_redirections``, and ``_collect_target_files``.
-
-    Args:
-        node:  AST node to visit (typically the root File).
-        visitor: Callable invoked on every node; may mutate a captured list.
+    arguments are also visited (used by ``walk()``). When False (default),
+    CallExpr arguments are skipped to preserve the original behavior where
+    ``get_commands()`` does not extract nested commands.
     """
     visitor(node)
 
-    # --- recursion into children (shared across all callers) -----
     if isinstance(node, File):
         for stmt in node.stmts:
             _traverse(stmt, visitor, recurse_call_expr_args)
@@ -81,11 +64,9 @@ def _traverse(
             for redir in node.redirs:
                 _traverse(redir, visitor, recurse_call_expr_args)
     elif isinstance(node, CallExpr):
-        # Recurse into args only when recurse_call_expr_args is True
-        # (walk() needs it; get_commands intentionally skips nested commands).
         if recurse_call_expr_args and node.args:
             for arg in node.args:
-                _traverse(arg, visitor)
+                _traverse(arg, visitor, recurse_call_expr_args)
     elif isinstance(node, BinaryCmd):
         if node.left:
             _traverse(node.left, visitor, recurse_call_expr_args)
@@ -102,16 +83,15 @@ def _traverse(
         if node.word:
             _traverse(node.word, visitor, recurse_call_expr_args)
     elif isinstance(node, Lit):
-        pass  # leaf — no children
+        pass  # leaf
+    elif isinstance(node, CmdSubst):
+        if node.stmts:
+            for stmt in node.stmts:
+                _traverse(stmt, visitor, recurse_call_expr_args)
     elif isinstance(node, Part):
         if node.parts:
             for subpart in node.parts:
                 _traverse(subpart, visitor, recurse_call_expr_args)
-    elif isinstance(node, CmdSubst):
-        # Command substitution ($() or backtick) — recurse into stmts
-        if node.stmts:
-            for stmt in node.stmts:
-                _traverse(stmt, visitor, recurse_call_expr_args)
     elif isinstance(node, Subshell):
         if node.stmts:
             for stmt in node.stmts:
@@ -161,21 +141,32 @@ def _traverse(
         if node.default:
             for stmt in node.default:
                 _traverse(stmt, visitor, recurse_call_expr_args)
+    # --- Issue #9: missing traversal branches for container node types ---
+    elif isinstance(node, Block):
+        if node.stmts:
+            for stmt in node.stmts:
+                _traverse(stmt, visitor, recurse_call_expr_args)
+    # --- Container node types with body/stmt fields ---
+    elif isinstance(node, (FuncDecl, TestClause, ArithmCmd)):
+        if node.body:
+            _traverse(node.body, visitor, recurse_call_expr_args)
+    elif isinstance(node, (TimeClause, CoprocClause)):
+        if node.stmt:
+            _traverse(node.stmt, visitor, recurse_call_expr_args)
+    elif isinstance(node, LetClause):
+        if node.exprs:
+            for expr in node.exprs:
+                _traverse(expr, visitor, recurse_call_expr_args)
     elif hasattr(node, "type") and node.type == "DeclClause" and node.args:
         for a in node.args:
             _traverse(a, visitor, recurse_call_expr_args)
 
 
 class Visitor:
-    """
-    AST node visitor pattern for traversing bash AST trees.
+    """AST node visitor pattern for traversing bash AST trees.
 
     Subclass Visitor and override specific visit methods to process
-    particular node types. The visit() method dispatches each node
-    to the appropriate handler based on its type.
-
-    Use walk() to traverse the entire tree, calling visit() on each
-    node and recursively visiting all child nodes.
+    particular node types.
 
     Example:
         class CommandCollector(Visitor):
@@ -190,26 +181,6 @@ class Visitor:
 
         collector = CommandCollector()
         collector.walk(tree)
-        commands = collector.commands  # List of command names found
-
-    Visitor methods:
-        visit(node) - Dispatch to type-specific handler
-        visit_file(node) - Handle File nodes
-        visit_stmt(node) - Handle Stmt nodes
-        visit_call_expr(node) - Handle CallExpr nodes
-        visit_binary_cmd(node) - Handle BinaryCmd nodes
-        visit_word(node) - Handle Word nodes
-        visit_redir(node) - Handle Redir nodes
-        visit_part(node) - Handle Part nodes
-        visit_node(node) - Handle generic Node objects
-        visit_subshell(node) - Handle Subshell nodes
-        visit_if_clause(node) - Handle IfClause nodes
-        visit_for_clause(node) - Handle ForClause nodes
-        visit_while_clause(node) - Handle WhileClause nodes
-        visit_and_cmd(node) - Handle AndCmd nodes (&&)
-        visit_or_cmd(node) - Handle OrCmd nodes (||)
-        visit_case_clause(node) - Handle CaseClause nodes
-        walk(node) - Recursively visit all nodes in the tree
     """
 
     def visit(self, node: Node):
@@ -246,86 +217,93 @@ class Visitor:
             return self.visit_or_cmd(node)
         elif isinstance(node, CaseClause):
             return self.visit_case_clause(node)
+        elif isinstance(node, Block):
+            return self.visit_block(node)
+        elif isinstance(node, FuncDecl):
+            return self.visit_func_decl(node)
+        elif isinstance(node, TestClause):
+            return self.visit_test_clause(node)
+        elif isinstance(node, ArithmCmd):
+            return self.visit_arithm_cmd(node)
+        elif isinstance(node, TimeClause):
+            return self.visit_time_clause(node)
+        elif isinstance(node, CoprocClause):
+            return self.visit_coproc_clause(node)
         elif hasattr(node, "type") and node.type == "DeclClause":
             return self.visit_decl_clause(node)
         else:
             return self.visit_node(node)
 
     def visit_file(self, node: File) -> None:
-        """Visit a File node. Override to process top-level AST files."""
         pass
 
     def visit_stmt(self, node: Stmt) -> None:
-        """Visit a Stmt node. Override to process individual statements."""
         pass
 
     def visit_call_expr(self, node: CallExpr) -> None:
-        """Visit a CallExpr node. Override to process command invocations."""
         pass
 
     def visit_binary_cmd(self, node: BinaryCmd) -> None:
-        """Visit a BinaryCmd node. Override to process pipes."""
         pass
 
     def visit_word(self, node: Word) -> None:
-        """Visit a Word node. Override to process bash words."""
         pass
 
     def visit_redir(self, node: Redir) -> None:
-        """Visit a Redir node. Override to process file redirections."""
         pass
 
     def visit_lit(self, node: Lit) -> None:
-        """Visit a Lit node. Override to process literal values.
-
-        Lit nodes are simple literal parts of a Word. They inherit from
-        Node (not Part) and represent unquoted literal strings.
-
-        By default, Lit nodes are forwarded to visit_part() for
-        compatibility with existing visitor code that treats all word
-        parts uniformly. Override visit_part() to handle both Part
-        and Lit nodes, or override visit_lit() for Lit-specific processing.
-        """
         pass
 
     def visit_part(self, node: Part) -> None:
-        """Visit a Part node. Override to process word parts."""
         pass
 
     def visit_node(self, node: Node) -> None:
-        """Visit a generic Node. Override to process unmapped node types."""
         pass
 
     def visit_subshell(self, node: Subshell) -> None:
-        """Visit a Subshell node. Override to process subshell commands."""
         pass
 
     def visit_cmd_subst(self, node: CmdSubst) -> None:
-        """Visit a CmdSubst ($() or backtick substitution). Override to process substitutions."""
         pass
 
     def visit_if_clause(self, node: IfClause) -> None:
-        """Visit an IfClause node. Override to process if/elif/else branches."""
         pass
 
     def visit_for_clause(self, node: ForClause) -> None:
-        """Visit a ForClause node. Override to process for loops."""
         pass
 
     def visit_while_clause(self, node: WhileClause) -> None:
-        """Visit a WhileClause node. Override to process while loops."""
         pass
 
     def visit_and_cmd(self, node: AndCmd) -> None:
-        """Visit an AndCmd node. Override to process && logical AND."""
         pass
 
     def visit_or_cmd(self, node: OrCmd) -> None:
-        """Visit an OrCmd node. Override to process || logical OR."""
         pass
 
     def visit_case_clause(self, node: CaseClause) -> None:
-        """Visit a CaseClause node. Override to process case/switch statements."""
+        pass
+
+    def visit_block(self, node: Block) -> None:
+        pass
+
+    def visit_func_decl(self, node: FuncDecl) -> None:
+        pass
+
+    def visit_test_clause(self, node: TestClause) -> None:
+        pass
+
+    def visit_arithm_cmd(self, node: ArithmCmd) -> None:
+        pass
+
+    def visit_time_clause(self, node: TimeClause) -> None:
+        pass
+
+    def visit_coproc_clause(self, node: CoprocClause) -> None:
+        pass
+
+    def visit_decl_clause(self, node: Node) -> None:
         pass
 
     def walk(self, node: Node):
@@ -334,14 +312,7 @@ class Visitor:
 
 
 class VariableVisitor(Visitor):
-    """
-    Visitor that detects whether the tree contains any variable references.
-
-    Finds ``Var``, ``ParamExp``, and ``CmdSubst`` node types — the three
-    kinds of nodes that shfmt uses for variable references ($VAR),
-    parameter expansions (${VAR}), and command substitutions ($() or
-    backticks).  Also handles variables inside double-quoted strings.
-    """
+    """Visitor that detects whether the tree contains any variable references."""
 
     def __init__(self):
         super().__init__()
@@ -376,43 +347,22 @@ class VariableVisitor(Visitor):
                 _traverse(a, self.visit)
 
     def visit_cmd_subst(self, node: CmdSubst) -> None:
-        """CmdSubst ($() or backtick substitution) IS a variable reference."""
         self.found = True
-        # Also check for nested ParamExp/Var within the substitution's stmts
         if node.stmts:
             for stmt in node.stmts:
                 _traverse(stmt, self.visit, recurse_call_expr_args=True)
 
 
 def get_commands(tree: Node) -> list[str]:
-    """
-    Extract all command names from the AST.
-
-    Traverses the entire tree and collects the names of all commands
-    that would be executed, including commands within pipes, subshells,
-    conditionals, and loops.
-
-    Args:
-        tree: The AST tree (typically root File node)
-
-    Returns:
-        List[str]: Names of all commands in execution order
-
-    Example:
-        tree = parse_ast('cat file.txt | grep pattern | sort -u')
-        get_commands(tree)  # ['cat', 'grep', 'sort']
-    """
+    """Extract all command names from the AST."""
     commands: list[str] = []
 
     def visitor(node):
         if isinstance(node, CallExpr):
-            # First arg is the command name
             if node.args:
                 cmd_name = _word_value(node.args[0])
                 if cmd_name:
                     commands.append(cmd_name)
-            # Handle Assigns (variable assignments) — recurse into their parts,
-            # which may contain CmdSubst with nested commands.
             if node.assigns:
                 for assign in node.assigns:
                     val = assign.value if hasattr(assign, "value") else None
@@ -426,32 +376,12 @@ def get_commands(tree: Node) -> list[str]:
 
 
 def find_commands(tree: Node) -> list[CallExpr]:
-    """
-    Find all CallExpr nodes (commands) in the AST.
-
-    Unlike get_commands(), this returns the full CallExpr node objects
-    rather than just command names. Use this when you need to inspect
-    command arguments or node positions.
-
-    Args:
-        tree: The AST tree (typically root File node)
-
-    Returns:
-        List[CallExpr]: All command invocation nodes
-
-    Example:
-        tree = parse_ast('ls -la | grep txt')
-        commands = find_commands(tree)
-        commands  # List of CallExpr nodes
-        len(commands)              # 2
-        commands[0].args[0]        # Word node for 'ls'
-    """
+    """Find all CallExpr nodes (commands) in the AST."""
     commands: list[CallExpr] = []
 
     def visitor(node):
         if isinstance(node, CallExpr):
             commands.append(node)
-            # Handle Assigns (variable assignments) — recurse into their parts.
             if node.assigns:
                 for assign in node.assigns:
                     val = assign.value if hasattr(assign, "value") else None
@@ -474,58 +404,18 @@ def _word_value(word: Word) -> str:
 
 
 def has_variable(tree: Node) -> bool:
-    """
-    Check if the command contains any variable references.
-
-    Detects variable references ($VAR), parameter expansions (${VAR}),
-    and command substitutions ($() or backticks). Also handles variables
-    within quoted strings via the shared _traverse visitor pattern.
-
-    Args:
-        tree: The AST tree (typically root File node)
-
-    Returns:
-        bool: True if any variables are referenced in the command
-
-    Example:
-        has_variable(parse_ast('ls -la'))      # False
-        has_variable(parse_ast('echo $HOME'))  # True
-        has_variable(parse_ast('cat /tmp/x'))  # False (path, not variable)
-    """
+    """Check if the command contains any variable references."""
     visitor = VariableVisitor()
     _traverse(tree, visitor.visit, recurse_call_expr_args=True)
     return visitor.found
 
 
 def get_redirections(tree: Node) -> list[dict]:
-    """
-    Extract file redirections from the AST.
-
-    Finds all redirection operations in the tree and returns them as
-    dictionaries containing the redirection operator and target file.
-
-    Args:
-        tree: The AST tree (typically root File node)
-
-    Returns:
-        List[dict]: Each dict has 'op' (operator string like ">", ">>", "<")
-            and 'target' (the file path as a string)
-
-    Example:
-        tree = parse_ast('cat file.txt > output.txt')
-        redirs = get_redirections(tree)
-        redirs[0]['op']            # '>'
-        redirs[0]['target']        # 'output.txt'
-    """
+    """Extract file redirections from the AST."""
     redirs: list[dict] = []
 
     def visitor(node):
-        if (
-            isinstance(node, Stmt)
-            and node.redirs
-            or isinstance(node, BinaryCmd)
-            and node.redirs
-        ):
+        if (isinstance(node, (Stmt, BinaryCmd))) and node.redirs:
             for r in node.redirs:
                 redirs.append({"op": r.op, "target": _word_value(r.word)})
 
@@ -534,27 +424,7 @@ def get_redirections(tree: Node) -> list[dict]:
 
 
 def get_arguments(tree: Node) -> list[list[str]]:
-    """
-    Extract command arguments for each call expression.
-
-    For each command in the AST, returns its arguments (excluding the
-    command name itself). The result is a list of argument lists, in
-    the same order as the commands appear in the tree.
-
-    Args:
-        tree: The AST tree (typically root File node)
-
-    Returns:
-        List[List[str]]: Outer list has one entry per command; inner lists
-            contain the argument strings for that command
-
-    Example:
-        tree = parse_ast('cp file1.txt file2.txt')
-        get_arguments(tree)  # [['file1.txt', 'file2.txt']]
-
-        tree2 = parse_ast('ls -la | grep -i txt')
-        get_arguments(tree2)  # [['-la'], ['-i', 'txt']]
-    """
+    """Extract command arguments for each call expression."""
     args_list: list[list[str]] = []
 
     def visitor(node):
@@ -566,20 +436,7 @@ def get_arguments(tree: Node) -> list[list[str]]:
 
 
 def find_arguments(tree: Node) -> list[list[Word]]:
-    """
-    Find all argument lists (excluding command names) for each call.
-
-    Unlike get_arguments(), this returns the full Word node objects
-    rather than just the argument strings. Use this when you need
-    access to word parts or node positions.
-
-    Args:
-        tree: The AST tree (typically root File node)
-
-    Returns:
-        List[List[Word]]: Outer list has one entry per command; inner lists
-            contain Word objects for each argument
-    """
+    """Find all argument lists (excluding command names) for each call."""
     args_list: list[list[Word]] = []
 
     def visitor(node):
@@ -591,28 +448,7 @@ def find_arguments(tree: Node) -> list[list[Word]]:
 
 
 def has_pipe(tree: Node) -> bool:
-    """
-    Check if the command contains any pipes.
-
-    Traverses the tree looking for BinaryCmd nodes with pipe operators,
-    including pipes nested within subshells, conditionals, and loops.
-
-    Args:
-        tree: The AST tree (typically root File node)
-
-    Returns:
-        bool: True if any pipe operators are present
-
-    Example:
-        has_pipe(parse_ast('ls -la'))          # False
-        has_pipe(parse_ast('ls | grep txt'))   # True
-        has_pipe(parse_ast('ls > file.txt'))   # False (redirect, not pipe)
-    """
-    return _has_pipe_recursive(tree)
-
-
-def _has_pipe_recursive(node: Node) -> bool:
-    """Recursively check for pipes using shared traversal logic."""
+    """Check if the command contains any pipes."""
     found = False
 
     def visitor(n: Node):
@@ -622,37 +458,16 @@ def _has_pipe_recursive(node: Node) -> bool:
         if isinstance(n, BinaryCmd):
             found = True
 
-    _traverse(node, visitor, recurse_call_expr_args=True)
+    _traverse(tree, visitor, recurse_call_expr_args=True)
     return found
 
 
 def get_target_files(tree: Node) -> list[str]:
-    """
-    Extract file targets from redirections.
-
-    Finds all redirections in the tree and returns only the target
-    file paths. Useful for identifying which files will be modified
-    or read by the command.
-
-    Args:
-        tree: The AST tree (typically root File node)
-
-    Returns:
-        List[str]: Names of all files targeted by redirections
-
-    Example:
-        tree = parse_ast('cat file.txt > output.txt')
-        get_target_files(tree)  # ['output.txt']
-    """
+    """Extract file targets from redirections."""
     targets: list[str] = []
 
     def visitor(node):
-        if (
-            isinstance(node, Stmt)
-            and node.redirs
-            or isinstance(node, BinaryCmd)
-            and node.redirs
-        ):
+        if (isinstance(node, (Stmt, BinaryCmd))) and node.redirs:
             for r in node.redirs:
                 target = _word_value(r.word)
                 if target:

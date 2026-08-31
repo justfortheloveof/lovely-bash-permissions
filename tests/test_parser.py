@@ -786,10 +786,10 @@ class TestArithmExpNodes:
         inner = cmd.args[1].parts[0].x
         assert inner.type == "BinaryArithm"
         assert inner.op == "+"
-        assert inner.x.parts[0].type == "Lit"
-        assert inner.x.parts[0].value == "2"
-        assert inner.y.parts[0].type == "Lit"
-        assert inner.y.parts[0].value == "2"
+        assert inner.left.parts[0].type == "Lit"
+        assert inner.left.parts[0].value == "2"
+        assert inner.right.parts[0].type == "Lit"
+        assert inner.right.parts[0].value == "2"
 
     def test_arithmetic_with_variables(self):
         """Parse echo $((x + y)) and verify ArithmExp with variables."""
@@ -799,10 +799,10 @@ class TestArithmExpNodes:
         inner = cmd.args[1].parts[0].x
         assert inner.type == "BinaryArithm"
         assert inner.op == "+"
-        assert inner.x.parts[0].type == "Lit"
-        assert inner.x.parts[0].value == "x"
-        assert inner.y.parts[0].type == "Lit"
-        assert inner.y.parts[0].value == "y"
+        assert inner.left.parts[0].type == "Lit"
+        assert inner.left.parts[0].value == "x"
+        assert inner.right.parts[0].type == "Lit"
+        assert inner.right.parts[0].value == "y"
 
     def test_single_value_arithmetic(self):
         """Parse echo $((50)) and verify ArithmExp with just a value."""
@@ -835,12 +835,12 @@ class TestArithmExpNodes:
         assert inner.type == "BinaryArithm"
         assert inner.op == "+"
         # Left side should be multiplication
-        assert inner.x.type == "BinaryArithm"
-        assert inner.x.op == "*"
-        assert inner.x.x.parts[0].value == "2"
-        assert inner.x.y.parts[0].value == "3"
+        assert inner.left.type == "BinaryArithm"
+        assert inner.left.op == "*"
+        assert inner.left.left.parts[0].value == "2"
+        assert inner.left.right.parts[0].value == "3"
         # Right side should be the number 4
-        assert inner.y.parts[0].value == "4"
+        assert inner.right.parts[0].value == "4"
 
     def test_arithmetic_position_info(self):
         """Verify that ArithmExp nodes have position information."""

@@ -150,7 +150,3 @@ __all__ = [
     "get_target_files",
     "Visitor",
 ]
-
-
-def main() -> None:
-    print("Hello from lovely-bash-permissions!")
