@@ -66,22 +66,14 @@ Goal: Configure ruff for linting and formatting, integrated into the development
       assert result.returncode == 0, f"ruff format --check failed:\n{result.stdout}\n{result.stderr}"
   ```
 
-## Step 6 — Pre-commit hook (optional but recommended)
+## Step 6 — Pre-commit hook (optional but recommended) ✅
 
-- Add `.pre-commit-config.yaml` if not present, with a ruff hook:
-  ```yaml
-  repos:
-    - repo: https://github.com/astral-sh/ruff-pre-commit
-      rev: v0.9.x
-      hooks:
-        - id: ruff-check
-          args: [--fix]
-        - id: ruff-format
-  ```
-- If `.pre-commit-config.yaml` exists, merge these hooks in.
+- Created `.pre-commit-config.yaml` with ruff-check and ruff-format hooks.
+- Committed with message 'Add pre-commit hook for ruff'.
 
-## Step 7 — Verify everything passes
+## Step 7 — Verify everything passes ✅
 
-- Run `uv run pytest` to confirm all tests (including new ruff tests) pass.
-- Run `uv run ruff check src/ tests/` and `uv run ruff format --check src/ tests/` — both must succeed clean.
-- Commit all changes.
+- `uv run pytest` → **278 passed** (includes 2 new ruff tests)
+- `uv run ruff check src/ tests/` → All checks passed
+- `uv run ruff format --check src/ tests/` → 9 files already formatted
+- All changes committed.
