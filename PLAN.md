@@ -9,7 +9,7 @@ Goal: Configure ruff for linting and formatting, integrated into the development
 - Ran `uv sync` — installed ruff 0.16.5
 - Verified: `uv run ruff --version` returns `ruff 0.16.5`, success
 
-## Step 2 — Configure ruff in pyproject.toml
+## Step 2 — Configure ruff in pyproject.toml ✅
 
 - Add a `[tool.ruff]` section with:
   - `line-length = 88` (PEP-8 common default; adjust if project style differs).
@@ -32,12 +32,18 @@ Goal: Configure ruff for linting and formatting, integrated into the development
 - All fixed: removed unused variables, merged isinstance calls, combined nested ifs, added `raise ... from e`, replaced blind `pytest.raises(Exception)` with `pytest.raises(ParseError)`.
 - Verification: `uv run ruff check src/ tests/` → "All checks passed!"
 
-## Step 4 — Run ruff format to style all code
+## Step 4 — Run ruff format to style all code ✅
 
-- Run `uv run ruff format src/ tests/` to reformat everything.
-- Commit the reformatted files.
+- Ran `uv run ruff format src/ tests/` — all files already formatted (9 files already formatted).
+- Verified with `uv run ruff format --check src/ tests/` — all clean.
+- No new files to commit (already in sync).
 
-## Step 5 — Add a lint check to tests
+## Step 5 — Add a lint check to tests ✅
+
+- Created `tests/test_ruff.py` with two tests:
+  - `test_ruff_check()`: runs `ruff check src/ tests/` and asserts success
+  - `test_ruff_format_check()`: runs `ruff format --check src/ tests/` and asserts success
+- Both tests pass: `uv run pytest tests/test_ruff.py` → 2 passed
 
 - Extend `[tool.pytest.ini_options]` in `pyproject.toml`:
   - Add an option for ruff check so CI can verify style: `addopts = ["--strict-markers", "-vv"]` (keep existing, add ruff check step separately).
