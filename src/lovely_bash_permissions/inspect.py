@@ -426,13 +426,12 @@ def _collect_commands(node: Node, commands: List[str]):
         # Handle Assigns (variable assignments)
         if node.extra and "assigns" in node.extra:
             for assign in node.extra["assigns"]:
-                val = assign.get("value", assign.get("Value", {}))
-                parts = val.get("parts", val.get("Parts", []))
+                val = assign.value if hasattr(assign, 'value') else None
+                if val is None:
+                    continue
+                parts = getattr(val, 'parts', [])
                 for p in parts:
-                    if isinstance(p, dict):
-                        _collect_commands(part_from_json(p), commands)
-                    else:
-                        _collect_commands(p, commands)
+                    _collect_commands(p, commands)
     elif isinstance(node, Lit):
         pass
     elif isinstance(node, CmdSubst):

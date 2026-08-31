@@ -298,6 +298,37 @@ class ArithmExp(Node):
 
 
 @dataclass
+class BraceExp(Node):
+    """Brace expansion: {a,b} or {1..10}.
+
+    Represents bash brace expansion, where a set of strings is generated
+    from a pattern and substituted into the command. Brace expansion
+    happens before any other expansions.
+
+    Examples:
+        ls {file1,file2}.txt          -> ls file1.txt file2.txt
+        echo {a..e}                    -> echo a b c d e (sequence)
+        mkdir -p {a,b}/{x,y}          -> mkdir -p a/x a/y b/x b/y
+
+    shfmt's JSON representation for BraceExp includes:
+        - Type: "BraceExp"
+        - Pos/End: Position of the entire brace expansion
+        - Sequence: True for {1..10} style, False for {a,b} style
+        - Elems: List of Word nodes (the expansion elements)
+
+    Attributes:
+        type: Always "BraceExp"
+        pos: Starting source position
+        end: Ending source position
+        sequence: True for {1..10} style, False for {a,b}
+        elems: List of Word nodes representing expansion elements
+    """
+    type: str = "BraceExp"
+    sequence: bool = False
+    elems: List['Word'] = None
+
+
+@dataclass
 class ExtGlob(Node):
     """Extended glob pattern.
 
@@ -898,6 +929,95 @@ class ArrayElem(Node):
     value: Optional['Word'] = None
 
 
+def assign_from_json(data: dict) -> Assign:
+    """Convert shfmt JSON assignment data to a typed Assign object.
+    
+    Args:
+        data: shfmt JSON object representing an assignment
+    
+    Returns:
+        Assign: Typed assignment object with name, index, value, array fields
+    """
+    # Name is a Lit node
+    name_data = data.get("Name", {})
+    name_node = None
+    if isinstance(name_data, dict):
+        name_node = Lit(
+            type="Lit",
+            pos=_parse_position(name_data.get("Pos")),
+            end=_parse_position(name_data.get("End")),
+            value=name_data.get("Value", ""),
+            value_pos=_parse_position(name_data.get("ValuePos")),
+            value_end=_parse_position(name_data.get("ValueEnd")),
+        )
+    
+    # Index is a Word node
+    index_data = data.get("Index")
+    index_node = None
+    if isinstance(index_data, dict):
+        index_node = word_from_json(index_data)
+    
+    # Value is a Word node
+    value_data = data.get("Value")
+    value_node = None
+    if isinstance(value_data, dict):
+        value_node = word_from_json(value_data)
+    
+    # Array is an ArrayExpr
+    array_data = data.get("Array")
+    array_node = None
+    if isinstance(array_data, dict):
+        # array is a dict with Lparen, Rparen, Elems
+        array_node = ArrayExpr(
+            type="ArrayExpr",
+            pos=_parse_position(array_data.get("Pos")),
+            end=_parse_position(array_data.get("End")),
+            elems=[array_elem_from_json(e) for e in array_data.get("Elems", [])],
+        )
+    
+    return Assign(
+        type="Assign",
+        pos=_parse_position(data.get("Pos")),
+        end=_parse_position(data.get("End")),
+        name=name_node,
+        index=index_node,
+        value=value_node,
+        array=array_node,
+        append=data.get("Append", False),
+        naked=data.get("Naked", False),
+    )
+
+
+def array_elem_from_json(data: dict) -> ArrayElem:
+    """Convert shfmt JSON array element data to a typed ArrayElem object.
+    
+    Args:
+        data: shfmt JSON object representing an array element
+    
+    Returns:
+        ArrayElem: Typed array element object
+    """
+    # Index is a Word node
+    index_data = data.get("Index")
+    index_node = None
+    if isinstance(index_data, dict):
+        index_node = word_from_json(index_data)
+    
+    # Value is a Word node
+    value_data = data.get("Value")
+    value_node = None
+    if isinstance(value_data, dict):
+        value_node = word_from_json(value_data)
+    
+    return ArrayElem(
+        type="ArrayElem",
+        pos=_parse_position(data.get("Pos")),
+        end=_parse_position(data.get("End")),
+        index=index_node,
+        value=value_node,
+    )
+
+
 def redir_from_json(data: dict) -> Redir:
     """Convert shfmt JSON redirection data to a typed Redir object.
     
@@ -977,6 +1097,7 @@ NODE_TYPES = {
     "CmdSubst": CmdSubst,
     "ProcSubst": ProcSubst,
     "ArithmExp": ArithmExp,
+    "BraceExp": BraceExp,
     "BinaryArithm": BinaryArithm,
     "ExtGlob": ExtGlob,
     "Block": Block,
@@ -1043,9 +1164,12 @@ def node_from_json(data: dict) -> Node:
     elif node_type == "CallExpr":
         # Capture Assigns separately (variable assignments like files=$(...))
         assigns_raw = data.get("Assigns")
-        extra = None
+        assigns = None
         if assigns_raw:
-            extra = {"assigns": assigns_raw}
+            assigns = [assign_from_json(a) for a in assigns_raw]
+        extra = None
+        if assigns:
+            extra = {"assigns": assigns}
         return CallExpr(
             type=node_type,
             pos=_parse_position(data.get("Pos")),
@@ -1272,13 +1396,13 @@ def node_from_json(data: dict) -> Node:
             type=node_type,
             pos=_parse_position(data.get("Pos")),
             end=_parse_position(data.get("End")),
-            expr=word_from_json(data.get("Expr")),
+            expr=word_from_json(data.get("Word")),
             branches=[
                 {
                     "patterns": [word_from_json(w) for w in b.get("Patterns", [])],
-                    "body": [stmt_from_json(s) for s in b.get("Body", [])],
+                    "body": [stmt_from_json(s) for s in b.get("Stmts", [])],
                 }
-                for b in data.get("Branches", [])
+                for b in data.get("Items", [])
             ],
             default=[stmt_from_json(s) for s in data.get("Default", [])],
         )
@@ -1519,6 +1643,14 @@ def node_from_json(data: dict) -> Node:
             end=_parse_position(data.get("End")),
             index=node_from_json(data.get("Index")),
             value=word_from_json(data.get("Value")),
+        )
+    elif node_type == "BraceExp":
+        return BraceExp(
+            type=node_type,
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            sequence=data.get("Sequence", False),
+            elems=[word_from_json(e) for e in data.get("Elems", [])],
         )
     
     return Node(
