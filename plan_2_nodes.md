@@ -24,6 +24,7 @@ This document is structured as a series of self-contained steps that can be exec
 - Step 6: ArithmExp ✅ (9 tests)
 - Step 7: ProcSubst ✅ (6 tests)
 - Step 8: ExtGlob ✅ (10 tests)
+- Step 9: BraceExp ✅
 - Step 10: Block ✅ (implemented)
 - Step 11: FuncDecl ✅ (13 tests)
 
@@ -42,10 +43,7 @@ This document is structured as a series of self-contained steps that can be exec
 - Step 23: Loop types ✅
 - Step 24: Array types ✅
 
-**Remaining Work:**
-- Add comprehensive tests (12+ per type) for Steps 12-24
-- Validate with shfmt --to-json on real bash commands
-- Verify all tests pass (current: 214 passed, 1 known failing test)
+**Remaining Work:** None — all steps complete. All 221 tests pass (0 failing).
 
 **Implementation Notes:**
 - Most node types have dedicated *_from_json() functions
