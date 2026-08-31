@@ -418,6 +418,8 @@ class ExtGlob(Node):
 
 ## [ ] Step 9: BraceExp (Brace Expansion)
 
+**NOTE**: In shfmt v3.14.0, brace expansion like `{file1,file2}.txt` is NOT represented as a separate `BraceExp` node type in JSON. It appears as a single `Lit` node with value `{file1,file2}.txt`. However, the mvdan/sh source code defines a `BraceExp` type, so this may be implemented for completeness even though it doesn't match shfmt JSON directly.
+
 **Priority**: LOW
 
 **Go Reference**:
