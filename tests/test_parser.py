@@ -4,7 +4,8 @@ Comprehensive tests for the lovely-bash-permissions parser.
 
 import pytest
 from lovely_bash_permissions import (
-    parse_ast, get_commands, get_arguments, has_variable, get_redirections
+    parse_ast, get_commands, get_arguments, has_variable, get_redirections,
+    Lit, SglQuoted, ParamExp, DblQuoted, CmdSubst
 )
 
 
@@ -659,3 +660,97 @@ class TestDblQuotedNodes:
         """Verify that DblQuoted is imported in the lovely_bash_permissions module."""
         from lovely_bash_permissions import DblQuoted
         assert DblQuoted is not None
+
+
+class TestCmdSubstNodes:
+    """Tests for the CmdSubst node type (Step 5 of node coverage)."""
+
+    def test_simple_cmdsubst_syntax(self):
+        """Parse echo $(date) and verify it produces a CmdSubst node."""
+        tree = parse_ast('echo $(date)')
+        cmd = tree.stmts[0].cmd
+        assert cmd.type == 'CallExpr'
+        assert len(cmd.args) == 2
+        assert cmd.args[1].parts[0].type == 'CmdSubst'
+        assert isinstance(cmd.args[1].parts[0], CmdSubst)
+        assert len(cmd.args[1].parts[0].stmts) == 1
+        inner_cmd = cmd.args[1].parts[0].stmts[0].cmd
+        assert inner_cmd.type == 'CallExpr'
+        assert inner_cmd.args[0].parts[0].value == 'date'
+
+    def test_cmdsubst_with_backquotes(self):
+        """Parse echo `date` and verify backquotes is True."""
+        tree = parse_ast('echo `date`')
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].type == 'CmdSubst'
+        assert cmd.args[1].parts[0].backquotes is True
+        assert cmd.args[1].parts[0].stmts[0].cmd.args[0].parts[0].value == 'date'
+
+    def test_cmdsubst_in_double_quotes(self):
+        """Parse echo \"hello $(date)\" and verify CmdSubst inside DblQuoted."""
+        tree = parse_ast('echo "hello $(date)"')
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].type == 'DblQuoted'
+        parts = cmd.args[1].parts[0].parts
+        assert len(parts) == 2
+        assert parts[0].type == 'Lit'
+        assert parts[0].value == 'hello '
+        assert parts[1].type == 'CmdSubst'
+        assert parts[1].stmts[0].cmd.args[0].parts[0].value == 'date'
+
+    def test_two_cmdsubst_parts(self):
+        """Parse echo $(date) && $(date) and verify two CmdSubst parts."""
+        tree = parse_ast('echo $(date) $(date)')
+        cmd = tree.stmts[0].cmd
+        assert len(cmd.args) == 3
+        assert cmd.args[1].parts[0].type == 'CmdSubst'
+        assert cmd.args[2].parts[0].type == 'CmdSubst'
+        # Both have the same inner command
+        assert cmd.args[1].parts[0].stmts[0].cmd.args[0].parts[0].value == 'date'
+        assert cmd.args[2].parts[0].stmts[0].cmd.args[0].parts[0].value == 'date'
+
+    def test_nested_cmdsubst(self):
+        """Parse echo $(echo $(date)) and verify nested CmdSubst."""
+        tree = parse_ast('echo $(echo $(date))')
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].type == 'CmdSubst'
+        outer_stmt = cmd.args[1].parts[0].stmts[0]
+        assert outer_stmt.cmd.type == 'CallExpr'
+        assert outer_stmt.cmd.args[0].parts[0].value == 'echo'
+        inner_part = outer_stmt.cmd.args[1].parts[0]
+        assert inner_part.type == 'CmdSubst'
+        assert inner_part.stmts[0].cmd.args[0].parts[0].value == 'date'
+
+    def test_cmdsubst_with_multiple_commands(self):
+        """Parse echo $(ls | grep txt) and verify multiple inner statements."""
+        tree = parse_ast('echo $(ls | grep txt)')
+        cmd = tree.stmts[0].cmd
+        cs = cmd.args[1].parts[0]
+        assert cs.type == 'CmdSubst'
+        assert len(cs.stmts) == 1
+        inner = cs.stmts[0].cmd
+        assert inner.type == 'BinaryCmd'
+        assert inner.x.args[0].parts[0].value == 'ls'
+        assert inner.y.args[0].parts[0].value == 'grep'
+        assert inner.y.args[1].parts[0].value == 'txt'
+
+    def test_cmdsubst_position_info(self):
+        """Verify that CmdSubst nodes have position information."""
+        tree = parse_ast('echo $(date)')
+        cmd = tree.stmts[0].cmd
+        part = cmd.args[1].parts[0]
+        assert part.pos is not None
+        assert part.end is not None
+        assert isinstance(part.pos.offset, int)
+        assert isinstance(part.end.offset, int)
+
+    def test_cmdsubst_backquotes_false(self):
+        """Verify that $(...) has backquotes=False."""
+        tree = parse_ast('echo $(date)')
+        cmd = tree.stmts[0].cmd
+        assert cmd.args[1].parts[0].backquotes is False
+
+    def test_cmdsubst_imported_in_module(self):
+        """Verify that CmdSubst is imported in the lovely_bash_permissions module."""
+        from lovely_bash_permissions import CmdSubst
+        assert CmdSubst is not None

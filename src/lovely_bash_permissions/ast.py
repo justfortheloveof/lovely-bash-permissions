@@ -201,6 +201,38 @@ class DblQuoted(Node):
 
 
 @dataclass
+class CmdSubst(Node):
+    """A command substitution. 
+
+    Represents bash command substitution using either $(...) or backticks.
+    The inner command(s) are parsed as full statements and executed, with
+    their output substituted back into the original command.
+    
+    Examples: 
+        echo $(date)           -> Modern $(...) syntax
+        echo `date`            -> Legacy backtick syntax
+        echo "Hello $(whoami)" -> Command substitution in double quotes
+    
+    shfmt's JSON representation for CmdSubst includes:
+        - Type: "CmdSubst"
+        - Pos/End: Position of the entire substitution
+        - Left/Right: Position of opening/closing delimiter characters
+        - Stmts: List of statements contained in the substitution
+        - Backquotes: True if backtick syntax is used, false for $(...)
+    
+    Attributes:
+        type: Always "CmdSubst"
+        pos: Starting source position of the entire substitution
+        end: Ending source position of the entire substitution
+        stmts: List of Stmt objects representing commands in the substitution
+        backquotes: True if backtick syntax, False for $(...)
+    """
+    type: str = "CmdSubst"
+    stmts: List['Stmt'] = None
+    backquotes: bool = False
+
+
+@dataclass
 class Part:
     """An atomic part of a bash word.
     
@@ -493,6 +525,7 @@ NODE_TYPES = {
     "SglQuoted": SglQuoted,
     "ParamExp": ParamExp,
     "DblQuoted": DblQuoted,
+    "CmdSubst": CmdSubst,
 }
 
 
@@ -869,6 +902,14 @@ def part_from_json(data: dict) -> Part:
             pos=_parse_position(data.get("Pos")),
             end=_parse_position(data.get("End")),
             value=data.get("Value", ""),
+        )
+    elif data.get("Type") == "CmdSubst":
+        return CmdSubst(
+            type="CmdSubst",
+            pos=_parse_position(data.get("Pos")),
+            end=_parse_position(data.get("End")),
+            stmts=[stmt_from_json(s) for s in data.get("Stmts", [])],
+            backquotes=data.get("Backquotes", False),
         )
     elif data.get("Type") == "ParamExp":
         # Extract parameter name from the Param field

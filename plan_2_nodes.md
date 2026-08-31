@@ -140,9 +140,9 @@ class SglQuoted(Node):
 
 **Dependencies**: None
 
-## [ ] Step 3: DblQuoted (Double-Quoted String) (depends on: 1,2,4)
+## [x] Step 3: DblQuoted (Double-Quoted String) (depends on: 1,2,4)
 
-Dependencies met: Lit (done), SglQuoted (done), ParamExp (done)
+Completed: DblQuoted dataclass implemented in ast.py with parts field, registered in NODE_TYPES, parser updated in part_from_json(), 10 comprehensive tests added in TestDblQuotedNodes. All 153 tests pass (143 existing + 10 new). Tested nested parts, variable expansion, empty quotes, escape sequences, position info.
 
 **Priority**: HIGH
 

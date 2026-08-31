@@ -18,7 +18,7 @@ Key functions:
 """
 
 from typing import List, Callable, Any, Dict, Optional
-from .ast import Node, CallExpr, BinaryCmd, Word, Part, Lit, SglQuoted, ParamExp, Stmt, File, Redir, Subshell, IfClause, ForClause, WhileClause, AndCmd, OrCmd, CaseClause, part_from_json, node_from_json
+from .ast import Node, CallExpr, BinaryCmd, Word, Part, Lit, SglQuoted, ParamExp, DblQuoted, CmdSubst, Stmt, File, Redir, Subshell, IfClause, ForClause, WhileClause, AndCmd, OrCmd, CaseClause, part_from_json, node_from_json
 
 
 class Visitor:
@@ -355,11 +355,10 @@ def _find_commands(node: Node, commands: List[CallExpr]):
                         _find_commands(p, commands)
     elif isinstance(node, Lit):
         pass
-    elif isinstance(node, Part) and node.type == "CmdSubst":
-        # Descend into command substitution
-        if node.parts:
-            for p in node.parts:
-                _find_commands(p, commands)
+    elif isinstance(node, CmdSubst):
+        # Descend into command substitution stmts
+        for stmt in node.stmts:
+            _find_commands(stmt.cmd, commands)
     elif isinstance(node, Part):
         # Recurse into nested parts
         if node.parts:
@@ -436,13 +435,10 @@ def _collect_commands(node: Node, commands: List[str]):
                         _collect_commands(p, commands)
     elif isinstance(node, Lit):
         pass
-    elif isinstance(node, Part) and node.type == "CmdSubst":
+    elif isinstance(node, CmdSubst):
         # Descend into command substitution to find nested commands
-        if node.extra:
-            for stmt in node.extra:
-                cmd = stmt.get("Cmd")
-                if cmd:
-                    _collect_commands(node_from_json(cmd), commands)
+        for stmt in node.stmts:
+            _collect_commands(stmt.cmd, commands)
     elif isinstance(node, Part):
         # Recurse into nested parts (CmdSubst can be nested)
         if node.parts:
