@@ -340,12 +340,23 @@ def _render_word_subs(words: list[Word], indent: int, report: _Report) -> bool:
     return rendered
 
 
+def _stmt_snippet(stmt: Stmt, source: str) -> str:
+    """Extract the raw source text for a statement."""
+    if stmt.pos is None or stmt.end is None:
+        return ""
+    start = stmt.pos.offset
+    end = stmt.end.offset
+    if start < 0 or end < 0 or start > len(source) or end > len(source):
+        return ""
+    return source[start:end].strip()
+
+
 def _redirs_of(stmt: Stmt) -> list[Redir]:
     """Return the statement's redirections, when present."""
     return stmt.redirs or []
 
 
-def _render(tree: File) -> None:
+def _render(tree: File, source: str) -> None:
     report = _Report()
     rendered_any = False
 
@@ -354,7 +365,8 @@ def _render(tree: File) -> None:
             continue
         statement_report = _Report()
         if _render_statement(stmt.cmd, _redirs_of(stmt), statement_report):
-            report.add(0, f"statement {stmt_no}:")
+            snippet = _stmt_snippet(stmt, source)
+            report.add(0, f"statement {stmt_no} `{snippet}`:")
             for line in statement_report.lines():
                 report.add(0, line)
             report.add(0, "")
@@ -390,7 +402,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{PROG}: error: failed to parse input: {exc}", file=sys.stderr)
         return 3
 
-    _render(tree)
+    _render(tree, source)
     return 0
 
 
