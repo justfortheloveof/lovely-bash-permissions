@@ -24,11 +24,11 @@ Requires Python >= 3.10 and the `shfmt-py` binary (installed automatically via u
 from lovely_bash_permissions import parse_ast, get_commands, get_arguments
 
 # Parse a bash command
-tree = parse_ast('ls -la | grep txt')
+tree = parse_ast("ls -la | grep txt")
 
 # Extract commands and arguments
-print(get_commands(tree))       # ['ls', 'grep']
-print(get_arguments(tree))     # [['-la'], ['txt']]
+print(get_commands(tree))  # ['ls', 'grep']
+print(get_arguments(tree))  # [['-la'], ['txt']]
 ```
 
 ## API Reference
@@ -42,9 +42,9 @@ Parse a bash command string into a typed AST node. This is the main entry point 
 ```python
 from lovely_bash_permissions import parse_ast
 
-tree = parse_ast('ls -la')
-print(tree.type)              # 'File'
-print(len(tree.stmts))        # 1 statement
+tree = parse_ast("ls -la")
+print(tree.type)  # 'File'
+print(len(tree.stmts))  # 1 statement
 ```
 
 #### `parse(command, dialect="bash")` → `dict`
@@ -55,11 +55,11 @@ Parse a bash command and return raw shfmt JSON. Use this when you need the under
 from lovely_bash_permissions import parse
 
 # Default bash dialect
-tree = parse('ls -la')
+tree = parse("ls -la")
 
 # Other dialects
-zsh_tree = parse('ls -la', dialect="zsh")
-posix_tree = parse('ls -la', dialect="posix")
+zsh_tree = parse("ls -la", dialect="zsh")
+posix_tree = parse("ls -la", dialect="posix")
 ```
 
 Supported dialects: `bash`, `posix`, `mksh`, `bats`, `zsh`.
@@ -73,8 +73,8 @@ Extract all command names from the AST, including commands in pipes, subshells, 
 ```python
 from lovely_bash_permissions import parse_ast, get_commands
 
-tree = parse_ast('cat file.txt | grep pattern | sort -u')
-print(get_commands(tree))     # ['cat', 'grep', 'sort']
+tree = parse_ast("cat file.txt | grep pattern | sort -u")
+print(get_commands(tree))  # ['cat', 'grep', 'sort']
 ```
 
 #### `get_arguments(tree)` → `List[List[str]]`
@@ -84,11 +84,11 @@ Extract arguments for each command (excluding the command name). Returns a list 
 ```python
 from lovely_bash_permissions import parse_ast, get_arguments
 
-tree = parse_ast('cp file1.txt file2.txt')
-print(get_arguments(tree))    # [['file1.txt', 'file2.txt']]
+tree = parse_ast("cp file1.txt file2.txt")
+print(get_arguments(tree))  # [['file1.txt', 'file2.txt']]
 
-tree2 = parse_ast('ls -la | grep -i txt')
-print(get_arguments(tree2))   # [['-la'], ['-i', 'txt']]
+tree2 = parse_ast("ls -la | grep -i txt")
+print(get_arguments(tree2))  # [['-la'], ['-i', 'txt']]
 ```
 
 #### `has_variable(tree)` → `bool`
@@ -98,11 +98,11 @@ Check if the command contains any variable references (`$VAR`, `${VAR}`, command
 ```python
 from lovely_bash_permissions import parse_ast, has_variable
 
-print(has_variable(parse_ast('ls -la')))                # False
-print(has_variable(parse_ast('echo $HOME')))            # True
-print(has_variable(parse_ast('echo "$HOME"')))          # True
+print(has_variable(parse_ast("ls -la")))  # False
+print(has_variable(parse_ast("echo $HOME")))  # True
+print(has_variable(parse_ast('echo "$HOME"')))  # True
 print(has_variable(parse_ast('export PATH="$HOME/bin:$PATH"')))  # True
-print(has_variable(parse_ast('cat /path/to/file')))     # False (path, not variable)
+print(has_variable(parse_ast("cat /path/to/file")))  # False (path, not variable)
 ```
 
 #### `get_redirections(tree)` → `List[RedirectionInfo]`
@@ -112,10 +112,10 @@ Extract file redirections from the AST. Returns a list of `RedirectionInfo` type
 ```python
 from lovely_bash_permissions import parse_ast, get_redirections
 
-tree = parse_ast('cat file.txt > output.txt')
+tree = parse_ast("cat file.txt > output.txt")
 redirs = get_redirections(tree)
-print(redirs[0]['op'])      # '>'
-print(redirs[0]['target'])  # 'output.txt'
+print(redirs[0]["op"])  # '>'
+print(redirs[0]["target"])  # 'output.txt'
 ```
 
 #### `find_commands(tree)` → `List[CallExpr]`
@@ -125,9 +125,9 @@ Find all CallExpr nodes (command invocations) in the AST. Returns the full node 
 ```python
 from lovely_bash_permissions import parse_ast, find_commands
 
-tree = parse_ast('ls -la | grep txt')
+tree = parse_ast("ls -la | grep txt")
 commands = find_commands(tree)
-print(len(commands))        # 2
+print(len(commands))  # 2
 print(commands[0].args[0].parts[0].value)  # 'ls'
 ```
 
@@ -138,10 +138,10 @@ Find all argument lists (excluding command names) as Word node objects.
 ```python
 from lovely_bash_permissions import parse_ast, find_arguments
 
-tree = parse_ast('ls -la /tmp')
+tree = parse_ast("ls -la /tmp")
 args = find_arguments(tree)
-print(len(args))            # 1
-print(len(args[0]))         # 2 (two arguments: '-la' and '/tmp')
+print(len(args))  # 1
+print(len(args[0]))  # 2 (two arguments: '-la' and '/tmp')
 ```
 
 #### `has_pipe(tree)` → `bool`
@@ -151,9 +151,9 @@ Check if the command contains any pipe operators.
 ```python
 from lovely_bash_permissions import parse_ast, has_pipe
 
-print(has_pipe(parse_ast('ls -la')))          # False
-print(has_pipe(parse_ast('ls | grep txt')))   # True
-print(has_pipe(parse_ast('ls > file.txt')))   # False (redirect, not pipe)
+print(has_pipe(parse_ast("ls -la")))  # False
+print(has_pipe(parse_ast("ls | grep txt")))  # True
+print(has_pipe(parse_ast("ls > file.txt")))  # False (redirect, not pipe)
 ```
 
 #### `get_target_files(tree)` → `List[str]`
@@ -163,7 +163,7 @@ Extract file targets from redirections. Returns the names of files that will be 
 ```python
 from lovely_bash_permissions import parse_ast, get_target_files
 
-tree = parse_ast('cat file.txt > output.txt')
+tree = parse_ast("cat file.txt > output.txt")
 print(get_target_files(tree))  # ['output.txt']
 ```
 
@@ -192,10 +192,10 @@ The parser uses dataclasses to represent bash syntax:
 Inspect raw node structure:
 
 ```python
-tree = parse_ast('ls | grep txt')
+tree = parse_ast("ls | grep txt")
 stmt = tree.stmts[0]
 print(stmt.cmd.type)  # 'BinaryCmd'
-print(stmt.cmd.op)   # '|'
+print(stmt.cmd.op)  # '|'
 ```
 
 ## Examples
@@ -205,7 +205,9 @@ print(stmt.cmd.op)   # '|'
 ```python
 from lovely_bash_permissions import parse_ast, get_commands, get_arguments
 
-tree = parse_ast('cat data.csv | grep pattern | awk "{print $1}" | sort -u > results.txt')
+tree = parse_ast(
+    'cat data.csv | grep pattern | awk "{print $1}" | sort -u > results.txt'
+)
 
 print(get_commands(tree))
 # ['cat', 'grep', 'awk', 'sort']
@@ -220,20 +222,20 @@ print(get_arguments(tree))
 from lovely_bash_permissions import parse_ast, get_redirections
 
 # Output redirect
-tree = parse_ast('cat file.txt > output.txt')
+tree = parse_ast("cat file.txt > output.txt")
 redirs = get_redirections(tree)
-print(redirs[0]['op'])      # '>'
-print(redirs[0]['target'])  # 'output.txt'
+print(redirs[0]["op"])  # '>'
+print(redirs[0]["target"])  # 'output.txt'
 
 # Append redirect
-tree2 = parse_ast('echo line >> log.txt')
+tree2 = parse_ast("echo line >> log.txt")
 redirs2 = get_redirections(tree2)
-print(redirs2[0]['op'])     # '>>'
+print(redirs2[0]["op"])  # '>>'
 
 # Input redirect
-tree3 = parse_ast('sort < input.txt')
+tree3 = parse_ast("sort < input.txt")
 redirs3 = get_redirections(tree3)
-print(redirs3[0]['op'])     # '<'
+print(redirs3[0]["op"])  # '<'
 ```
 
 ### Parsing Variables
@@ -241,13 +243,13 @@ print(redirs3[0]['op'])     # '<'
 ```python
 from lovely_bash_permissions import parse_ast, has_variable
 
-print(has_variable(parse_ast('ls -la')))
+print(has_variable(parse_ast("ls -la")))
 # False
 
-print(has_variable(parse_ast('echo $HOME')))
+print(has_variable(parse_ast("echo $HOME")))
 # True
 
-print(has_variable(parse_ast('cat /path/to/file')))
+print(has_variable(parse_ast("cat /path/to/file")))
 # False (path, not variable)
 
 print(has_variable(parse_ast('echo "$HOME"')))
@@ -271,11 +273,11 @@ print(get_commands(tree))
 ```python
 from lovely_bash_permissions import parse_ast, get_commands
 
-tree = parse_ast('for f in *.txt; do echo $f; done')
+tree = parse_ast("for f in *.txt; do echo $f; done")
 print(get_commands(tree))
 # ['echo']
 
-tree2 = parse_ast('while true; do sleep 1; done')
+tree2 = parse_ast("while true; do sleep 1; done")
 print(get_commands(tree2))
 # ['sleep']
 ```
@@ -285,11 +287,11 @@ print(get_commands(tree2))
 ```python
 from lovely_bash_permissions import parse_ast, get_commands
 
-tree = parse_ast('test -f file && cat file')
+tree = parse_ast("test -f file && cat file")
 print(get_commands(tree))
 # ['test', 'cat']
 
-tree2 = parse_ast('ping -c1 host || echo unreachable')
+tree2 = parse_ast("ping -c1 host || echo unreachable")
 print(get_commands(tree2))
 # ['ping', 'echo']
 ```
@@ -299,13 +301,15 @@ print(get_commands(tree2))
 ```python
 from lovely_bash_permissions import parse_ast, get_commands
 
+
 def is_dangerous(tree):
-    dangerous = {'rm', 'mv', 'cp', 'kill', 'reboot', 'shutdown'}
+    dangerous = {"rm", "mv", "cp", "kill", "reboot", "shutdown"}
     commands = get_commands(tree)
     return any(c in dangerous for c in commands)
 
+
 # Check before running
-tree = parse_ast('rm -rf /tmp/cache')
+tree = parse_ast("rm -rf /tmp/cache")
 if is_dangerous(tree):
     print("⚠️ Warning: this command could modify the system")
 ```
@@ -315,18 +319,20 @@ if is_dangerous(tree):
 ```python
 from lovely_bash_permissions import parse_ast, get_target_files, get_redirections
 
+
 def check_write_permissions(tree):
     """Check if command writes to files (output redirections)."""
     redirs = get_redirections(tree)
-    write_ops = {'>', '>>', '2>', '2>>', '&>', '&>>'}
-    
-    for r in redirs:
-        if r['op'] in write_ops:
-            print(f"Writing to: {r['target']}")
-    
-    return bool([r for r in redirs if r['op'] in write_ops])
+    write_ops = {">", ">>", "2>", "2>>", "&>", "&>>"}
 
-tree = parse_ast('cat file.txt > output.txt')
+    for r in redirs:
+        if r["op"] in write_ops:
+            print(f"Writing to: {r['target']}")
+
+    return bool([r for r in redirs if r["op"] in write_ops])
+
+
+tree = parse_ast("cat file.txt > output.txt")
 check_write_permissions(tree)
 # Writing to: output.txt
 ```
@@ -336,9 +342,9 @@ check_write_permissions(tree)
 ```python
 from lovely_bash_permissions import parse_ast, get_commands
 
-tree = parse_ast('echo step 1\necho step 2')
-print(len(tree.stmts))       # 2
-print(get_commands(tree))    # ['echo', 'echo']
+tree = parse_ast("echo step 1\necho step 2")
+print(len(tree.stmts))  # 2
+print(get_commands(tree))  # ['echo', 'echo']
 ```
 
 ## Running Tests
