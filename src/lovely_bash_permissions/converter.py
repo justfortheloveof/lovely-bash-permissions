@@ -447,13 +447,18 @@ def _convert_binary_cmd(data: dict) -> BinaryCmd:
     shfmt attaches redirections to the ``Stmt``-shaped ``X``/``Y``
     operands.  Those operands are unwrapped to their ``Cmd`` so that
     ``left``/``right`` point directly at the command; the operands'
-    redirections are collected here onto the :class:`BinaryCmd` itself.
+    redirections are split here onto :class:`BinaryCmd` per-side fields
+    (``left_redirs``/``right_redirs``) so each redirection can be
+    attributed to its own operand.  ``redirs`` holds the merged list
+    (left then right) for backwards compatibility.
     """
-    redirs: list[Redir] = []
-    for side in ("X", "Y"):
+    left_redirs: list[Redir] = []
+    right_redirs: list[Redir] = []
+    for side, target in (("X", left_redirs), ("Y", right_redirs)):
         operand = data.get(side)
         if isinstance(operand, dict):
-            redirs.extend(_convert_redir(r) for r in operand.get("Redirs", []))
+            target.extend(_convert_redir(r) for r in operand.get("Redirs", []))
+    redirs = left_redirs + right_redirs
     pos, end = _parse_pos_end(data)
     return BinaryCmd(
         pos=pos,
@@ -461,6 +466,8 @@ def _convert_binary_cmd(data: dict) -> BinaryCmd:
         op=data.get("Op", ""),
         left=node_from_json(data.get("X")),
         right=node_from_json(data.get("Y")),
+        left_redirs=left_redirs,
+        right_redirs=right_redirs,
         redirs=redirs,
     )
 

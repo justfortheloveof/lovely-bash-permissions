@@ -341,12 +341,20 @@ class BinaryCmd(Node):
         op: Operator symbol ("|" for pipe, "|&" for pipe-both)
         left: Left operand (a command or nested expression)
         right: Right operand (a command or nested expression)
-        redirs: Redirections attached to either operand (``X`` or ``Y``)
+        left_redirs: Redirections attached to the ``X`` (left) operand
+        right_redirs: Redirections attached to the ``Y`` (right) operand
+        redirs: All redirections attached to either operand, in operand
+            order (``left_redirs + right_redirs``).  Kept merged for
+            backwards compatibility — consumers that need to know which
+            operand a redirection belongs to should use the per-side
+            fields instead.
     """
 
     op: str = ""
     left: Node | None = None
     right: Node | None = None
+    left_redirs: list[Redir] = field(default_factory=list)
+    right_redirs: list[Redir] = field(default_factory=list)
     redirs: list[Redir] = field(default_factory=list)
 
 

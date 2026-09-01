@@ -61,7 +61,13 @@ class RedirectionInfo(TypedDict):
 # Fields that hold child Node values (single or list).  Used by
 # ``iter_children`` to avoid a large isinstance dispatch chain.
 # Fields named here are introspected via dataclasses.fields().
-_SKIP_FIELDS = _POSITION_FIELDS
+_SKIP_FIELDS = _POSITION_FIELDS | {
+    # BinaryCmd per-side redirection lists are already covered by the
+    # merged ``redirs`` field; traversing them again would duplicate the
+    # redirection subtrees (and any substitutions they contain).
+    "left_redirs",
+    "right_redirs",
+}
 
 
 def iter_children(node: Node, *, include_call_args: bool = False) -> Iterator[Node]:
