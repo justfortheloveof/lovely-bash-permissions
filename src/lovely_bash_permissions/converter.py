@@ -306,10 +306,6 @@ def _convert_stmt(data: dict) -> Stmt:
     redirs: list[Redir] = []
     if "Redirs" in data:
         redirs = [_convert_redir(r) for r in data.get("Redirs", [])]
-    elif isinstance(cmd, BinaryCmd):
-        y_json = cmd_json.get("Y") if isinstance(cmd_json, dict) else None
-        if isinstance(y_json, dict) and "Redirs" in y_json:
-            redirs = [_convert_redir(r) for r in y_json.get("Redirs", [])]
     pos, end = _parse_pos_end(data)
     return Stmt(
         cmd=cmd,
@@ -446,6 +442,18 @@ def _convert_call_expr(data: dict) -> CallExpr:
 
 
 def _convert_binary_cmd(data: dict) -> BinaryCmd:
+    """Convert shfmt BinaryCmd JSON to a typed BinaryCmd node.
+
+    shfmt attaches redirections to the ``Stmt``-shaped ``X``/``Y``
+    operands.  Those operands are unwrapped to their ``Cmd`` so that
+    ``left``/``right`` point directly at the command; the operands'
+    redirections are collected here onto the :class:`BinaryCmd` itself.
+    """
+    redirs: list[Redir] = []
+    for side in ("X", "Y"):
+        operand = data.get(side)
+        if isinstance(operand, dict):
+            redirs.extend(_convert_redir(r) for r in operand.get("Redirs", []))
     pos, end = _parse_pos_end(data)
     return BinaryCmd(
         pos=pos,
@@ -453,6 +461,7 @@ def _convert_binary_cmd(data: dict) -> BinaryCmd:
         op=data.get("Op", ""),
         left=node_from_json(data.get("X")),
         right=node_from_json(data.get("Y")),
+        redirs=redirs,
     )
 
 

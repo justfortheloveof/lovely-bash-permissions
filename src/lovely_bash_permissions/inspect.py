@@ -8,7 +8,7 @@ analysis.
 Traversal semantics
 -------------------
 ``get_commands`` and ``find_commands`` recurse into CallExpr arguments *and*
-into variable-assignment values (via ``_iter_children``), so that commands
+into variable-assignment values (via ``iter_children``), so that commands
 inside ``$(...)`` or ``VAR=$(cmd)`` are discovered.
 
 ``get_arguments`` and ``find_arguments`` recurse into CallExpr arguments
@@ -59,17 +59,21 @@ class RedirectionInfo(TypedDict):
 # ---------------------------------------------------------------------------
 
 # Fields that hold child Node values (single or list).  Used by
-# ``_iter_children`` to avoid a large isinstance dispatch chain.
+# ``iter_children`` to avoid a large isinstance dispatch chain.
 # Fields named here are introspected via dataclasses.fields().
 _SKIP_FIELDS = _POSITION_FIELDS
 
 
-def _iter_children(node: Node, *, include_call_args: bool = False) -> Iterator[Node]:
+def iter_children(node: Node, *, include_call_args: bool = False) -> Iterator[Node]:
     """Yield direct child nodes of *node* via dataclass field introspection.
+
+    This is the shared child-traversal used by every inspection function so
+    that the CLI and the inspection layer stay consistent.
 
     When *include_call_args* is False (default), CallExpr ``args`` are
     skipped so that ``get_commands()`` does not descend into argument
-    words.  When True, they are included.
+    words.  When True, they are included (including the command-name
+    position, so ``$(ls | grep x) arg`` is discovered).
 
     CallExpr ``assigns`` are always yielded so that variable-assignment
     values are traversed by all visitors.
@@ -117,7 +121,7 @@ def _traverse(
         visitor(current)
         # Reverse so that children are visited in natural order
         children = list(
-            _iter_children(current, include_call_args=recurse_call_expr_args)
+            iter_children(current, include_call_args=recurse_call_expr_args)
         )
         stack.extend(reversed(children))
 

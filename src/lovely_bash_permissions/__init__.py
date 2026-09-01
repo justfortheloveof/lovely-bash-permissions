@@ -79,6 +79,7 @@ from .inspect import (
     get_target_files,
     has_pipe,
     has_variable,
+    iter_children,
 )
 from .parser import ParseError, parse
 
@@ -150,4 +151,5 @@ __all__ = [
     "find_arguments",
     "has_pipe",
     "get_target_files",
+    "iter_children",
 ]

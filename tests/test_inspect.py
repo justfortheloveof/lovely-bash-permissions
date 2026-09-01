@@ -7,6 +7,7 @@ from lovely_bash_permissions import (
     get_commands,
     get_target_files,
     has_pipe,
+    iter_children,
     parse_ast,
 )
 
@@ -31,6 +32,26 @@ class TestFindCommands:
     def test_no_commands(self):
         commands = find_commands(parse_ast('export PATH="/usr/bin"'))
         assert len(commands) == 0
+
+    def test_command_name_substitution(self):
+        """Commands in the command-name position are discovered."""
+        commands = find_commands(parse_ast("$(ls | grep x) arg"))
+        assert len(commands) == 3
+        assert commands[0].args[0].parts[0].type == "CmdSubst"
+        assert commands[1].args[0].parts[0].value == "ls"
+        assert commands[2].args[0].parts[0].value == "grep"
+
+
+class TestIterChildren:
+    """Test the shared traversal helper exported for the CLI."""
+
+    def test_exposed(self):
+        from lovely_bash_permissions import CallExpr
+
+        tree = parse_ast("ls -la")
+        children = list(iter_children(tree.stmts[0]))
+        assert len(children) == 1
+        assert isinstance(children[0], CallExpr)
 
 
 class TestFindArguments:

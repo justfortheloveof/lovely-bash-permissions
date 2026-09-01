@@ -341,7 +341,7 @@ class BinaryCmd(Node):
         op: Operator symbol ("|" for pipe, "|&" for pipe-both)
         left: Left operand (a command or nested expression)
         right: Right operand (a command or nested expression)
-        redirs: Redirections applied at the pipe level
+        redirs: Redirections attached to either operand (``X`` or ``Y``)
     """
 
     op: str = ""

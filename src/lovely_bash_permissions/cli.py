@@ -14,7 +14,6 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import sys
 from collections.abc import Iterator
 from typing import NoReturn
@@ -22,6 +21,7 @@ from typing import NoReturn
 from .ast import (
     ArithmExp,
     Assign,
+    BinaryCmd,
     BraceExp,
     CallExpr,
     CmdSubst,
@@ -39,7 +39,7 @@ from .ast import (
     Word,
 )
 from .converter import parse_ast
-from .inspect import has_pipe, has_variable
+from .inspect import has_pipe, has_variable, iter_children
 from .parser import ParseError
 
 PROG = "lovely-bash-inspection"
@@ -169,16 +169,10 @@ def _subst_marker(subst: Node) -> str:
 # ---------------------------------------------------------------------------
 # Traversal
 # ---------------------------------------------------------------------------
-
-
-def _children(node: Node) -> Iterator[Node]:
-    """Yield direct child nodes via dataclass field introspection."""
-    for field in dataclasses.fields(node):  # type: ignore[arg-type]
-        value = getattr(node, field.name, None)
-        if isinstance(value, Node):
-            yield value
-        elif isinstance(value, list):
-            yield from (item for item in value if isinstance(item, Node))
+# Child traversal is shared with the inspection layer via
+# ``inspect.iter_children`` so the CLI and the inspection API stay
+# consistent.  The CLI walks every child (including CallExpr arguments)
+# to discover nested commands and statements.
 
 
 def _iter_items(node: Node) -> Iterator[tuple[str, Node]]:
@@ -197,7 +191,7 @@ def _iter_items(node: Node) -> Iterator[tuple[str, Node]]:
         if isinstance(current, Stmt):
             yield "stmt", current
             continue
-        stack.extend(reversed(list(_children(current))))
+        stack.extend(reversed(list(iter_children(current, include_call_args=True))))
 
 
 def _iter_substs(word: Word) -> Iterator[Node]:
@@ -235,8 +229,12 @@ def _render_statement(
 
     *redirs* apply to the group's trailing command.  Nested ``Stmt`` nodes
     (inside functions, loops, cases, subshells, ...) carry their own
-    redirections and are rendered as deeper groups.
+    redirections and are rendered as deeper groups.  A ``BinaryCmd``'s own
+    redirections (attached to a pipe or ``&&``/``||`` operand) apply to its
+    trailing command as well.
     """
+    if isinstance(command, BinaryCmd) and command.redirs:
+        redirs = list(command.redirs) + redirs
     items = list(_iter_items(command))
     if not items:
         return False

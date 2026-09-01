@@ -176,7 +176,7 @@ The parser uses dataclasses to represent bash syntax:
 | `File` | Top-level container with `stmts` array |
 | `Stmt` | Single statement with `cmd`, `pos`, `end`, optional `redirs` |
 | `CallExpr` | Command invocation with `args` array |
-| `BinaryCmd` | Pipe operator with `left`, `right` operands and `op` |
+| `BinaryCmd` | Pipe/`&&`/`||` operator with `left`, `right` operands, `op`, and optional `redirs` |
 | `Word` | A word with `parts` array |
 | `Lit` | Literal string part of a word |
 | `Redir` | Redirection with `op` and `word` |

@@ -7,6 +7,7 @@ import pytest
 from lovely_bash_permissions import (
     ArithmExp,
     BinaryArithm,
+    BinaryCmd,
     Block,
     CmdSubst,
     DblQuoted,
@@ -99,6 +100,39 @@ class TestRedirections:
         assert len(redirs) == 1
         assert redirs[0]["op"] == ">"
         assert redirs[0]["target"] == "output.txt"
+
+    def test_redirect_on_left_of_and(self):
+        """Redirection on the X side of && must not be dropped."""
+        tree = parse_ast("cmd4 >4 && ls")
+        redirs = get_redirections(tree)
+        assert len(redirs) == 1
+        assert redirs[0]["op"] == ">"
+        assert redirs[0]["target"] == "4"
+
+    def test_redirect_on_middle_of_pipeline(self):
+        """Redirection on a non-final pipeline segment must not be dropped."""
+        tree = parse_ast("cmd1 | cmd2 > f | cmd3")
+        redirs = get_redirections(tree)
+        assert len(redirs) == 1
+        assert redirs[0]["op"] == ">"
+        assert redirs[0]["target"] == "f"
+
+    def test_redirect_on_right_of_and(self):
+        """Redirection on the Y side of && must not be dropped."""
+        tree = parse_ast("cmd > out && ls")
+        redirs = get_redirections(tree)
+        assert len(redirs) == 1
+        assert redirs[0]["op"] == ">"
+        assert redirs[0]["target"] == "out"
+
+    def test_trailing_redirect_on_pipe_lives_on_binary_cmd(self):
+        """A pipe's trailing redirection is stored on the BinaryCmd node."""
+        tree = parse_ast("echo hi | cat > out")
+        stmt = tree.stmts[0]
+        assert isinstance(stmt.cmd, BinaryCmd)
+        assert stmt.cmd.redirs
+        assert stmt.cmd.redirs[0].op == ">"
+        assert stmt.cmd.redirs[0].word.parts[0].value == "out"
 
 
 class TestVariables:
@@ -1404,10 +1438,12 @@ class TestFuncDeclNodes:
         y = then_stmt.cmd.right
         assert y.type == "CallExpr"
         assert y.args[0].parts[0].value == "uniq"
-        # Redirection on the y side: > "$2"
-        assert len(then_stmt.redirs) == 1
-        assert then_stmt.redirs[0].op == ">"
-        redir_part = then_stmt.redirs[0].word.parts[0]
+        # Redirection on the y side: > "$2" is attached to the outer
+        # BinaryCmd (the pipe), not the enclosing Stmt.
+        pipe = then_stmt.cmd
+        assert len(pipe.redirs) == 1
+        assert pipe.redirs[0].op == ">"
+        redir_part = pipe.redirs[0].word.parts[0]
         # "$2" is a DblQuoted containing a ParamExp for $2
         assert redir_part.type == "DblQuoted"
         inner_redir_param = redir_part.parts[0]
