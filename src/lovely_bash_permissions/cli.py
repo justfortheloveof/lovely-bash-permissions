@@ -159,13 +159,6 @@ def _assign_text(assign: Assign) -> str:
     return name + op
 
 
-def _subst_marker(subst: Node) -> str:
-    """Display marker for a command/proc substitution node."""
-    if isinstance(subst, CmdSubst):
-        return "$(...)"
-    return f"{getattr(subst, 'op', '?')}...)"
-
-
 # ---------------------------------------------------------------------------
 # Traversal
 # ---------------------------------------------------------------------------
@@ -175,23 +168,47 @@ def _subst_marker(subst: Node) -> str:
 # to discover nested commands and statements.
 
 
-def _iter_items(node: Node) -> Iterator[tuple[str, Node]]:
+def _iter_items(node: Node) -> Iterator[tuple[str, Node, list[Redir]]]:
     """Yield renderable commands and nested statements in source order.
 
-    Each item is a ``("cmd", node)`` pair for a command/declaration or a
-    ``("stmt", node)`` pair for a nested ``Stmt`` whose own redirections
-    apply in a deeper group.
+    Each item is a tuple ``(kind, node, redirs)``:
+
+    * ``("cmd", node, redirs)`` for a command/declaration, where *redirs*
+      are the redirections attached to that specific command (via its
+      pipeline/``&&``/``||`` segment).
+    * ``("stmt", node, redirs)`` for a nested ``Stmt``, where *redirs* are
+      the incoming segment redirections to thread into that deeper group.
     """
-    stack: list[Node] = [node]
+    # Stack entries carry the redirections that trail the subtree rooted at
+    # the node.  For a BinaryCmd these come from the per-operand redirection
+    # fields, so each redirection renders adjacent to the command that owns
+    # it.  For compound nodes the segment redirections are passed to the
+    # final child so they reach the last command of the group.
+    stack: list[tuple[Node, list[Redir]]] = [(node, [])]
     while stack:
-        current = stack.pop()
+        current, seg = stack.pop()
         if isinstance(current, _RENDERABLE):
-            yield "cmd", current
+            yield "cmd", current, seg
             continue
         if isinstance(current, Stmt):
-            yield "stmt", current
+            yield "stmt", current, seg
             continue
-        stack.extend(reversed(list(iter_children(current, include_call_args=True))))
+        if isinstance(current, BinaryCmd):
+            # Push the right operand first so the left pops (and renders)
+            # first, preserving source order.
+            if current.right is not None:
+                stack.append((current.right, list(current.right_redirs)))
+            if current.left is not None:
+                stack.append((current.left, list(current.left_redirs)))
+            continue
+        # Compound node (subshell, block, control flow, ...): descend into
+        # its children, threading the segment redirections to the last one.
+        children = list(iter_children(current, include_call_args=True))
+        pushed: list[tuple[Node, list[Redir]]] = []
+        for i, child in enumerate(children):
+            child_seg = seg if i == len(children) - 1 else []
+            pushed.append((child, child_seg))
+        stack.extend(reversed(pushed))
 
 
 def _iter_substs(word: Word) -> Iterator[Node]:
@@ -227,25 +244,26 @@ def _render_statement(
 ) -> bool:
     """Render a statement group: its commands plus any nested statements.
 
-    *redirs* apply to the group's trailing command.  Nested ``Stmt`` nodes
+    *redirs* apply to the group's trailing command.  A ``BinaryCmd``'s
+    redirections are attached to the operand (``X``/``Y``) that owns them,
+    so each redirection renders immediately after its own command instead of
+    being collected at the end of the pipeline.  Nested ``Stmt`` nodes
     (inside functions, loops, cases, subshells, ...) carry their own
-    redirections and are rendered as deeper groups.  A ``BinaryCmd``'s own
-    redirections (attached to a pipe or ``&&``/``||`` operand) apply to its
-    trailing command as well.
+    redirections and are rendered as deeper groups.
     """
-    if isinstance(command, BinaryCmd) and command.redirs:
-        redirs = list(command.redirs) + redirs
     items = list(_iter_items(command))
     if not items:
         return False
 
     last_cmd = max(
-        (i for i, (kind, _) in enumerate(items) if kind == "cmd"), default=-1
+        (i for i, (kind, _, _) in enumerate(items) if kind == "cmd"), default=-1
     )
 
-    for i, (kind, node) in enumerate(items):
+    for i, (kind, node, seg_redirs) in enumerate(items):
         if kind == "cmd":
             _render_command_or_decl(node, indent, report)
+            if seg_redirs:
+                _render_redirs(seg_redirs, indent, report)
             if i == last_cmd and redirs:
                 _render_redirs(redirs, indent, report)
             continue
@@ -253,8 +271,10 @@ def _render_statement(
         # Nested statement: when this group has no direct commands of its
         # own, its trailing redirections apply to the final nested group.
         nested_redirs = _redirs_of(node)
+        inherited = seg_redirs
         if last_cmd == -1 and i == len(items) - 1:
-            nested_redirs = nested_redirs + redirs
+            inherited = inherited + redirs
+        nested_redirs = nested_redirs + inherited
         if node.cmd is not None:
             _render_statement(node.cmd, nested_redirs, report, indent)
     return True
@@ -292,10 +312,20 @@ def _render_declared(decl: DeclClause, indent: int, report: _Report) -> None:
 
 
 def _render_redirs(redirs: list[Redir], indent: int, report: _Report) -> None:
-    """Render a statement's trailing redirections."""
+    """Render a command's trailing redirections.
+
+    Commands nested inside a redirection target (e.g. ``> $(ls)``) are also
+    rendered, as plain commands at the same indentation.
+    """
     for redir in redirs:
         if redir.word:
             report.add(indent, f"redirection: {_redir_text(redir)}")
+            for subst in _iter_substs(redir.word):
+                for stmt in subst.stmts:
+                    if stmt.cmd is not None:
+                        _render_statement(
+                            stmt.cmd, _redirs_of(stmt), report, indent + 1
+                        )
 
 
 def _render_word_subs(words: list[Word], indent: int, report: _Report) -> bool:
@@ -304,7 +334,6 @@ def _render_word_subs(words: list[Word], indent: int, report: _Report) -> bool:
     for word in words:
         for subst in _iter_substs(word):
             rendered = True
-            report.add(indent, f"inside {_subst_marker(subst)}:")
             for stmt in subst.stmts:
                 if stmt.cmd is not None:
                     _render_statement(stmt.cmd, _redirs_of(stmt), report, indent + 1)
