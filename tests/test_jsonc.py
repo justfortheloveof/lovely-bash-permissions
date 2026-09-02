@@ -1,10 +1,7 @@
 """Tests for JSONC parser."""
 
-import json
 import os
 import tempfile
-
-import pytest
 
 from lovely_bash_permissions.config.jsonc import (
     is_record,
@@ -35,7 +32,7 @@ class TestParseJsonc:
         assert result == {"a": 1, "b": 2}
 
     def test_valid_json_array(self):
-        result = parse_jsonc('[1, 2, 3]')
+        result = parse_jsonc("[1, 2, 3]")
         assert result == [1, 2, 3]
 
     def test_line_comments(self):
@@ -71,7 +68,7 @@ class TestParseJsonc:
         assert result == {"a": 1, "b": 2}
 
     def test_trailing_commas_arrays(self):
-        result = parse_jsonc('[1, 2, 3,]')
+        result = parse_jsonc("[1, 2, 3,]")
         assert result == [1, 2, 3]
 
     def test_bom_prefix(self):
@@ -107,11 +104,11 @@ class TestParseJsonc:
 
     def test_primitives(self):
         # These parse as valid JSON but aren't objects
-        assert parse_jsonc('42') == 42
+        assert parse_jsonc("42") == 42
         assert parse_jsonc('"hello"') == "hello"
-        assert parse_jsonc('true') is True
-        assert parse_jsonc('false') is False
-        assert parse_jsonc('null') is None
+        assert parse_jsonc("true") is True
+        assert parse_jsonc("false") is False
+        assert parse_jsonc("null") is None
 
 
 class TestReadJsoncFile:
