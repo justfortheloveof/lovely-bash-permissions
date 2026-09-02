@@ -21,7 +21,7 @@ Create a Devin CLI permission hook (`lovely-devin-permissions`) that evaluates b
 - Return `{}` for empty objects
 **Acceptance:** JSONC parsing tests pass for comments, empty files, missing files
 
-## Step 1b: Lovely-Permissions Config Loader
+## Step 1b: Lovely-Permissions Config Loader [COMPLETE]
 **Files:** `src/lovely_bash_permissions/config/loader.py`
 - Load from three locations (highest precedence last):
   1. `~/.config/devin/lovely-permissions.jsonc` (global)
