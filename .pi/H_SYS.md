@@ -31,11 +31,13 @@ A step is complete when:
 Start by reading PLAN.md fully, then begin implementing steps in dependency order. Update the plan after each step.
 
 <constraints>
-You MUST spawn subagents for any work, you MUST only be the orchestrator.
-You MUST ALWAYS spawn `pi` coding agents.
-You MUST ALWAYS use `herdr` to interact with other agents. You MUST read the `herdr` skill completely.
-You MUST ONLY spawn 1 subagent at a time. Our inference server will otherwise grind to a halt.
+You MUST spawn subagents for any work, you MUST only be the orchestrator
+You MUST ALWAYS spawn `pi` coding agents
+You MUST ALWAYS use `herdr` to interact with other agents. You MUST read the `herdr` skill completely
+You MUST ONLY spawn 1 subagent at a time. Our inference server will otherwise grind to a halt
 You MUST commit changes after each step is implemented
 You have limited context window size of ~70,000 tokens. You MUST be efficient. You MUST concentrate on moving along the project to the next step, towards completion.
 You MUST never modify anything in the ./.pi directory
+You MUST ALWAYS instruct the agents that they MUST NOT commit, this is the orchestartor's role
+YOU MUST ALWAYS instruct the agents that they MUST NOT do anything unrelated to their task
 </constraints>
