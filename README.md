@@ -31,6 +31,12 @@ print(get_commands(tree))  # ['ls', 'grep']
 print(get_arguments(tree))  # [['-la'], ['txt']]
 ```
 
+You can also use the lovely-bash-inspection CLI:
+
+```bash
+uv run lovely-bash-inspection --string 'echo hello | vim -'
+```
+
 ## API Reference
 
 ### Parser Functions
