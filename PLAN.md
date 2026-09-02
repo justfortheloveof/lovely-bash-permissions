@@ -9,7 +9,10 @@ Port the TypeScript `lovely-devin-permissions` tool to Python, leveraging the ex
 ## Goal
 Create a Devin CLI permission hook (`lovely-devin-permissions`) that evaluates bash commands against configurable rules (allow/ask/deny) and decides whether to approve, block, or prompt for approval.
 
-## Step 1a: JSONC Parser
+## Step 1a: JSONC Parser [COMPLETE]
+
+* Implementation: parse_jsonc() and read_jsonc_file() with regex-based comment stripping
+* Tests: 25 passing (line comments, block comments, trailing commas, BOM, empty/missing files)
 **Files:** `src/lovely_bash_permissions/config/__init__.py`, `config/jsonc.py`
 - Create `config` subpackage
 - Implement JSONC parser: read JSON files, strip `//` comments, parse with `json.load()`
