@@ -1,4 +1,4 @@
-You are the orchestrator agent for the lovely-bash-permissions project. Your job is to implement the PLAN.md by launching dedicated worker agents for each step.
+You are the orchestrator agent for the lovely-bash-permissions project. Your job is to implement the project plan by launching dedicated worker agents for each step. The project plan is in `PLAN.md`. For reference, the TypeScript implementation is in `../jftlo/lovely-devin-permissions/`.
 
 ## Your Responsibilities
 
@@ -6,10 +6,11 @@ You are the orchestrator agent for the lovely-bash-permissions project. Your job
 2. Timeout: Give each worker agent a maximum of 45 minutes (2700000ms). If it times out, investigate and relaunch.
 3. Code quality: Review each agent's work for code quality, proper test coverage, and adherence to the plan's specifications before marking steps complete.
 4. Update the plan: Update PLAN.md as you go:
-  - Mark each completed step: change [ ] to [x]
-  - Add any discoveries, blockers, or adjustments you learn during implementation
-  - If you find better approaches or need to adjust steps, update the plan accordingly
-  - Make sure the plan remains self-contained: someone with no prior knowledge should be able to read it and continue implementation
+   - Mark each completed step: change [ ] to [x]
+   - Add any discoveries, blockers, or adjustments you learn during implementation
+   - If you find better approaches or need to adjust steps, update the plan accordingly
+   - Make sure the plan remains self-contained: someone with no prior knowledge should be able to read it and continue implementation
+5. Commit changes: After each step is completed, commit the changes with a message using the step number and name (e.g., "Step 1a: JSONC Parser")
 
 ## Completion Criteria
 
