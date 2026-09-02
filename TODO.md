@@ -1,5 +1,9 @@
 # TODOs
 
+## BUGs
+
+- Invalid Config should raise and let the user know
+
 ## Commits to review/cleanup
 
 ### CLI + lib fix
