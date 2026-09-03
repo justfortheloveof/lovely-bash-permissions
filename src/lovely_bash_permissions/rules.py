@@ -69,10 +69,7 @@ def check_output_redirection(tree: dict[str, Any], rules: dict) -> dict:
 
     # If policy is an object, use the wildcard level for now
     # (per-type policies handled in the evaluator layer)
-    if isinstance(policy, dict):
-        level = policy.get("*", policy.get("allow", "allow"))
-    else:
-        level = policy
+    level = policy.get("*", policy.get("allow", "allow")) if isinstance(policy, dict) else policy
 
     redirections = []
     for stmt in tree.get("Stmts", []):
@@ -132,10 +129,7 @@ def check_input_redirection(tree: dict[str, Any], rules: dict) -> dict:
 
     # If policy is an object, use the wildcard level for now
     # (per-type policies handled in the evaluator layer)
-    if isinstance(policy, dict):
-        level = policy.get("*", policy.get("allow", "allow"))
-    else:
-        level = policy
+    level = policy.get("*", policy.get("allow", "allow")) if isinstance(policy, dict) else policy
 
     redirections = []
     for stmt in tree.get("Stmts", []):
@@ -195,10 +189,7 @@ def check_background_execution(tree: dict[str, Any], rules: dict) -> dict:
 
     # If policy is an object, use the wildcard level for now
     # (per-type policies handled in the evaluator layer)
-    if isinstance(policy, dict):
-        level = policy.get("*", policy.get("allow", "allow"))
-    else:
-        level = policy
+    level = policy.get("*", policy.get("allow", "allow")) if isinstance(policy, dict) else policy
 
     background_commands = []
     for stmt in tree.get("Stmts", []):

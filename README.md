@@ -211,9 +211,7 @@ print(stmt.cmd.op)  # '|'
 ```python
 from lovely_bash_permissions import parse_ast, get_commands, get_arguments
 
-tree = parse_ast(
-    'cat data.csv | grep pattern | awk "{print $1}" | sort -u > results.txt'
-)
+tree = parse_ast('cat data.csv | grep pattern | awk "{print $1}" | sort -u > results.txt')
 
 print(get_commands(tree))
 # ['cat', 'grep', 'awk', 'sort']
