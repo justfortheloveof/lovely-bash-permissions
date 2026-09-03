@@ -111,6 +111,9 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict:
     reasons = []
     any_segment_not_allowed = False
 
+    # Collect all matched patterns across ALL segments (joined into one reason, like TS)
+    all_matched_patterns: list[str] = []
+
     for i, segment in enumerate(segments):
         cmd_name = segment.get("command", "")
         args = segment.get("arguments", [])
@@ -133,14 +136,10 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict:
                     matched_patterns.append(pattern)
             if matched_patterns:
                 segment_result["allowed"] = True
-                if len(matched_patterns) == 1:
-                    reasons.append(f"command matches allowed pattern {matched_patterns[0]}")
-                else:
-                    reasons.append(f"command matches allowed patterns {', '.join(matched_patterns)}")
+                all_matched_patterns.extend(matched_patterns)
             else:
                 segment_result["allowed"] = False
                 any_segment_not_allowed = True
-                reasons.append(f'"{cmd_name}" command does not match allowed patterns')
         else:
             segment_result["allowed"] = True
 
@@ -158,6 +157,11 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict:
             segment_result["blocked"] = False
 
         segment_results.append(segment_result)
+
+    # Produce one joined reason from all matched patterns (like TS summarizeCommandMatches)
+    if all_matched_patterns:
+        noun = "pattern" if len(all_matched_patterns) == 1 else "patterns"
+        reasons.append(f"command matches allowed {noun} {', '.join(all_matched_patterns)}")
 
     # Check redirection rules
     output_result = check_output_redirection(raw_tree, rules)
