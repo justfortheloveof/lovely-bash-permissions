@@ -81,7 +81,7 @@ def handle_setup() -> None:
     allow.append(LABEL_EXEC_NAME)
     try:
         with open(config_path, "w") as f:
-            json.dump(config, f, indent=2)
+            json.dump(config, f, indent=2, ensure_ascii=False)
         print(f'Added "{LABEL_EXEC_NAME}" to {config_path} so Devin' + ' auto-approves the hook\'s ":" no-op label')
         sys.exit(0)
     except Exception as e:  # noqa: BLE001
