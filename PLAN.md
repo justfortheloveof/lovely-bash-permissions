@@ -18,6 +18,7 @@ You MUST NOT change pyproject.toml nor test_ruff.py
 - [x] Step 1d: Fix BLE001 blind Exception catches and S110 (8 noqa additions)
 - [x] Step 1e: Fix RUF005/RUF021 and remove unused noqa directives
 - [x] Step 1f: Fix E501 line-too-long (13 instances across source and test files)
+- [x] Step 1g: Fix SIM108 ternary operators (3 instances in rules.py)
 
 ### Notes
 
@@ -29,4 +30,5 @@ You MUST NOT change pyproject.toml nor test_ruff.py
 - Pass 6 verified: `uv run ruff check` passes with 0 errors, all 450 tests pass (including test_ruff.py). No drift detected.
 - Pass 7 verified (today): `uv run ruff check` passes with 0 errors, all 450 tests pass (including test_ruff.py). No drift detected.
 - Pass 8 verified: `uv run ruff check` passes with 0 errors, all 450 tests pass (including test_ruff.py). No drift detected.
+- Pass 9 verified: `uv run ruff check` passes with 0 errors, all 450 tests pass. No drift detected.
 - **Next steps:** None — plan fully complete. Stop the harmony loop.
