@@ -8,7 +8,7 @@ Identify the top 10 issues to fix in our code — start with the most obvious mi
 
 All code quality issues found have been implemented. 450 tests pass, working tree clean.
 
-No next steps — objective complete. If new issues are discovered in future passes, add them to the ISSUES list and fix sequentially.
+No next steps — objective complete (7 of 10 target issues found; none remaining). If new issues are discovered in future passes, add them to the ISSUES list and fix sequentially.
 
 ## ISSUES (all done)
 
