@@ -4,9 +4,9 @@
 
 Identify the top 10 issues to fix in our code — start with the most obvious mistakes or errors or inconsistencies. Then spawn agents to fix them. The list of issues should not grow larger than 100.
 
-## Status: Pass 7 — Fixing TS/Python regex list discrepancy.
+## Status: Pass 7 — Complete. All issues fixed.
 
-461 tests pass. Issue #12 remains: Python repeats "command matches pattern X" per command instead of joining them like TS does.
+461 tests pass. All 12 issues resolved.
 
 ## ISSUES
 
@@ -27,5 +27,5 @@ Identify the top 10 issues to fix in our code — start with the most obvious mi
 ### Fixed (pass 6)
 11. [x] **Output redirection not asking for approval in pipes** — fixed `check_output/input/background` functions to recursively walk AST (BinaryCmd.X/Y operands); added 11 regression tests.
 
-### Remaining
-12. [ ] Bug between TS and Python — list matching regexes joined (TS does it, Python repeats per command)
+### Fixed (pass 7)
+12. [x] **Bug between TS and Python — list matching regexes joined (TS does it, Python repeats per command)** — Python now collects matched patterns across all segments and produces one joined reason string, matching TS `summarizeCommandMatches`.
