@@ -4,7 +4,7 @@
 
 Identify the top 10 issues to fix in our code — start with the most obvious mistakes or errors or inconsistencies. Then spawn agents to fix them. The list of issues should not grow larger than 100.
 
-## Status: Pass 7 — Complete. All previously-known issues fixed.
+## Status: Pass 8 — Complete. All previously-known issues fixed.
 
 461 tests pass. All 12 known issues resolved.
 
