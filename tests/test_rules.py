@@ -4,6 +4,7 @@ from lovely_bash_permissions.parser import parse
 from lovely_bash_permissions.rules import (
     check_allowed_patterns,
     check_blocked_patterns,
+    check_input_redirection,
     check_output_redirection,
 )
 
@@ -174,4 +175,92 @@ def test_object_form_policy_wildcard() -> None:
     tree = parse("echo hello > /tmp/out.txt")
     rules = {"output_redirection": {"*": "deny"}}
     result = check_output_redirection(tree, rules)
+    assert result["status"] == "deny"
+
+
+# Tests for check_input_redirection
+
+
+def test_no_input_redirection_allowed() -> None:
+    """Command with no input redirection is allowed regardless of rules."""
+    tree = parse("ls -la")
+    result = check_input_redirection(tree, {"input_redirection": "deny"})
+    assert result["status"] == "allow"
+    assert result["reason"] == "no input redirection"
+
+
+def test_allowed_input_redirection_simple() -> None:
+    """Simple input redirection is allowed when policy is allow."""
+    tree = parse("cat < /tmp/in.txt")
+    result = check_input_redirection(tree, {"input_redirection": "allow"})
+    assert result["status"] == "allow"
+    assert "/tmp/in.txt" in result["reason"]
+
+
+def test_denied_input_redirection_simple() -> None:
+    """Simple input redirection is denied when policy is deny."""
+    tree = parse("cat < /tmp/in.txt")
+    result = check_input_redirection(tree, {"input_redirection": "deny"})
+    assert result["status"] == "deny"
+    assert "/tmp/in.txt" in result["reason"]
+
+
+def test_ask_input_redirection() -> None:
+    """Input redirection triggers ask when policy is ask."""
+    tree = parse("cat < /tmp/in.txt")
+    result = check_input_redirection(tree, {"input_redirection": "ask"})
+    assert result["status"] == "ask"
+    assert result["reason"] == "input redirection requires approval"
+
+
+def test_heredoc_input_redirection_allowed() -> None:
+    """Heredoc input redirection (<<) is allowed when policy is allow."""
+    tree = parse("cat << EOF\nhello\nEOF")
+    result = check_input_redirection(tree, {"input_redirection": "allow"})
+    assert result["status"] == "allow"
+    assert "EOF" in result["reason"]
+
+
+def test_heredoc_input_redirection_denied() -> None:
+    """Heredoc input redirection (<<) is denied when policy is deny."""
+    tree = parse("cat << EOF\nhello\nEOF")
+    result = check_input_redirection(tree, {"input_redirection": "deny"})
+    assert result["status"] == "deny"
+    assert "EOF" in result["reason"]
+
+
+def test_mixed_input_output_rules() -> None:
+    """Input and output redirection rules are independent."""
+    # Input allowed, output denied
+    tree = parse("cat < /tmp/in.txt > /tmp/out.txt")
+    rules = {
+        "input_redirection": "allow",
+        "output_redirection": "deny",
+    }
+    result_input = check_input_redirection(tree, rules)
+    result_output = check_output_redirection(tree, rules)
+    assert result_input["status"] == "allow"
+    assert result_output["status"] == "deny"
+
+
+def test_multiple_input_redirections_allowed() -> None:
+    """Multiple input redirections are allowed when policy is allow."""
+    tree = parse("cat < /tmp/in1.txt > /tmp/out.txt")
+    result = check_input_redirection(tree, {"input_redirection": "allow"})
+    assert result["status"] == "allow"
+    assert "/tmp/in1.txt" in result["reason"]
+
+
+def test_default_input_policy_is_allow() -> None:
+    """When rules dict has no input_redirection key, default is allow."""
+    tree = parse("cat < /tmp/in.txt")
+    result = check_input_redirection(tree, {})
+    assert result["status"] == "allow"
+
+
+def test_object_form_input_policy_wildcard() -> None:
+    """Object form policy uses wildcard level for basic input redirections."""
+    tree = parse("cat < /tmp/in.txt")
+    rules = {"input_redirection": {"*": "deny"}}
+    result = check_input_redirection(tree, rules)
     assert result["status"] == "deny"

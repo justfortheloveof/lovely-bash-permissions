@@ -102,3 +102,64 @@ def check_output_redirection(tree: dict[str, Any], rules: dict) -> dict:
             "status": "deny",
             "reason": f"output redirection denied to {', '.join(targets)}",
         }
+
+
+def check_input_redirection(tree: dict[str, Any], rules: dict) -> dict:
+    """Evaluate input redirections against rules.
+
+    Extracts input redirections (< or <<) from the AST and applies
+    the configured allow/ask/deny policy.
+
+    Args:
+        tree: The shfmt JSON AST representation of the bash command.
+        rules: Policy dict with "input_redirection" key set to
+            "allow", "ask", or "deny" (or object form with per-type policies).
+
+    Returns:
+        dict with "status" ("allow"/"ask"/"deny") and "reason" string.
+        If no input redirection is found, returns {"status": "allow", "reason": "no input redirection"}.
+    """
+    policy = rules.get("input_redirection", "allow")
+
+    # If policy is an object, use the wildcard level for now
+    # (per-type policies handled in the evaluator layer)
+    if isinstance(policy, dict):
+        level = policy.get("*", policy.get("allow", "allow"))
+    else:
+        level = policy
+
+    redirections = []
+    for stmt in tree.get("Stmts", []):
+        for redir in stmt.get("Redirs", []):
+            op = redir.get("Op", "")
+            if op in ("<", "<<"):
+                target = ""
+                word = redir.get("Word", {})
+                parts = word.get("Parts", [])
+                if parts:
+                    target = parts[0].get("Value", "")
+                redirections.append({"op": op, "target": target})
+
+    if not redirections:
+        return {
+            "status": "allow",
+            "reason": "no input redirection",
+        }
+
+    targets = [r["target"] for r in redirections]
+
+    if level == "allow":
+        return {
+            "status": "allow",
+            "reason": f"input redirection allowed from {', '.join(targets)}",
+        }
+    elif level == "ask":
+        return {
+            "status": "ask",
+            "reason": "input redirection requires approval",
+        }
+    else:  # deny
+        return {
+            "status": "deny",
+            "reason": f"input redirection denied from {', '.join(targets)}",
+        }

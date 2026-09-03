@@ -32,7 +32,7 @@ Create a Devin CLI permission hook (`lovely-devin-permissions`) that evaluates b
 - Return merged config dict
 **Acceptance:** Config loading tests pass for all three sources and merge behavior
 
-## Step 1c: Devin Config Loader
+## Step 1c: Devin Config Loader [COMPLETE]
 **Files:** `src/lovely_bash_permissions/config/devin.py`
 - Load from three locations (highest precedence last):
   1. `~/.config/devin/config.json` (global)
@@ -45,7 +45,7 @@ Create a Devin CLI permission hook (`lovely-devin-permissions`) that evaluates b
 - Deduplicate resulting regexes
 **Acceptance:** Devin config loading tests pass for all three sources, Exec parsing, regex generation
 
-## Step 1d: PermissionsManager
+## Step 1d: PermissionsManager [COMPLETE]
 **Files:** `src/lovely_bash_permissions/config/manager.py`
 - Create PermissionsManager class
 - Constructor takes project directory
@@ -56,7 +56,7 @@ Create a Devin CLI permission hook (`lovely-devin-permissions`) that evaluates b
 - Reloads config on demand
 **Acceptance:** PermissionsManager tests pass for loading, error handling, reload
 
-## Step 2a: Bash Segment Parser
+## Step 2a: Bash Segment Parser [COMPLETE]
 **Files:** `src/lovely_bash_permissions/segments.py`
 - Implement bash command segment extraction using existing `parse_ast()`
 - Parse command string to AST
@@ -69,7 +69,7 @@ Create a Devin CLI permission hook (`lovely-devin-permissions`) that evaluates b
 - Return list of segments, each containing: command name, arguments, redirections
 **Acceptance:** Segment parser tests pass for pipes, &&, ||, background, statements
 
-## Step 2b1: Allowed Pattern Matching
+## Step 2b1: Allowed Pattern Matching [COMPLETE]
 **Files:** `src/lovely_bash_permissions/rules.py`
 - Implement `check_allowed_patterns(command_name, allowed_patterns)`
 - Test command name against each allowed_cmds_regex pattern
@@ -77,14 +77,14 @@ Create a Devin CLI permission hook (`lovely-devin-permissions`) that evaluates b
 - Use Python's `re.search()` for regex matching
 **Acceptance:** Pattern matching tests pass
 
-## Step 2b2: Blocked Path Matching
+## Step 2b2: Blocked Path Matching [COMPLETE]
 **Files:** `src/lovely_bash_permissions/rules.py`
 - Implement `check_blocked_patterns(args, blocked_patterns)`
 - Test each argument against blocked_paths_regex patterns
 - Return True if any argument matches a blocked pattern
 **Acceptance:** Blocked path tests pass
 
-## Step 2b3: Output Redirection Rules
+## Step 2b3: Output Redirection Rules [COMPLETE]
 **Files:** `src/lovely_bash_permissions/rules.py`
 - Implement `check_output_redirection(tree, rules)`
 - Extract output redirections from AST (using existing `get_redirections()`)
@@ -92,12 +92,13 @@ Create a Devin CLI permission hook (`lovely-devin-permissions`) that evaluates b
 - Return decision with reason
 **Acceptance:** Output redirection tests pass
 
-## Step 2b4: Input Redirection Rules
+## Step 2b4: Input Redirection Rules [COMPLETE]
 **Files:** `src/lovely_bash_permissions/rules.py`
-- Implement `check_input_redirection(tree, rules)`
-- Extract input redirections from AST
-- Apply allow/ask/deny rules per redirection pattern
-**Acceptance:** Input redirection tests pass
+- Implemented `check_input_redirection(tree, rules)` following same pattern as check_output_redirection
+- Extracts input redirections (< and <<) from AST and applies allow/ask/deny policy
+- Added comprehensive tests: no input redir, allowed/denied/ask input, heredoc, mixed rules, multiple input redirs, default policy, object form wildcard
+- All 370 tests pass (358 existing + 12 new)
+**Acceptance:** Input redirection tests pass ✓
 
 ## Step 2b5: Background Execution Rules
 **Files:** `src/lovely_bash_permissions/rules.py`
