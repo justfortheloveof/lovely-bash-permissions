@@ -63,7 +63,7 @@ Key TypeScript files:
 
 ## Implementation Plan
 
-### Step 0: Replace Unicode Escapes with Actual Emoji Characters
+### [x] Step 0: Replace Unicode Escapes with Actual Emoji Characters
 **Files:** `src/lovely_bash_permissions/hook.py`, `src/lovely_bash_permissions/devin_cli.py`
 - Python currently emits literal `\uXXXX` escapes (e.g., `[\u2661 perms: \ud83d\udc9b...]`) in shell commands
 - TypeScript reference emits **actual emoji characters** (💚, ❤️, 💛, ♡)
@@ -74,13 +74,13 @@ Key TypeScript files:
 - This makes the Python output match the TypeScript reference and displays correctly in real shells
 - **Priority:** High (visible in all CLI output and affects label display)
 
-### Step 1: Fix CLI Setup Label
+### [x] Step 1: Fix CLI Setup Label
 **File:** `src/lovely_bash_permissions/config/effective_bash.py`
 - Change `LABEL_EXEC_NAME` from `"label exec"` to `"Exec(: '[♡ perms:)"`
 - This ensures the Python setup adds the same permission as TypeScript
 - **Priority:** High (critical UX difference)
 
-### Step 2: Fix CLI Setup Output Message
+### [x] Step 2: Fix CLI Setup Output Message
 **File:** `src/lovely_bash_permissions/devin_cli.py`
 - Change `handle_setup()` success output from `[♡ perms: Added label exec permission to <path>` to:
   `Added "Exec(: '[♡ perms:)" to <path> so Devin auto-approves the hook's ":" no-op label`
@@ -88,42 +88,42 @@ Key TypeScript files:
   `The Devin permission "Exec(: '[♡ perms:)" is already present in <path>`
 - **Priority:** High (user-visible)
 
-### Step 3: Fix Auto-Rejected Label (PreToolUse)
+### [x] Step 3: Fix Auto-Rejected Label (PreToolUse)
 **File:** `src/lovely_bash_permissions/hook.py`
 - Remove reason from PreToolUse auto-rejected label
 - Change from `[♡ perms: ❤️ auto-rejected] ${reason}` to `[♡ perms: ❤️ auto-rejected]` (no reason)
 - **Priority:** High (user-visible)
 
-### Step 4: PermissionRequest Deny Reason — Already Aligned ✅
+### [x] Step 4: PermissionRequest Deny Reason — Already Aligned ✅
 **File:** `src/lovely_bash_permissions/hook.py`
 - TypeScript includes the reason in the deny response: `reason: "${HOOK_LABEL_PREFIX} ❤️ auto-rejected] ${result.reason}"`
 - Python already does this: `label = f"[♡ perms: ❤️ auto-rejected] {reason}"` for PermissionRequest
 - **No change needed** — behavior is already aligned.
 
-### Step 5: Fix Evaluate Allow Reason Format
+### [x] Step 5: Fix Evaluate Allow Reason Format
 **File:** `src/lovely_bash_permissions/evaluate.py`
 - Change allowed reason from `command "ls" matches allowed pattern` to `command matches allowed pattern <pattern>` (single) or `command matches allowed patterns <patterns>` (multiple)
 - Match TypeScript: include the matched regex pattern name(s), e.g., `command matches allowed pattern ^git`
 - **Priority:** Medium (user-visible)
 
-### Step 6: Fix Evaluate Deny Reason Format
+### [x] Step 6: Fix Evaluate Deny Reason Format
 **File:** `src/lovely_bash_permissions/evaluate.py`
 - Change blocked reason from `command matches blocked patterns` to `Blocked by bash permissions: <details>. The tool has not been run.`
 - **Priority:** Medium (user-visible)
 
-### Step 7: Fix Evaluate Ask Reason Format
+### [x] Step 7: Fix Evaluate Ask Reason Format
 **File:** `src/lovely_bash_permissions/evaluate.py`
 - Change ask reason from `command "ls" does not match allowed patterns` to `"ls" command does not match allowed patterns`
 - For multiple commands: join with commas, use `commands` instead of `command`
 - **Priority:** Medium (user-visible)
 
-### Step 8: JSON Output Format — Already Aligned ✅
+### [x] Step 8: JSON Output Format — Already Aligned ✅
 **File:** `src/lovely_bash_permissions/devin_cli.py`
 - TypeScript uses `JSON.stringify(obj, null, 2)` (pretty-printed with indent=2) for `--test` and `--show-config`
 - Python already uses `json.dumps(response, indent=2)` (same behavior)
 - **No change needed** — both are pretty-printed.
 
-### Step 9: Add DEVIN_GLOBAL_CONFIG_DIR Support to Loader
+### [x] Step 9: Add DEVIN_GLOBAL_CONFIG_DIR Support to Loader
 **Files:** `src/lovely_bash_permissions/config/loader.py`
 - TypeScript's loader.ts uses `getDevinGlobalConfigDir()` which respects `DEVIN_GLOBAL_CONFIG_DIR` and `APPDATA` environment variables
 - Python's loader.py hardcodes `Path.home() / ".config" / "devin"`
@@ -170,13 +170,9 @@ For each UX area, the Python implementation must:
 6. Pass all existing tests + new UX tests
 
 ## Priority Order
-1. Step 1 (Setup label format - critical: different permission granted)
-2. Step 2 (Setup output messages - user-visible)
-3. Step 3 (PreToolUse deny label - user-visible: label format differs)
-4. Step 11 (Comprehensive UX tests - protect against regressions)
-5. Step 5 (Allow reason format - include matched pattern)
-6. Step 6 (Blocked reason format - include details)
-7. Step 7 (Ask reason format - phrasing)
-8. Step 9 (DEVIN_GLOBAL_CONFIG_DIR - config discovery)
-9. Step 10 (Background/subshell detection parity tests)
-10. Step 12 (Documentation)
+**Done:** Steps 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
+
+**Pending (next in order):**
+1. Step 11 (Comprehensive UX tests - protect against regressions)
+2. Step 10 (Background/subshell detection parity tests)
+3. Step 12 (Documentation)
