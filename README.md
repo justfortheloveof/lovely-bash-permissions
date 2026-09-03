@@ -362,6 +362,169 @@ uv sync
 uv run pytest
 ```
 
-## License
+## Lovely-Devin-Permissions Hook
+
+`lovely-devin-permissions` is a Devin CLI permission hook that evaluates bash commands against configurable rules. It parses commands, extracts command segments, and evaluates each segment against rules from the configuration. It decides whether to allow, ask for approval, or deny execution based on rules for allowed patterns, blocked patterns, redirections, and more.
+
+### Quick Start
+
+```bash
+# Test a command
+eu run lovely-devin-permissions --test "ls -la"
+
+# Check effective config
+eu run lovely-devin-permissions --show-config
+
+# Add required devin permission
+eu run lovely-devin-permissions --setup
+```
+
+### Configuration
+
+Configuration is loaded from multiple locations (highest precedence last):
+
+1. `~/.config/devin/lovely-permissions.jsonc` (global)
+2. `{project}/.devin/lovely-permissions.jsonc` (project)
+3. `{project}/.devin/lovely-permissions.local.jsonc` (local)
+
+Additionally, Devin's `config.json` files are consulted for `permissions.allow` entries:
+
+1. `~/.config/devin/config.json` (global)
+2. `{project}/.devin/config.json` (project)
+3. `{project}/.devin/config.local.json` (local)
+
+Files that don't exist are treated as empty objects `{}`. Configs are deep-merged: objects merge recursively, arrays concatenate, scalars override.
+
+### Config Schema
+
+```jsonc
+{
+  "bash": {
+    "allowed_cmds_regex": [
+      "^ls$",
+      "^cat$",
+      "^git$",
+      "^npm run test$"
+    ],
+    "blocked_paths_regex": [
+      "/etc/passwd",
+      "/var/log"
+    ],
+    "output_redirection": "allow",
+    "input_redirection": "ask",
+    "background_execution": "deny"
+  }
+}
+```
+
+- **allowed_cmds_regex**: Regular expressions for allowed command names. Commands matching any pattern are allowed.
+- **blocked_paths_regex**: Patterns for paths that should be blocked. If any argument matches, the command is denied.
+- **output_redirection**: `allow`, `ask`, or `deny` for output redirections (`>`, `>>`)
+- **input_redirection**: `allow`, `ask`, or `deny` for input redirections (`<`, `<<`)
+- **background_execution**: `allow`, `ask`, or `deny` for background execution (`&`)
+
+### Allowed Patterns
+
+Commands match allowed patterns if the command name matches any pattern:
+
+```bash
+# Allowed
+ls -la          # matches ^ls$
+```
+
+### Blocked Paths
+
+Paths are blocked if any argument matches a blocked pattern:
+
+```bash
+# Blocked: /etc/passwd matches blocked pattern
+cat /etc/passwd
+```
+
+### Redirection Rules
+
+Redirections can be allowed, asked, or denied:
+
+```bash
+# Blocked: output redirection denied
+echo "hello" > output.txt
+```
+
+### Background Execution
+
+Background commands (with `&`) are evaluated separately:
+
+```bash
+# Blocked: background execution denied
+long_running_command &
+```
+
+### Command Substitution
+
+Commands with substitution (like `$(...)`) require approval regardless of other rules:
+
+```bash
+# Always asks, even if inner commands are allowed
+echo "$(ls)"
+```
+
+### Aggregation Rules
+
+For commands with multiple segments (pipes, `&&`, `||`), the most restrictive result wins:
+
+| Scenario | Result |
+|----------|--------|
+| All allowed | Allow |
+| All ask | Ask |
+| All denied | Deny |
+| Mixed allow/ask | Ask |
+| Mixed allow/deny | Deny |
+| Mixed ask/deny | Deny |
+
+### Examples
+
+```bash
+# Allowed: both commands allowed
+eu run lovely-devin-permissions --test "ls -la && cat file.txt"
+
+# Ask: cat not allowed, ls is
+eu run lovely-devin-permissions --test "ls -la && cat /etc/passwd"
+
+# Blocked: cat /etc/passwd blocked
+eu run lovely-devin-permissions --test "cat /etc/passwd"
+```
+
+### Dev Setup
+
+For development, run the tests with:
+
+```bash
+uv run pytest
+```
+
+You can also run the hook in debug mode:
+
+```bash
+DEVIN_DEBUG=1 eu run lovely-devin-permissions --test "echo test"
+```
+
+### Testing Configs
+
+Create test configs in a temporary project directory:
+
+```bash
+mkdir -p test-project/.devin
+cat > test-project/.devin/lovely-permissions.jsonc << 'EOF'
+{
+  "bash": {
+    "allowed_cmds_regex": ["^ls$", "^cat$"],
+    "blocked_paths_regex": ["/etc/passwd"]
+  }
+}
+EOF
+DEVIN_PROJECT_DIR=test-project eu run lovely-devin-permissions --test "ls -la"
+```
+
+### License
 
 See the repository for license information.

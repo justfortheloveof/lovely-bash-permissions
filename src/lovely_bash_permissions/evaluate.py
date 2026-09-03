@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .parser import parse
+from .parser import ParseError, parse
 from .rules import (
     check_allowed_patterns,
     check_background_execution,
@@ -87,11 +87,23 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict:
     }
 
     # Parse the command to check for command substitution
-    raw_tree = parse(command)
+    try:
+        raw_tree = parse(command)
+    except ParseError:
+        # Empty or whitespace-only command
+        return {
+            "status": "allow",
+            "reason": "empty command",
+            "segments": [],
+        }
+
     has_subshell = _has_cmd_subst(raw_tree)
 
     # Extract segments
     segments = parse_segments(command)
+
+    # Determine the wildcard policy (default action for unmatched commands)
+    wildcard = config.get("*", "ask")
 
     # Evaluate each segment
     segment_results = []
@@ -157,14 +169,19 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict:
     # Commands not matching allowed patterns require approval
     if allowed_patterns and any_segment_not_allowed:
         if overall_status == "allow":
-            overall_status = "ask"
+            overall_status = wildcard
         reasons.append("command does not match allowed patterns")
 
     # Command substitution requires approval
     if has_subshell:
         if overall_status == "allow":
-            overall_status = "ask"
+            overall_status = wildcard
         reasons.append("command substitution detected")
+
+    # If no specific rules matched, apply wildcard policy
+    if not allowed_patterns and not blocked_patterns and overall_status == "allow" and wildcard != "allow":
+        overall_status = wildcard
+        reasons.append(f"wildcard policy is {wildcard}")
 
     return {
         "status": overall_status,
