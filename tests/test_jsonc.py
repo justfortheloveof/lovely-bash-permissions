@@ -18,7 +18,7 @@ def _write_temp_file(content: str, suffix: str = ".jsonc") -> str:
     return path
 
 
-def _clean_temp_file(path: str):
+def _clean_temp_file(path: str) -> None:
     """Remove a temporary file."""
     if os.path.exists(path):
         os.remove(path)
@@ -27,33 +27,33 @@ def _clean_temp_file(path: str):
 class TestParseJsonc:
     """Tests for parse_jsonc function."""
 
-    def test_valid_json_object(self):
+    def test_valid_json_object(self) -> None:
         result = parse_jsonc('{"a": 1, "b": 2}')
         assert result == {"a": 1, "b": 2}
 
-    def test_valid_json_array(self):
+    def test_valid_json_array(self) -> None:
         result = parse_jsonc("[1, 2, 3]")
         assert result == [1, 2, 3]
 
-    def test_line_comments(self):
+    def test_line_comments(self) -> None:
         result = parse_jsonc("""{
             // This is a comment
             "a": 1
         }""")
         assert result == {"a": 1}
 
-    def test_block_comments(self):
+    def test_block_comments(self) -> None:
         result = parse_jsonc("""{
             /* Block comment */
             "a": 1
         }""")
         assert result == {"a": 1}
 
-    def test_inline_block_comments(self):
+    def test_inline_block_comments(self) -> None:
         result = parse_jsonc('{"a": 1 /* inline */ }')
         assert result == {"a": 1}
 
-    def test_multiline_block_comments(self):
+    def test_multiline_block_comments(self) -> None:
         result = parse_jsonc("""{
             /*
             Multi-line
@@ -63,35 +63,35 @@ class TestParseJsonc:
         }""")
         assert result == {"a": 1}
 
-    def test_trailing_commas_objects(self):
+    def test_trailing_commas_objects(self) -> None:
         result = parse_jsonc('{"a": 1, "b": 2,}')
         assert result == {"a": 1, "b": 2}
 
-    def test_trailing_commas_arrays(self):
+    def test_trailing_commas_arrays(self) -> None:
         result = parse_jsonc("[1, 2, 3,]")
         assert result == [1, 2, 3]
 
-    def test_bom_prefix(self):
+    def test_bom_prefix(self) -> None:
         result = parse_jsonc('\ufeff{"a": 1}')
         assert result == {"a": 1}
 
-    def test_empty_string(self):
+    def test_empty_string(self) -> None:
         result = parse_jsonc("")
         assert result is None
 
-    def test_whitespace_only(self):
+    def test_whitespace_only(self) -> None:
         result = parse_jsonc("   \n\t  ")
         assert result is None
 
-    def test_invalid_json(self):
+    def test_invalid_json(self) -> None:
         result = parse_jsonc("{invalid}")
         assert result is None
 
-    def test_nested_objects(self):
+    def test_nested_objects(self) -> None:
         result = parse_jsonc('{"outer": {"inner": "value"}}')
         assert result == {"outer": {"inner": "value"}}
 
-    def test_mixed_comments_and_trailing_commas(self):
+    def test_mixed_comments_and_trailing_commas(self) -> None:
         result = parse_jsonc("""{
             /* block */
             // line
@@ -102,7 +102,7 @@ class TestParseJsonc:
         }""")
         assert result == {"a": 1, "b": 2}
 
-    def test_primitives(self):
+    def test_primitives(self) -> None:
         # These parse as valid JSON but aren't objects
         assert parse_jsonc("42") == 42
         assert parse_jsonc('"hello"') == "hello"
@@ -114,7 +114,7 @@ class TestParseJsonc:
 class TestReadJsoncFile:
     """Tests for read_jsonc_file function."""
 
-    def test_valid_file(self):
+    def test_valid_file(self) -> None:
         path = _write_temp_file('{"key": "value"}')
         try:
             result = read_jsonc_file(path)
@@ -122,11 +122,11 @@ class TestReadJsoncFile:
         finally:
             _clean_temp_file(path)
 
-    def test_missing_file(self):
+    def test_missing_file(self) -> None:
         result = read_jsonc_file("/nonexistent/path.jsonc")
         assert result is None
 
-    def test_empty_file(self):
+    def test_empty_file(self) -> None:
         path = _write_temp_file("")
         try:
             result = read_jsonc_file(path)
@@ -134,7 +134,7 @@ class TestReadJsoncFile:
         finally:
             _clean_temp_file(path)
 
-    def test_whitespace_only_file(self):
+    def test_whitespace_only_file(self) -> None:
         path = _write_temp_file("   \n\t  ")
         try:
             result = read_jsonc_file(path)
@@ -142,7 +142,7 @@ class TestReadJsoncFile:
         finally:
             _clean_temp_file(path)
 
-    def test_invalid_json_file(self):
+    def test_invalid_json_file(self) -> None:
         path = _write_temp_file("{invalid}")
         try:
             result = read_jsonc_file(path)
@@ -150,7 +150,7 @@ class TestReadJsoncFile:
         finally:
             _clean_temp_file(path)
 
-    def test_file_with_comments(self):
+    def test_file_with_comments(self) -> None:
         path = _write_temp_file("""// header comment
 {
     // inline comment
@@ -164,7 +164,7 @@ class TestReadJsoncFile:
         finally:
             _clean_temp_file(path)
 
-    def test_file_with_trailing_commas(self):
+    def test_file_with_trailing_commas(self) -> None:
         path = _write_temp_file('{"key": "value",}')
         try:
             result = read_jsonc_file(path)
@@ -172,7 +172,7 @@ class TestReadJsoncFile:
         finally:
             _clean_temp_file(path)
 
-    def test_regular_json_file(self):
+    def test_regular_json_file(self) -> None:
         path = _write_temp_file('{"valid": "json"}', suffix=".json")
         try:
             result = read_jsonc_file(path)
@@ -184,11 +184,11 @@ class TestReadJsoncFile:
 class TestIsRecord:
     """Tests for is_record function."""
 
-    def test_plain_object(self):
+    def test_plain_object(self) -> None:
         assert is_record({}) is True
         assert is_record({"a": 1}) is True
 
-    def test_not_record(self):
+    def test_not_record(self) -> None:
         assert is_record([]) is False
         assert is_record("string") is False
         assert is_record(42) is False

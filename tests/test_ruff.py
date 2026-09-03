@@ -13,7 +13,7 @@ import pytest
 
 
 @pytest.mark.linting
-def test_ruff_check():
+def test_ruff_check() -> None:
     result = subprocess.run(
         [sys.executable, "-m", "ruff", "check", "--select", "ANN,E,F,W,I,UP,B,SIM"],
         capture_output=True,
@@ -25,7 +25,7 @@ def test_ruff_check():
 
 
 @pytest.mark.linting
-def test_ruff_format_check():
+def test_ruff_format_check() -> None:
     result = subprocess.run(
         [sys.executable, "-m", "ruff", "format"],
         capture_output=True,

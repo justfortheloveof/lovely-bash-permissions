@@ -17,8 +17,6 @@ If parsing fails, an empty list is returned.
 
 from __future__ import annotations
 
-from typing import Any
-
 from .ast import (
     AndCmd,
     BinaryCmd,
@@ -38,7 +36,7 @@ from .parser import ParseError, parse
 DEFAULT_DIALECT = "bash"
 
 
-def _extract_segments(node: Any) -> list[dict]:
+def _extract_segments(node) -> list[dict]:
     """
     Recursively extract command segments from an AST node.
 

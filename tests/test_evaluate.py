@@ -33,7 +33,7 @@ def make_config(
 class TestAllowedPatterns:
     """Tests for allowed_cmds_regex evaluation."""
 
-    def test_allowed_pattern_matches(self):
+    def test_allowed_pattern_matches(self) -> None:
         """Command name only matches -> ask (no args pattern)."""
         result = evaluate_bash_command(
             "ls -la",
@@ -41,7 +41,7 @@ class TestAllowedPatterns:
         )
         assert result["status"] == "ask"
 
-    def test_allowed_pattern_no_match(self):
+    def test_allowed_pattern_no_match(self) -> None:
         """Command doesn't match any allowed pattern -> ask."""
         result = evaluate_bash_command(
             "rm -rf /",
@@ -49,12 +49,12 @@ class TestAllowedPatterns:
         )
         assert result["status"] == "ask"
 
-    def test_no_allowed_patterns(self):
+    def test_no_allowed_patterns(self) -> None:
         """No allowed_patterns with wildcard allow -> allow."""
         result = evaluate_bash_command("ls", make_config(wildcard="allow"))
         assert result["status"] == "allow"
 
-    def test_multiple_commands_one_allowed(self):
+    def test_multiple_commands_one_allowed(self) -> None:
         """Multiple commands, one matches by name only -> ask."""
         result = evaluate_bash_command(
             "ls && cat file.txt",
@@ -62,7 +62,7 @@ class TestAllowedPatterns:
         )
         assert result["status"] == "ask"
 
-    def test_multiple_commands_none_allowed(self):
+    def test_multiple_commands_none_allowed(self) -> None:
         """Multiple commands, none match -> ask."""
         result = evaluate_bash_command(
             "rm -rf / && echo done",
@@ -70,7 +70,7 @@ class TestAllowedPatterns:
         )
         assert result["status"] == "ask"
 
-    def test_allowed_pattern_full_command_line(self):
+    def test_allowed_pattern_full_command_line(self) -> None:
         """Allowed pattern should match full command line including args.
 
         Bug: patterns like ^git\\s+(log|diff|status)(\\s+.*)?$ match "git log"
@@ -84,7 +84,7 @@ class TestAllowedPatterns:
         )
         assert result["status"] == "allow"
 
-    def test_allowed_pattern_mismatch_full_command_line(self):
+    def test_allowed_pattern_mismatch_full_command_line(self) -> None:
         """Pattern requiring args should not match bare command name.
 
         The pattern ^git\\s+log$ requires the full "git log" command,
@@ -100,7 +100,7 @@ class TestAllowedPatterns:
 class TestBlockedPatterns:
     """Tests for blocked_paths_regex evaluation."""
 
-    def test_blocked_pattern_matches(self):
+    def test_blocked_pattern_matches(self) -> None:
         """Argument matches blocked pattern -> deny."""
         result = evaluate_bash_command(
             "ls /etc/passwd",
@@ -108,7 +108,7 @@ class TestBlockedPatterns:
         )
         assert result["status"] == "deny"
 
-    def test_blocked_pattern_no_match(self):
+    def test_blocked_pattern_no_match(self) -> None:
         """Argument doesn't match blocked pattern -> allow."""
         result = evaluate_bash_command(
             "ls /var/log",
@@ -116,12 +116,12 @@ class TestBlockedPatterns:
         )
         assert result["status"] == "allow"
 
-    def test_no_blocked_patterns(self):
+    def test_no_blocked_patterns(self) -> None:
         """No blocked_patterns with wildcard allow -> allow."""
         result = evaluate_bash_command("ls /etc/passwd", make_config(wildcard="allow"))
         assert result["status"] == "allow"
 
-    def test_blocked_command_name_matches(self):
+    def test_blocked_command_name_matches(self) -> None:
         """Command name matches blocked pattern -> deny."""
         result = evaluate_bash_command(
             "curl example.com",
@@ -129,7 +129,7 @@ class TestBlockedPatterns:
         )
         assert result["status"] == "deny"
 
-    def test_multiple_commands_one_blocked(self):
+    def test_multiple_commands_one_blocked(self) -> None:
         """Multiple commands, one blocked -> deny."""
         result = evaluate_bash_command(
             "ls && cat /etc/passwd",
@@ -137,7 +137,7 @@ class TestBlockedPatterns:
         )
         assert result["status"] == "deny"
 
-    def test_multiple_commands_none_blocked(self):
+    def test_multiple_commands_none_blocked(self) -> None:
         """Multiple commands, none blocked -> allow."""
         result = evaluate_bash_command(
             "ls && cat file.txt",
@@ -149,7 +149,7 @@ class TestBlockedPatterns:
 class TestAggregation:
     """Tests for combined allow/deny/ask aggregation."""
 
-    def test_all_allowed(self):
+    def test_all_allowed(self) -> None:
         """All segments allowed by full command match -> allow."""
         result = evaluate_bash_command(
             "ls -la && cat file.txt",
@@ -157,7 +157,7 @@ class TestAggregation:
         )
         assert result["status"] == "allow"
 
-    def test_all_denied(self):
+    def test_all_denied(self) -> None:
         """All segments denied -> deny."""
         result = evaluate_bash_command(
             "curl /etc/passwd",
@@ -165,7 +165,7 @@ class TestAggregation:
         )
         assert result["status"] == "deny"
 
-    def test_mixed_allowed_and_denied(self):
+    def test_mixed_allowed_and_denied(self) -> None:
         """Some allowed, some denied -> deny."""
         result = evaluate_bash_command(
             "ls && cat /etc/passwd",
@@ -173,7 +173,7 @@ class TestAggregation:
         )
         assert result["status"] == "deny"
 
-    def test_mixed_allowed_and_asking(self):
+    def test_mixed_allowed_and_asking(self) -> None:
         """Some allowed, some asking -> ask."""
         result = evaluate_bash_command(
             "ls && rm -rf /",
@@ -181,7 +181,7 @@ class TestAggregation:
         )
         assert result["status"] == "ask"
 
-    def test_all_asking(self):
+    def test_all_asking(self) -> None:
         """All segments asking -> ask."""
         result = evaluate_bash_command(
             "rm -rf /",
@@ -189,7 +189,7 @@ class TestAggregation:
         )
         assert result["status"] == "ask"
 
-    def test_deny_overrides_asking(self):
+    def test_deny_overrides_asking(self) -> None:
         """Deny overrides ask in aggregation."""
         result = evaluate_bash_command(
             "ls /etc/passwd && rm -rf /",
@@ -197,7 +197,7 @@ class TestAggregation:
         )
         assert result["status"] == "deny"
 
-    def test_allowed_overrides_asking(self):
+    def test_allowed_overrides_asking(self) -> None:
         """Allowed overrides ask in aggregation (full command match)."""
         result = evaluate_bash_command(
             "ls && rm -rf /",
@@ -209,29 +209,29 @@ class TestAggregation:
 class TestWildcardPolicy:
     """Tests for wildcard ('*') policy."""
 
-    def test_wildcard_ask(self):
+    def test_wildcard_ask(self) -> None:
         """Wildcard ask with no other rules -> ask."""
         result = evaluate_bash_command("ls", make_config(wildcard="ask"))
         assert result["status"] == "ask"
 
-    def test_wildcard_deny(self):
+    def test_wildcard_deny(self) -> None:
         """Wildcard deny -> deny."""
         result = evaluate_bash_command("ls", make_config(wildcard="deny"))
         assert result["status"] == "deny"
 
-    def test_wildcard_allow(self):
+    def test_wildcard_allow(self) -> None:
         """Wildcard allow -> allow."""
         result = evaluate_bash_command("ls", make_config(wildcard="allow"))
         assert result["status"] == "allow"
 
-    def test_wildcard_with_explicit_allow(self):
+    def test_wildcard_with_explicit_allow(self) -> None:
         """Wildcard ask but command explicitly allowed -> allow."""
         result = evaluate_bash_command(
             "ls", make_config(allowed=["^ls"], wildcard="ask")
         )
         assert result["status"] == "allow"
 
-    def test_wildcard_with_explicit_deny(self):
+    def test_wildcard_with_explicit_deny(self) -> None:
         """Wildcard allow but command explicitly denied -> deny."""
         result = evaluate_bash_command(
             "ls /etc/passwd",
@@ -243,7 +243,7 @@ class TestWildcardPolicy:
 class TestSubshellHandling:
     """Tests for subshell/command substitution handling."""
 
-    def test_subshell_detected(self):
+    def test_subshell_detected(self) -> None:
         """Subshell should be detected in command substitution."""
         result = evaluate_bash_command(
             "cat $(ls)",
@@ -252,7 +252,7 @@ class TestSubshellHandling:
         # Subshell adds complexity but commands are allowed
         assert result["status"] in ["allow", "ask"]
 
-    def test_nested_subshell(self):
+    def test_nested_subshell(self) -> None:
         """Nested command substitution."""
         result = evaluate_bash_command(
             "echo $(cat $(ls))",
@@ -260,7 +260,7 @@ class TestSubshellHandling:
         )
         assert result["status"] in ["allow", "ask"]
 
-    def test_cmdsubst_without_allowed(self):
+    def test_cmdsubst_without_allowed(self) -> None:
         """Command substitution without allowed patterns."""
         result = evaluate_bash_command(
             "cat $(ls)",
@@ -273,22 +273,22 @@ class TestSubshellHandling:
 class TestEdgeCases:
     """Tests for edge cases."""
 
-    def test_empty_command(self):
+    def test_empty_command(self) -> None:
         """Empty command."""
         result = evaluate_bash_command("", make_config())
         assert result["status"] == "allow"
 
-    def test_whitespace_only(self):
+    def test_whitespace_only(self) -> None:
         """Whitespace only command."""
         result = evaluate_bash_command("   ", make_config())
         assert result["status"] == "allow"
 
-    def test_single_command(self):
+    def test_single_command(self) -> None:
         """Single command."""
         result = evaluate_bash_command("ls", make_config(allowed=["^ls"]))
         assert result["status"] == "allow"
 
-    def test_multiple_arguments(self):
+    def test_multiple_arguments(self) -> None:
         """Multiple arguments (full command match)."""
         result = evaluate_bash_command(
             "ls -la /etc",
@@ -296,7 +296,7 @@ class TestEdgeCases:
         )
         assert result["status"] == "allow"
 
-    def test_quoted_arguments(self):
+    def test_quoted_arguments(self) -> None:
         """Quoted arguments (full command match)."""
         result = evaluate_bash_command(
             "echo 'hello world'",
@@ -304,7 +304,7 @@ class TestEdgeCases:
         )
         assert result["status"] == "allow"
 
-    def test_variables(self):
+    def test_variables(self) -> None:
         """Shell variables (full command match)."""
         result = evaluate_bash_command(
             "ls $HOME",
@@ -312,7 +312,7 @@ class TestEdgeCases:
         )
         assert result["status"] == "allow"
 
-    def test_complex_pipeline(self):
+    def test_complex_pipeline(self) -> None:
         """Complex pipeline with multiple rules (full command match)."""
         result = evaluate_bash_command(
             "ls | grep foo | head",
@@ -324,25 +324,25 @@ class TestEdgeCases:
 class TestResultStructure:
     """Tests for result dictionary structure."""
 
-    def test_result_has_status(self):
+    def test_result_has_status(self) -> None:
         """Result must have 'status' field."""
         result = evaluate_bash_command("ls", make_config())
         assert "status" in result
         assert result["status"] in ["allow", "ask", "deny"]
 
-    def test_result_has_segments(self):
+    def test_result_has_segments(self) -> None:
         """Result must have 'segments' array."""
         result = evaluate_bash_command("ls", make_config())
         assert "segments" in result
         assert isinstance(result["segments"], list)
 
-    def test_result_has_reason(self):
+    def test_result_has_reason(self) -> None:
         """Result must have 'reason' string."""
         result = evaluate_bash_command("ls", make_config())
         assert "reason" in result
         assert isinstance(result["reason"], str)
 
-    def test_segments_have_required_fields(self):
+    def test_segments_have_required_fields(self) -> None:
         """Each segment must have required fields."""
         result = evaluate_bash_command("ls -la", make_config())
         if result["segments"]:

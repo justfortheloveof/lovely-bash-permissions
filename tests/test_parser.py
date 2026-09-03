@@ -28,22 +28,22 @@ from lovely_bash_permissions.parser import ParseError
 class TestSimpleCommands:
     """Test simple command parsing."""
 
-    def test_single_command(self):
+    def test_single_command(self) -> None:
         tree = parse_ast("ls")
         assert get_commands(tree) == ["ls"]
         assert get_arguments(tree) == [[]]
 
-    def test_command_with_flags(self):
+    def test_command_with_flags(self) -> None:
         tree = parse_ast("ls -la")
         assert get_commands(tree) == ["ls"]
         assert get_arguments(tree) == [["-la"]]
 
-    def test_command_with_multiple_args(self):
+    def test_command_with_multiple_args(self) -> None:
         tree = parse_ast("cp file1.txt file2.txt")
         assert get_commands(tree) == ["cp"]
         assert get_arguments(tree) == [["file1.txt", "file2.txt"]]
 
-    def test_echo_command(self):
+    def test_echo_command(self) -> None:
         tree = parse_ast("echo hello")
         assert get_commands(tree) == ["echo"]
         assert get_arguments(tree) == [["hello"]]
@@ -52,17 +52,17 @@ class TestSimpleCommands:
 class TestPipes:
     """Test pipe parsing."""
 
-    def test_single_pipe(self):
+    def test_single_pipe(self) -> None:
         tree = parse_ast("cat file.txt | grep pattern")
         assert get_commands(tree) == ["cat", "grep"]
         assert get_arguments(tree) == [["file.txt"], ["pattern"]]
 
-    def test_multiple_pipes(self):
+    def test_multiple_pipes(self) -> None:
         tree = parse_ast("cat file.txt | grep pattern | sort | uniq")
         assert get_commands(tree) == ["cat", "grep", "sort", "uniq"]
         assert get_arguments(tree) == [["file.txt"], ["pattern"], [], []]
 
-    def test_pipe_with_flags(self):
+    def test_pipe_with_flags(self) -> None:
         tree = parse_ast("ls -la | grep -i txt")
         assert get_commands(tree) == ["ls", "grep"]
         assert get_arguments(tree) == [["-la"], ["-i", "txt"]]
@@ -71,7 +71,7 @@ class TestPipes:
 class TestRedirections:
     """Test redirection parsing."""
 
-    def test_output_redirect(self):
+    def test_output_redirect(self) -> None:
         tree = parse_ast("cat file.txt > output.txt")
         assert get_commands(tree) == ["cat"]
         assert get_arguments(tree) == [["file.txt"]]
@@ -80,19 +80,19 @@ class TestRedirections:
         assert redirs[0]["op"] == ">"
         assert redirs[0]["target"] == "output.txt"
 
-    def test_append_redirect(self):
+    def test_append_redirect(self) -> None:
         tree = parse_ast("cat file.txt >> output.txt")
         redirs = get_redirections(tree)
         assert len(redirs) == 1
         assert redirs[0]["op"] == ">>"
 
-    def test_input_redirect(self):
+    def test_input_redirect(self) -> None:
         tree = parse_ast("sort < input.txt")
         redirs = get_redirections(tree)
         assert len(redirs) == 1
         assert redirs[0]["op"] == "<"
 
-    def test_pipe_with_redirect(self):
+    def test_pipe_with_redirect(self) -> None:
         tree = parse_ast("ls -la | grep txt > output.txt")
         assert get_commands(tree) == ["ls", "grep"]
         assert get_arguments(tree) == [["-la"], ["txt"]]
@@ -101,7 +101,7 @@ class TestRedirections:
         assert redirs[0]["op"] == ">"
         assert redirs[0]["target"] == "output.txt"
 
-    def test_redirect_on_left_of_and(self):
+    def test_redirect_on_left_of_and(self) -> None:
         """Redirection on the X side of && must not be dropped."""
         tree = parse_ast("cmd4 >4 && ls")
         redirs = get_redirections(tree)
@@ -109,7 +109,7 @@ class TestRedirections:
         assert redirs[0]["op"] == ">"
         assert redirs[0]["target"] == "4"
 
-    def test_redirect_on_middle_of_pipeline(self):
+    def test_redirect_on_middle_of_pipeline(self) -> None:
         """Redirection on a non-final pipeline segment must not be dropped."""
         tree = parse_ast("cmd1 | cmd2 > f | cmd3")
         redirs = get_redirections(tree)
@@ -117,7 +117,7 @@ class TestRedirections:
         assert redirs[0]["op"] == ">"
         assert redirs[0]["target"] == "f"
 
-    def test_redirect_on_right_of_and(self):
+    def test_redirect_on_right_of_and(self) -> None:
         """Redirection on the Y side of && must not be dropped."""
         tree = parse_ast("cmd > out && ls")
         redirs = get_redirections(tree)
@@ -125,7 +125,7 @@ class TestRedirections:
         assert redirs[0]["op"] == ">"
         assert redirs[0]["target"] == "out"
 
-    def test_trailing_redirect_on_pipe_lives_on_binary_cmd(self):
+    def test_trailing_redirect_on_pipe_lives_on_binary_cmd(self) -> None:
         """A pipe's trailing redirection is stored on the BinaryCmd node."""
         tree = parse_ast("echo hi | cat > out")
         stmt = tree.stmts[0]
@@ -138,27 +138,27 @@ class TestRedirections:
 class TestVariables:
     """Test variable detection."""
 
-    def test_no_variables(self):
+    def test_no_variables(self) -> None:
         tree = parse_ast("ls -la")
         assert not has_variable(tree)
 
-    def test_simple_variable(self):
+    def test_simple_variable(self) -> None:
         tree = parse_ast("echo $HOME")
         assert has_variable(tree)
 
-    def test_path_variable(self):
+    def test_path_variable(self) -> None:
         tree = parse_ast("cat /path/to/file")
         assert not has_variable(tree)
 
-    def test_multiple_variables(self):
+    def test_multiple_variables(self) -> None:
         tree = parse_ast("echo $HOME $USER")
         assert has_variable(tree)
 
-    def test_quoted_variable(self):
+    def test_quoted_variable(self) -> None:
         tree = parse_ast('echo "$HOME"')
         assert has_variable(tree)
 
-    def test_env_var(self):
+    def test_env_var(self) -> None:
         tree = parse_ast('export PATH="$HOME/bin:$PATH"')
         assert has_variable(tree)
 
@@ -166,7 +166,7 @@ class TestVariables:
 class TestComplexCommands:
     """Test complex command parsing."""
 
-    def test_complex_pipeline(self):
+    def test_complex_pipeline(self) -> None:
         tree = parse_ast(
             'cat data.csv | grep pattern | awk "{print $1}" | sort -u > results.txt'
         )
@@ -187,7 +187,7 @@ class TestComplexCommands:
         assert len(redirs) == 1
         assert redirs[0]["target"] == "results.txt"
 
-    def test_command_with_quoted_args(self):
+    def test_command_with_quoted_args(self) -> None:
         tree = parse_ast('find / -name "*.txt" -type f')
         assert get_commands(tree) == ["find"]
         args = get_arguments(tree)
@@ -197,7 +197,7 @@ class TestComplexCommands:
         assert args[0][3] == "-type"
         assert args[0][4] == "f"
 
-    def test_long_command(self):
+    def test_long_command(self) -> None:
         tree = parse_ast(
             'tar -czvf archive.tar.gz $(find . -name "*.py" -not -path "./.venv/*" -not -path "./tests/*")'
         )
@@ -208,19 +208,19 @@ class TestComplexCommands:
 class TestEdgeCases:
     """Test edge cases."""
 
-    def test_empty_command(self):
+    def test_empty_command(self) -> None:
         with pytest.raises(ParseError):
             parse_ast("")
 
-    def test_whitespace_only(self):
+    def test_whitespace_only(self) -> None:
         with pytest.raises(ParseError):
             parse_ast("   ")
 
-    def test_single_quote(self):
+    def test_single_quote(self) -> None:
         tree = parse_ast("echo 'hello world'")
         assert get_commands(tree) == ["echo"]
 
-    def test_double_quote(self):
+    def test_double_quote(self) -> None:
         tree = parse_ast('echo "hello world"')
         assert get_commands(tree) == ["echo"]
 
@@ -228,25 +228,25 @@ class TestEdgeCases:
 class TestASTStructure:
     """Test AST structure and types."""
 
-    def test_file_node_type(self):
+    def test_file_node_type(self) -> None:
         tree = parse_ast("ls")
         assert tree.type == "File"
 
-    def test_stmt_count(self):
+    def test_stmt_count(self) -> None:
         tree = parse_ast("ls")
         assert len(tree.stmts) == 1
 
-    def test_multiple_stmts(self):
+    def test_multiple_stmts(self) -> None:
         tree = parse_ast("ls\ngrep pattern file.txt")
         assert len(tree.stmts) == 2
         assert get_commands(tree) == ["ls", "grep"]
 
-    def test_call_expr_node(self):
+    def test_call_expr_node(self) -> None:
         tree = parse_ast("ls")
         cmd = tree.stmts[0].cmd
         assert cmd.type == "CallExpr"
 
-    def test_binary_cmd_node(self):
+    def test_binary_cmd_node(self) -> None:
         tree = parse_ast("ls | grep txt")
         cmd = tree.stmts[0].cmd
         assert cmd.type == "BinaryCmd"
@@ -256,7 +256,7 @@ class TestASTStructure:
 class TestLitNodes:
     """Tests for the Lit node type (Step 1 of node coverage)."""
 
-    def test_simple_literal_value(self):
+    def test_simple_literal_value(self) -> None:
         """Parse a simple command and find the Lit node with its value."""
         tree = parse_ast("ls")
         cmd = tree.stmts[0].cmd
@@ -268,7 +268,7 @@ class TestLitNodes:
         assert cmd.args[0].parts[0].type == "Lit"
         assert cmd.args[0].parts[0].value == "ls"
 
-    def test_literal_argument(self):
+    def test_literal_argument(self) -> None:
         """Parse echo hello and verify the Lit argument value."""
         tree = parse_ast("echo hello")
         cmd = tree.stmts[0].cmd
@@ -277,21 +277,21 @@ class TestLitNodes:
         assert cmd.args[1].parts[0].type == "Lit"
         assert cmd.args[1].parts[0].value == "hello"
 
-    def test_literal_file_name(self):
+    def test_literal_file_name(self) -> None:
         """Parse cat file.txt and verify the Lit file argument."""
         tree = parse_ast("cat file.txt")
         cmd = tree.stmts[0].cmd
         assert cmd.args[1].parts[0].type == "Lit"
         assert cmd.args[1].parts[0].value == "file.txt"
 
-    def test_literal_flag(self):
+    def test_literal_flag(self) -> None:
         """Parse ls -la and verify the Lit flag argument."""
         tree = parse_ast("ls -la")
         cmd = tree.stmts[0].cmd
         assert cmd.args[1].parts[0].type == "Lit"
         assert cmd.args[1].parts[0].value == "-la"
 
-    def test_multiple_literal_arguments(self):
+    def test_multiple_literal_arguments(self) -> None:
         """Parse cp with multiple literal arguments."""
         tree = parse_ast("cp file1.txt file2.txt")
         cmd = tree.stmts[0].cmd
@@ -303,7 +303,7 @@ class TestLitNodes:
         assert cmd.args[2].parts[0].type == "Lit"
         assert cmd.args[2].parts[0].value == "file2.txt"
 
-    def test_literal_in_pipe(self):
+    def test_literal_in_pipe(self) -> None:
         """Parse a piped command and verify both commands have Lit parts."""
         tree = parse_ast("cat file.txt | grep pattern")
         cmd = tree.stmts[0].cmd
@@ -319,63 +319,63 @@ class TestLitNodes:
         assert cmd.right.args[1].parts[0].type == "Lit"
         assert cmd.right.args[1].parts[0].value == "pattern"
 
-    def test_literal_with_special_chars(self):
+    def test_literal_with_special_chars(self) -> None:
         """Parse a command with special characters in a literal."""
         tree = parse_ast("echo hello-world_123")
         cmd = tree.stmts[0].cmd
         assert cmd.args[1].parts[0].type == "Lit"
         assert cmd.args[1].parts[0].value == "hello-world_123"
 
-    def test_literal_with_slash(self):
+    def test_literal_with_slash(self) -> None:
         """Parse a command with a file path (slashes are allowed in literals)."""
         tree = parse_ast("cat /path/to/file.txt")
         cmd = tree.stmts[0].cmd
         assert cmd.args[1].parts[0].type == "Lit"
         assert cmd.args[1].parts[0].value == "/path/to/file.txt"
 
-    def test_no_literal_with_variable(self):
+    def test_no_literal_with_variable(self) -> None:
         """Parse echo $HOME - variable is not a Lit node."""
         tree = parse_ast("echo $HOME")
         cmd = tree.stmts[0].cmd
         # The argument should be a ParamExp (short-form $var), not a Lit
         assert cmd.args[1].parts[0].type == "ParamExp"
 
-    def test_no_literal_with_command_substitution(self):
+    def test_no_literal_with_command_substitution(self) -> None:
         """Parse echo $(date) - command substitution is not a Lit node."""
         tree = parse_ast("echo $(date)")
         cmd = tree.stmts[0].cmd
         # The argument should be a CmdSubst, not a Lit
         assert cmd.args[1].parts[0].type == "CmdSubst"
 
-    def test_no_literal_with_quoted_string(self):
+    def test_no_literal_with_quoted_string(self) -> None:
         """Parse echo 'quoted' - quoted strings are SglQuoted, not Lit."""
         tree = parse_ast("echo 'quoted'")
         cmd = tree.stmts[0].cmd
         # The argument should be a SglQuoted, not a Lit
         assert cmd.args[1].parts[0].type == "SglQuoted"
 
-    def test_literal_in_redirect(self):
+    def test_literal_in_redirect(self) -> None:
         """Parse command with output redirect and verify Lit in redirect target."""
         tree = parse_ast("echo hello > output.txt")
         # The redirect target should contain a Lit with the filename
         assert tree.stmts[0].redirs[0].word.parts[0].type == "Lit"
         assert tree.stmts[0].redirs[0].word.parts[0].value == "output.txt"
 
-    def test_literal_number(self):
+    def test_literal_number(self) -> None:
         """Parse a command with a numeric literal."""
         tree = parse_ast("sleep 5")
         cmd = tree.stmts[0].cmd
         assert cmd.args[1].parts[0].type == "Lit"
         assert cmd.args[1].parts[0].value == "5"
 
-    def test_literal_empty_word(self):
+    def test_literal_empty_word(self) -> None:
         """Parse a command and check that command name is a Lit node."""
         tree = parse_ast("true")
         cmd = tree.stmts[0].cmd
         assert cmd.args[0].parts[0].type == "Lit"
         assert cmd.args[0].parts[0].value == "true"
 
-    def test_literal_multiline(self):
+    def test_literal_multiline(self) -> None:
         """Parse multiple commands across lines and check Lit in both."""
         tree = parse_ast("echo a\necho b")
         # First command
@@ -385,7 +385,7 @@ class TestLitNodes:
         assert tree.stmts[1].cmd.args[1].parts[0].type == "Lit"
         assert tree.stmts[1].cmd.args[1].parts[0].value == "b"
 
-    def test_literal_in_subshell(self):
+    def test_literal_in_subshell(self) -> None:
         """Parse a subshell with a command and verify Lit inside."""
         tree = parse_ast("(echo hello)")
         cmd = tree.stmts[0].cmd
@@ -393,7 +393,7 @@ class TestLitNodes:
         assert cmd.stmts[0].cmd.args[1].parts[0].type == "Lit"
         assert cmd.stmts[0].cmd.args[1].parts[0].value == "hello"
 
-    def test_literal_position_info(self):
+    def test_literal_position_info(self) -> None:
         """Verify that Lit nodes have position information from shfmt."""
         tree = parse_ast("ls -la")
         cmd = tree.stmts[0].cmd
@@ -406,7 +406,7 @@ class TestLitNodes:
                     assert isinstance(part.pos.offset, int)
                     assert isinstance(part.end.offset, int)
 
-    def test_lit_imported_in_module(self):
+    def test_lit_imported_in_module(self) -> None:
         """Verify that Lit is imported in the lovely_bash_permissions module."""
         assert Lit is not None
 
@@ -414,7 +414,7 @@ class TestLitNodes:
 class TestSglQuotedNodes:
     """Tests for the SglQuoted node type (Step 2 of node coverage)."""
 
-    def test_simple_single_quoted(self):
+    def test_simple_single_quoted(self) -> None:
         """Parse echo 'hello world' and verify it produces a SglQuoted node."""
         tree = parse_ast("echo 'hello world'")
         cmd = tree.stmts[0].cmd
@@ -424,14 +424,14 @@ class TestSglQuotedNodes:
         assert cmd.args[1].parts[0].type == "SglQuoted"
         assert cmd.args[1].parts[0].value == "hello world"
 
-    def test_single_quoted_with_variable_no_expansion(self):
+    def test_single_quoted_with_variable_no_expansion(self) -> None:
         """Parse echo '$HOME' and verify variable is not expanded (single quotes)."""
         tree = parse_ast("echo '$HOME'")
         cmd = tree.stmts[0].cmd
         assert cmd.args[1].parts[0].type == "SglQuoted"
         assert cmd.args[1].parts[0].value == "$HOME"
 
-    def test_multiple_single_quoted_arguments(self):
+    def test_multiple_single_quoted_arguments(self) -> None:
         """Parse echo 'a' 'b' and verify both arguments are SglQuoted."""
         tree = parse_ast("echo 'a' 'b'")
         cmd = tree.stmts[0].cmd
@@ -441,35 +441,35 @@ class TestSglQuotedNodes:
         assert cmd.args[2].parts[0].type == "SglQuoted"
         assert cmd.args[2].parts[0].value == "b"
 
-    def test_single_quoted_with_asterisk(self):
+    def test_single_quoted_with_asterisk(self) -> None:
         """Parse echo 'foo*' and verify asterisk is literal in single quotes."""
         tree = parse_ast("echo 'foo*'")
         cmd = tree.stmts[0].cmd
         assert cmd.args[1].parts[0].type == "SglQuoted"
         assert cmd.args[1].parts[0].value == "foo*"
 
-    def test_single_quoted_empty(self):
+    def test_single_quoted_empty(self) -> None:
         """Parse echo '' and verify an empty SglQuoted is handled."""
         tree = parse_ast("echo ''")
         cmd = tree.stmts[0].cmd
         assert cmd.args[1].parts[0].type == "SglQuoted"
         assert cmd.args[1].parts[0].value == ""
 
-    def test_single_quoted_backslashes(self):
+    def test_single_quoted_backslashes(self) -> None:
         """Parse echo 'hello\nworld' and verify backslashes are literal."""
         tree = parse_ast("echo 'hello\nworld'")
         cmd = tree.stmts[0].cmd
         assert cmd.args[1].parts[0].type == "SglQuoted"
         assert cmd.args[1].parts[0].value == "hello\nworld"
 
-    def test_single_quoted_with_dollar_sign(self):
+    def test_single_quoted_with_dollar_sign(self) -> None:
         """Parse echo 'price $5' and verify the dollar sign is literal."""
         tree = parse_ast("echo 'price $5'")
         cmd = tree.stmts[0].cmd
         assert cmd.args[1].parts[0].type == "SglQuoted"
         assert cmd.args[1].parts[0].value == "price $5"
 
-    def test_single_quoted_position_info(self):
+    def test_single_quoted_position_info(self) -> None:
         """Verify that SglQuoted nodes have position information from shfmt."""
         tree = parse_ast("echo 'hello'")
         cmd = tree.stmts[0].cmd
@@ -480,7 +480,7 @@ class TestSglQuotedNodes:
         assert isinstance(part.pos.offset, int)
         assert isinstance(part.end.offset, int)
 
-    def test_sgquoted_imported_in_module(self):
+    def test_sgquoted_imported_in_module(self) -> None:
         """Verify that SglQuoted is imported in the lovely_bash_permissions module."""
         assert SglQuoted is not None
 
@@ -488,7 +488,7 @@ class TestSglQuotedNodes:
 class TestParamExpNodes:
     """Tests for the ParamExp node type (Step 4 of node coverage)."""
 
-    def test_short_param_expansion(self):
+    def test_short_param_expansion(self) -> None:
         """Parse echo $HOME and verify it produces a ParamExp node with Short=True."""
         tree = parse_ast("echo $HOME")
         cmd = tree.stmts[0].cmd
@@ -499,7 +499,7 @@ class TestParamExpNodes:
         assert cmd.args[1].parts[0].param == "HOME"
         assert cmd.args[1].parts[0].short is True
 
-    def test_braced_param_expansion(self):
+    def test_braced_param_expansion(self) -> None:
         """Parse echo ${HOME} and verify it produces a ParamExp node with Short=False."""
         tree = parse_ast("echo ${HOME}")
         cmd = tree.stmts[0].cmd
@@ -507,7 +507,7 @@ class TestParamExpNodes:
         assert cmd.args[1].parts[0].param == "HOME"
         assert cmd.args[1].parts[0].short is False
 
-    def test_param_expansion_with_default(self):
+    def test_param_expansion_with_default(self) -> None:
         """Parse echo ${HOME:-default} and verify the Exp field."""
         tree = parse_ast("echo ${HOME:-default}")
         cmd = tree.stmts[0].cmd
@@ -516,7 +516,7 @@ class TestParamExpNodes:
         assert cmd.args[1].parts[0].exp is not None
         assert cmd.args[1].parts[0].exp["Op"] == ":-"
 
-    def test_array_index_param_expansion(self):
+    def test_array_index_param_expansion(self) -> None:
         """Parse echo ${arr[0]} and verify the Index field."""
         tree = parse_ast("echo ${arr[0]}")
         cmd = tree.stmts[0].cmd
@@ -525,7 +525,7 @@ class TestParamExpNodes:
         assert cmd.args[1].parts[0].index is not None
         assert cmd.args[1].parts[0].index.parts[0].value == "0"
 
-    def test_param_expansion_in_double_quotes(self):
+    def test_param_expansion_in_double_quotes(self) -> None:
         """Parse echo "$HOME" and verify ParamExp inside DblQuoted."""
         tree = parse_ast('echo "$HOME"')
         cmd = tree.stmts[0].cmd
@@ -533,7 +533,7 @@ class TestParamExpNodes:
         assert cmd.args[1].parts[0].parts[0].type == "ParamExp"
         assert cmd.args[1].parts[0].parts[0].param == "HOME"
 
-    def test_multiple_param_expansions(self):
+    def test_multiple_param_expansions(self) -> None:
         """Parse echo "$HOME is $USER" and verify multiple ParamExp parts."""
         tree = parse_ast('echo "$HOME is $USER"')
         cmd = tree.stmts[0].cmd
@@ -547,7 +547,7 @@ class TestParamExpNodes:
         assert parts[2].type == "ParamExp"
         assert parts[2].param == "USER"
 
-    def test_adjacent_param_expansions(self):
+    def test_adjacent_param_expansions(self) -> None:
         """Parse echo "$HOME$USER" and verify two adjacent ParamExp parts."""
         tree = parse_ast('echo "$HOME$USER"')
         cmd = tree.stmts[0].cmd
@@ -558,7 +558,7 @@ class TestParamExpNodes:
         assert parts[1].type == "ParamExp"
         assert parts[1].param == "USER"
 
-    def test_length_param_expansion(self):
+    def test_length_param_expansion(self) -> None:
         """Parse echo ${#HOME} and verify Length field."""
         tree = parse_ast("echo ${#HOME}")
         cmd = tree.stmts[0].cmd
@@ -566,21 +566,21 @@ class TestParamExpNodes:
         assert cmd.args[1].parts[0].param == "HOME"
         assert cmd.args[1].parts[0].length is True
 
-    def test_special_param_expansion(self):
+    def test_special_param_expansion(self) -> None:
         """Parse echo "$@" and verify ParamExp with special parameter."""
         tree = parse_ast('echo "$@"')
         cmd = tree.stmts[0].cmd
         assert cmd.args[1].parts[0].parts[0].type == "ParamExp"
         assert cmd.args[1].parts[0].parts[0].param == "@"
 
-    def test_position_param_expansion(self):
+    def test_position_param_expansion(self) -> None:
         """Parse echo "$0" and verify ParamExp with positional parameter."""
         tree = parse_ast('echo "$0"')
         cmd = tree.stmts[0].cmd
         assert cmd.args[1].parts[0].parts[0].type == "ParamExp"
         assert cmd.args[1].parts[0].parts[0].param == "0"
 
-    def test_param_expansion_position_info(self):
+    def test_param_expansion_position_info(self) -> None:
         """Verify that ParamExp nodes have position information from shfmt."""
         tree = parse_ast("echo $HOME")
         cmd = tree.stmts[0].cmd
@@ -591,7 +591,7 @@ class TestParamExpNodes:
         assert isinstance(part.pos.offset, int)
         assert isinstance(part.end.offset, int)
 
-    def test_param_exp_imported_in_module(self):
+    def test_param_exp_imported_in_module(self) -> None:
         """Verify that ParamExp is imported in the lovely_bash_permissions module."""
         assert ParamExp is not None
 
@@ -599,7 +599,7 @@ class TestParamExpNodes:
 class TestDblQuotedNodes:
     """Tests for the DblQuoted node type (Step 3 of node coverage)."""
 
-    def test_simple_double_quoted(self):
+    def test_simple_double_quoted(self) -> None:
         """Parse echo "hello" and verify it produces a DblQuoted node with Lit parts."""
         tree = parse_ast('echo "hello"')
         cmd = tree.stmts[0].cmd
@@ -610,7 +610,7 @@ class TestDblQuotedNodes:
         assert cmd.args[1].parts[0].parts[0].type == "Lit"
         assert cmd.args[1].parts[0].parts[0].value == "hello"
 
-    def test_double_quoted_with_variable_expansion(self):
+    def test_double_quoted_with_variable_expansion(self) -> None:
         """Parse echo "hello $world" and verify DblQuoted with Lit + ParamExp parts."""
         tree = parse_ast('echo "hello $world"')
         cmd = tree.stmts[0].cmd
@@ -622,7 +622,7 @@ class TestDblQuotedNodes:
         assert parts[1].type == "ParamExp"
         assert parts[1].param == "world"
 
-    def test_double_quoted_multiple_variables(self):
+    def test_double_quoted_multiple_variables(self) -> None:
         """Parse echo "$USER is here" and verify DblQuoted with multiple ParamExp parts."""
         tree = parse_ast('echo "$USER is here"')
         cmd = tree.stmts[0].cmd
@@ -632,7 +632,7 @@ class TestDblQuotedNodes:
         assert parts[1].type == "Lit"
         assert parts[1].value == " is here"
 
-    def test_empty_double_quoted(self):
+    def test_empty_double_quoted(self) -> None:
         """Parse echo "" and verify an empty DblQuoted is handled."""
         tree = parse_ast('echo ""')
         cmd = tree.stmts[0].cmd
@@ -641,7 +641,7 @@ class TestDblQuotedNodes:
         assert cmd.args[1].parts[0].parts == []
         # shfmt Go: Would have an empty array: assert ...parts == []
 
-    def test_empty_double_quoted_shfmt_go(self):
+    def test_empty_double_quoted_shfmt_go(self) -> None:
         """Test shfmt Go-style empty DblQuoted handling (for completeness)."""
         # In shfmt Go, empty double quotes would give a DblQuoted with an empty parts array.
         # Our parser should handle both: None parts (shfmt-py) and [] parts (shfmt Go).
@@ -650,7 +650,7 @@ class TestDblQuotedNodes:
         dq_go = DblQuoted(type="DblQuoted", pos=None, end=None, parts=[])
         assert dq_go.parts == []
 
-    def test_double_quoted_preserves_spaces(self):
+    def test_double_quoted_preserves_spaces(self) -> None:
         """Parse echo "a b c" and verify spaces are preserved in Lit parts."""
         tree = parse_ast('echo "a b c"')
         cmd = tree.stmts[0].cmd
@@ -659,7 +659,7 @@ class TestDblQuotedNodes:
         assert cmd.args[1].parts[0].parts[0].type == "Lit"
         assert cmd.args[1].parts[0].parts[0].value == "a b c"
 
-    def test_nested_quotes(self):
+    def test_nested_quotes(self) -> None:
         """Parse echo "$HOME is $USER" and verify multiple nested parts."""
         tree = parse_ast('echo "$HOME is $USER"')
         cmd = tree.stmts[0].cmd
@@ -673,7 +673,7 @@ class TestDblQuotedNodes:
         assert parts[2].type == "ParamExp"
         assert parts[2].param == "USER"
 
-    def test_escape_sequences_in_double_quotes(self):
+    def test_escape_sequences_in_double_quotes(self) -> None:
         """Parse echo with escaped characters in double quotes."""
         tree = parse_ast('echo "\\n\\t\\r"')
         cmd = tree.stmts[0].cmd
@@ -682,7 +682,7 @@ class TestDblQuotedNodes:
         assert cmd.args[1].parts[0].parts[0].type == "Lit"
         assert cmd.args[1].parts[0].parts[0].value == "\\n\\t\\r"
 
-    def test_mixed_literal_variable_escape(self):
+    def test_mixed_literal_variable_escape(self) -> None:
         """Parse complex DblQuoted with lit, variable, and escapes mixed."""
         tree = parse_ast('echo "\\n$USER\\n"')
         cmd = tree.stmts[0].cmd
@@ -695,7 +695,7 @@ class TestDblQuotedNodes:
         assert parts[2].type == "Lit"
         assert parts[2].value == "\\n"
 
-    def test_dblquoted_position_info(self):
+    def test_dblquoted_position_info(self) -> None:
         """Verify that DblQuoted nodes have position information from shfmt."""
         tree = parse_ast('echo "hello"')
         cmd = tree.stmts[0].cmd
@@ -706,7 +706,7 @@ class TestDblQuotedNodes:
         assert isinstance(part.pos.offset, int)
         assert isinstance(part.end.offset, int)
 
-    def test_dblquoted_imported_in_module(self):
+    def test_dblquoted_imported_in_module(self) -> None:
         """Verify that DblQuoted is imported in the lovely_bash_permissions module."""
         assert DblQuoted is not None
 
@@ -714,7 +714,7 @@ class TestDblQuotedNodes:
 class TestCmdSubstNodes:
     """Tests for the CmdSubst node type (Step 5 of node coverage)."""
 
-    def test_simple_cmdsubst_syntax(self):
+    def test_simple_cmdsubst_syntax(self) -> None:
         """Parse echo $(date) and verify it produces a CmdSubst node."""
         tree = parse_ast("echo $(date)")
         cmd = tree.stmts[0].cmd
@@ -727,7 +727,7 @@ class TestCmdSubstNodes:
         assert inner_cmd.type == "CallExpr"
         assert inner_cmd.args[0].parts[0].value == "date"
 
-    def test_cmdsubst_with_backquotes(self):
+    def test_cmdsubst_with_backquotes(self) -> None:
         """Parse echo `date` and verify backquotes is True."""
         tree = parse_ast("echo `date`")
         cmd = tree.stmts[0].cmd
@@ -735,7 +735,7 @@ class TestCmdSubstNodes:
         assert cmd.args[1].parts[0].backquotes is True
         assert cmd.args[1].parts[0].stmts[0].cmd.args[0].parts[0].value == "date"
 
-    def test_cmdsubst_in_double_quotes(self):
+    def test_cmdsubst_in_double_quotes(self) -> None:
         """Parse echo \"hello $(date)\" and verify CmdSubst inside DblQuoted."""
         tree = parse_ast('echo "hello $(date)"')
         cmd = tree.stmts[0].cmd
@@ -747,7 +747,7 @@ class TestCmdSubstNodes:
         assert parts[1].type == "CmdSubst"
         assert parts[1].stmts[0].cmd.args[0].parts[0].value == "date"
 
-    def test_two_cmdsubst_parts(self):
+    def test_two_cmdsubst_parts(self) -> None:
         """Parse echo $(date) && $(date) and verify two CmdSubst parts."""
         tree = parse_ast("echo $(date) $(date)")
         cmd = tree.stmts[0].cmd
@@ -758,7 +758,7 @@ class TestCmdSubstNodes:
         assert cmd.args[1].parts[0].stmts[0].cmd.args[0].parts[0].value == "date"
         assert cmd.args[2].parts[0].stmts[0].cmd.args[0].parts[0].value == "date"
 
-    def test_nested_cmdsubst(self):
+    def test_nested_cmdsubst(self) -> None:
         """Parse echo $(echo $(date)) and verify nested CmdSubst."""
         tree = parse_ast("echo $(echo $(date))")
         cmd = tree.stmts[0].cmd
@@ -770,7 +770,7 @@ class TestCmdSubstNodes:
         assert inner_part.type == "CmdSubst"
         assert inner_part.stmts[0].cmd.args[0].parts[0].value == "date"
 
-    def test_cmdsubst_with_multiple_commands(self):
+    def test_cmdsubst_with_multiple_commands(self) -> None:
         """Parse echo $(ls | grep txt) and verify multiple inner statements."""
         tree = parse_ast("echo $(ls | grep txt)")
         cmd = tree.stmts[0].cmd
@@ -783,7 +783,7 @@ class TestCmdSubstNodes:
         assert inner.right.args[0].parts[0].value == "grep"
         assert inner.right.args[1].parts[0].value == "txt"
 
-    def test_cmdsubst_position_info(self):
+    def test_cmdsubst_position_info(self) -> None:
         """Verify that CmdSubst nodes have position information."""
         tree = parse_ast("echo $(date)")
         cmd = tree.stmts[0].cmd
@@ -793,13 +793,13 @@ class TestCmdSubstNodes:
         assert isinstance(part.pos.offset, int)
         assert isinstance(part.end.offset, int)
 
-    def test_cmdsubst_backquotes_false(self):
+    def test_cmdsubst_backquotes_false(self) -> None:
         """Verify that $(...) has backquotes=False."""
         tree = parse_ast("echo $(date)")
         cmd = tree.stmts[0].cmd
         assert cmd.args[1].parts[0].backquotes is False
 
-    def test_cmdsubst_imported_in_module(self):
+    def test_cmdsubst_imported_in_module(self) -> None:
         """Verify that CmdSubst is imported in the lovely_bash_permissions module."""
         from lovely_bash_permissions import CmdSubst
 
@@ -809,7 +809,7 @@ class TestCmdSubstNodes:
 class TestArithmExpNodes:
     """Tests for the ArithmExp node type (Step 6 of node coverage)."""
 
-    def test_simple_arithmetic_expression(self):
+    def test_simple_arithmetic_expression(self) -> None:
         """Parse echo $((2 + 2)) and verify ArithmExp with BinaryArithm."""
         tree = parse_ast("echo $((2 + 2))")
         cmd = tree.stmts[0].cmd
@@ -825,7 +825,7 @@ class TestArithmExpNodes:
         assert inner.right.parts[0].type == "Lit"
         assert inner.right.parts[0].value == "2"
 
-    def test_arithmetic_with_variables(self):
+    def test_arithmetic_with_variables(self) -> None:
         """Parse echo $((x + y)) and verify ArithmExp with variables."""
         tree = parse_ast("echo $((x + y))")
         cmd = tree.stmts[0].cmd
@@ -838,7 +838,7 @@ class TestArithmExpNodes:
         assert inner.right.parts[0].type == "Lit"
         assert inner.right.parts[0].value == "y"
 
-    def test_single_value_arithmetic(self):
+    def test_single_value_arithmetic(self) -> None:
         """Parse echo $((50)) and verify ArithmExp with just a value."""
         tree = parse_ast("echo $((50))")
         cmd = tree.stmts[0].cmd
@@ -848,7 +848,7 @@ class TestArithmExpNodes:
         assert inner.parts[0].type == "Lit"
         assert inner.parts[0].value == "50"
 
-    def test_arithmetic_in_double_quotes(self):
+    def test_arithmetic_in_double_quotes(self) -> None:
         """Parse echo \"$((5))\" and verify ArithmExp inside DblQuoted."""
         tree = parse_ast('echo "$((5))"')
         cmd = tree.stmts[0].cmd
@@ -860,7 +860,7 @@ class TestArithmExpNodes:
         assert inner.parts[0].type == "Lit"
         assert inner.parts[0].value == "5"
 
-    def test_complex_arithmetic_expression(self):
+    def test_complex_arithmetic_expression(self) -> None:
         """Parse echo $((2 * 3 + 4)) and verify nested BinaryArithm."""
         tree = parse_ast("echo $((2 * 3 + 4))")
         cmd = tree.stmts[0].cmd
@@ -876,7 +876,7 @@ class TestArithmExpNodes:
         # Right side should be the number 4
         assert inner.right.parts[0].value == "4"
 
-    def test_arithmetic_position_info(self):
+    def test_arithmetic_position_info(self) -> None:
         """Verify that ArithmExp nodes have position information."""
         tree = parse_ast("echo $((2 + 2))")
         cmd = tree.stmts[0].cmd
@@ -887,7 +887,7 @@ class TestArithmExpNodes:
         assert isinstance(part.pos.offset, int)
         assert isinstance(part.end.offset, int)
 
-    def test_binaryarithm_position_info(self):
+    def test_binaryarithm_position_info(self) -> None:
         """Verify that BinaryArithm nodes have position information."""
         tree = parse_ast("echo $((2 + 2))")
         cmd = tree.stmts[0].cmd
@@ -898,13 +898,13 @@ class TestArithmExpNodes:
         assert inner.op_pos is not None
         assert isinstance(inner.pos.offset, int)
 
-    def test_arithmexp_imported_in_module(self):
+    def test_arithmexp_imported_in_module(self) -> None:
         """Verify that ArithmExp is imported in the lovely_bash_permissions module."""
         from lovely_bash_permissions import ArithmExp
 
         assert ArithmExp is not None
 
-    def test_binaryarithm_imported_in_module(self):
+    def test_binaryarithm_imported_in_module(self) -> None:
         """Verify that BinaryArithm is imported in the lovely_bash_permissions module."""
         assert BinaryArithm is not None
 
@@ -912,7 +912,7 @@ class TestArithmExpNodes:
 class TestProcSubstNodes:
     """Tests for the ProcSubst node type (Step 7 of node coverage)."""
 
-    def test_input_process_substitution(self):
+    def test_input_process_substitution(self) -> None:
         """Parse cat <(echo 'hi') and verify ProcSubst with op='<('."""
         tree = parse_ast("cat <(echo 'hi')")
         cmd = tree.stmts[0].cmd
@@ -928,7 +928,7 @@ class TestProcSubstNodes:
         assert inner.args[1].parts[0].type == "SglQuoted"
         assert inner.args[1].parts[0].value == "hi"
 
-    def test_output_process_substitution(self):
+    def test_output_process_substitution(self) -> None:
         """Parse sort > >(cat) and verify ProcSubst with op='>('."""
         tree = parse_ast("sort > >(cat)")
         # The redirection target should be a ProcSubst
@@ -938,7 +938,7 @@ class TestProcSubstNodes:
         inner = proc.stmts[0].cmd
         assert inner.args[0].parts[0].value == "cat"
 
-    def test_double_process_substitution(self):
+    def test_double_process_substitution(self) -> None:
         """Parse diff <(echo 'hi') <(echo 'there') with two ProcSubst nodes."""
         tree = parse_ast("diff <(echo 'hi') <(echo 'there')")
         cmd = tree.stmts[0].cmd
@@ -951,7 +951,7 @@ class TestProcSubstNodes:
         assert cmd.args[1].parts[0].stmts[0].cmd.args[0].parts[0].value == "echo"
         assert cmd.args[2].parts[0].stmts[0].cmd.args[0].parts[0].value == "echo"
 
-    def test_process_substitution_in_double_quotes(self):
+    def test_process_substitution_in_double_quotes(self) -> None:
         """Parse echo \"<(cmd)\" - process substitution in double quotes is literal text."""
         # Note: bash does NOT expand <() inside double quotes
         tree = parse_ast('echo "<(echo hi)"')
@@ -961,7 +961,7 @@ class TestProcSubstNodes:
         assert cmd.args[1].parts[0].parts[0].type == "Lit"
         assert cmd.args[1].parts[0].parts[0].value == "<(echo hi)"
 
-    def test_process_substitution_position_info(self):
+    def test_process_substitution_position_info(self) -> None:
         """Verify ProcSubst nodes have position information from shfmt."""
         tree = parse_ast("cat <(echo 'hi')")
         cmd = tree.stmts[0].cmd
@@ -974,7 +974,7 @@ class TestProcSubstNodes:
         assert isinstance(part.pos.offset, int)
         assert isinstance(part.end.offset, int)
 
-    def test_procsubst_imported_in_module(self):
+    def test_procsubst_imported_in_module(self) -> None:
         """Verify that ProcSubst is imported in the lovely_bash_permissions module."""
         assert ProcSubst is not None
 
@@ -987,7 +987,7 @@ class TestExtGlobNodes:
     ?(pat|pat), !(pat|pat). See https://www.gnu.org/software/bash/manual/bash.html#Pattern-Matching
     """
 
-    def test_at_extended_glob(self):
+    def test_at_extended_glob(self) -> None:
         """Parse ls *.@(txt|md) and verify ExtGlob with op='@('."""
         tree = parse_ast("ls *.@(txt|md)")
         cmd = tree.stmts[0].cmd
@@ -1002,7 +1002,7 @@ class TestExtGlobNodes:
         assert extglob.pattern.type == "Lit"
         assert extglob.pattern.value == "txt|md"
 
-    def test_plus_extended_glob(self):
+    def test_plus_extended_glob(self) -> None:
         """Parse ls *.+(txt|md) and verify ExtGlob with op='+('."""
         tree = parse_ast("ls *.+(txt|md)")
         cmd = tree.stmts[0].cmd
@@ -1011,7 +1011,7 @@ class TestExtGlobNodes:
         assert extglob.op == "+("
         assert extglob.pattern.value == "txt|md"
 
-    def test_question_extended_glob(self):
+    def test_question_extended_glob(self) -> None:
         """Parse ls *.?(txt|md) and verify ExtGlob with op='?('."""
         tree = parse_ast("ls *.?(txt|md)")
         cmd = tree.stmts[0].cmd
@@ -1020,7 +1020,7 @@ class TestExtGlobNodes:
         assert extglob.op == "?("
         assert extglob.pattern.value == "txt|md"
 
-    def test_bang_extended_glob(self):
+    def test_bang_extended_glob(self) -> None:
         """Parse ls *.!(txt|md) and verify ExtGlob with op='!('."""
         tree = parse_ast("ls *.!(txt|md)")
         cmd = tree.stmts[0].cmd
@@ -1029,7 +1029,7 @@ class TestExtGlobNodes:
         assert extglob.op == "!("
         assert extglob.pattern.value == "txt|md"
 
-    def test_star_extended_glob(self):
+    def test_star_extended_glob(self) -> None:
         """Parse ls *.*(txt|md) and verify ExtGlob with op='*(.'"""
         tree = parse_ast("ls *.*(txt|md)")
         cmd = tree.stmts[0].cmd
@@ -1038,7 +1038,7 @@ class TestExtGlobNodes:
         assert extglob.op == "*("
         assert extglob.pattern.value == "txt|md"
 
-    def test_extglob_with_multiple_patterns(self):
+    def test_extglob_with_multiple_patterns(self) -> None:
         """Parse ls *.@(txt|md|json|yaml) with four patterns."""
         tree = parse_ast("ls *.@(txt|md|json|yaml)")
         cmd = tree.stmts[0].cmd
@@ -1046,7 +1046,7 @@ class TestExtGlobNodes:
         assert extglob.type == "ExtGlob"
         assert extglob.pattern.value == "txt|md|json|yaml"
 
-    def test_extglob_position_info(self):
+    def test_extglob_position_info(self) -> None:
         """Verify ExtGlob nodes have position information from shfmt."""
         tree = parse_ast("ls *.@(txt|md)")
         cmd = tree.stmts[0].cmd
@@ -1058,7 +1058,7 @@ class TestExtGlobNodes:
         assert isinstance(extglob.pos.offset, int)
         assert isinstance(extglob.end.offset, int)
 
-    def test_extglob_in_double_quotes(self):
+    def test_extglob_in_double_quotes(self) -> None:
         """Parse echo \"@(cmd)\" - extglob in double quotes is literal text."""
         # Note: bash does NOT expand @() inside double quotes without extglob
         tree = parse_ast('echo "@(txt|md)"')
@@ -1067,7 +1067,7 @@ class TestExtGlobNodes:
         assert cmd.args[1].parts[0].parts[0].type == "Lit"
         assert cmd.args[1].parts[0].parts[0].value == "@(txt|md)"
 
-    def test_extglob_combined_with_procsubst(self):
+    def test_extglob_combined_with_procsubst(self) -> None:
         """Parse complex expression combining ExtGlob with other features."""
         tree = parse_ast("ls *.@(txt|md) | grep -i foo")
         assert tree.stmts[0].cmd.type == "BinaryCmd"
@@ -1077,7 +1077,7 @@ class TestExtGlobNodes:
         assert left_arg.type == "ExtGlob"
         assert left_arg.pattern.value == "txt|md"
 
-    def test_extglob_imported_in_module(self):
+    def test_extglob_imported_in_module(self) -> None:
         """Verify that ExtGlob is imported in the lovely_bash_permissions module."""
         from lovely_bash_permissions import ExtGlob
 
@@ -1092,7 +1092,7 @@ class TestBlockNodes:
     parentheses which spawn a new shell).
     """
 
-    def test_simple_block(self):
+    def test_simple_block(self) -> None:
         """Parse { echo 'a'; echo 'b'; } and verify Block node."""
         tree = parse_ast("{ echo 'a'; echo 'b'; }")
         cmd = tree.stmts[0].cmd
@@ -1108,7 +1108,7 @@ class TestBlockNodes:
         assert cmd.stmts[1].cmd.args[1].parts[0].type == "SglQuoted"
         assert cmd.stmts[1].cmd.args[1].parts[0].value == "b"
 
-    def test_block_with_true_false(self):
+    def test_block_with_true_false(self) -> None:
         """Parse { true; false; } and verify Block with boolean commands."""
         tree = parse_ast("{ true; false; }")
         cmd = tree.stmts[0].cmd
@@ -1117,7 +1117,7 @@ class TestBlockNodes:
         assert cmd.stmts[0].cmd.args[0].parts[0].value == "true"
         assert cmd.stmts[1].cmd.args[0].parts[0].value == "false"
 
-    def test_nested_blocks(self):
+    def test_nested_blocks(self) -> None:
         """Parse { { echo 'inner'; }; } and verify nested Block nodes."""
         tree = parse_ast("{ { echo 'inner'; }; }")
         outer = tree.stmts[0].cmd
@@ -1129,7 +1129,7 @@ class TestBlockNodes:
         assert inner.stmts[0].cmd.args[0].parts[0].value == "echo"
         assert inner.stmts[0].cmd.args[1].parts[0].value == "inner"
 
-    def test_block_with_subshell(self):
+    def test_block_with_subshell(self) -> None:
         """Parse { (echo 'sub'); } and verify Block containing Subshell."""
         tree = parse_ast("{ (echo 'sub'); }")
         cmd = tree.stmts[0].cmd
@@ -1138,7 +1138,7 @@ class TestBlockNodes:
         assert inner.type == "Subshell"
         assert inner.stmts[0].cmd.args[0].parts[0].value == "echo"
 
-    def test_block_with_variables(self):
+    def test_block_with_variables(self) -> None:
         """Parse { echo $HOME; } and verify Block with variable expansion."""
         tree = parse_ast("{ echo $HOME; }")
         cmd = tree.stmts[0].cmd
@@ -1146,7 +1146,7 @@ class TestBlockNodes:
         assert cmd.stmts[0].cmd.args[1].parts[0].type == "ParamExp"
         assert cmd.stmts[0].cmd.args[1].parts[0].param == "HOME"
 
-    def test_block_position_info(self):
+    def test_block_position_info(self) -> None:
         """Verify Block nodes have position information from shfmt."""
         tree = parse_ast("{ echo 'a'; }")
         cmd = tree.stmts[0].cmd
@@ -1160,7 +1160,7 @@ class TestBlockNodes:
         # Lbrace should be before rbrace
         assert cmd.left_pos.offset < cmd.right_pos.offset
 
-    def test_empty_block_with_commands(self):
+    def test_empty_block_with_commands(self) -> None:
         """Parse a block with multiple different command types."""
         tree = parse_ast("{ ls -la; cat file.txt; grep pattern file.txt; }")
         cmd = tree.stmts[0].cmd
@@ -1170,7 +1170,7 @@ class TestBlockNodes:
         assert cmd.stmts[1].cmd.args[0].parts[0].value == "cat"
         assert cmd.stmts[2].cmd.args[0].parts[0].value == "grep"
 
-    def test_block_pipe_inside(self):
+    def test_block_pipe_inside(self) -> None:
         """Parse { ls | grep txt; } and verify pipe inside Block."""
         tree = parse_ast("{ ls | grep txt; }")
         cmd = tree.stmts[0].cmd
@@ -1182,7 +1182,7 @@ class TestBlockNodes:
         assert inner.right.args[0].parts[0].value == "grep"
         assert inner.right.args[1].parts[0].value == "txt"
 
-    def test_block_andcmd_inside(self):
+    def test_block_andcmd_inside(self) -> None:
         """Parse { test -f file && cat file; } with BinaryCmd(op='&&') inside Block.
 
         shfmt represents && as BinaryCmd with Op='&&', not AndCmd.
@@ -1197,7 +1197,7 @@ class TestBlockNodes:
         assert inner.left.args[0].parts[0].value == "test"
         assert inner.right.args[0].parts[0].value == "cat"
 
-    def test_block_with_redirect(self):
+    def test_block_with_redirect(self) -> None:
         """Parse { echo hello > output.txt; } with redirection inside Block."""
         tree = parse_ast("{ echo hello > output.txt; }")
         cmd = tree.stmts[0].cmd
@@ -1208,7 +1208,7 @@ class TestBlockNodes:
         assert stmt.redirs[0].op == ">"
         assert stmt.redirs[0].word.parts[0].value == "output.txt"
 
-    def test_block_cmdsubst_inside(self):
+    def test_block_cmdsubst_inside(self) -> None:
         """Parse { echo $(date); } with CmdSubst inside Block."""
         tree = parse_ast("{ echo $(date); }")
         cmd = tree.stmts[0].cmd
@@ -1220,7 +1220,7 @@ class TestBlockNodes:
             == "date"
         )
 
-    def test_block_if_inside(self):
+    def test_block_if_inside(self) -> None:
         """Parse { if true; then echo 'yes'; fi; } with if statement inside Block."""
         tree = parse_ast("{ if true; then echo 'yes'; fi; }")
         cmd = tree.stmts[0].cmd
@@ -1230,7 +1230,7 @@ class TestBlockNodes:
         assert len(inner.then_stmts) == 1
         assert inner.then_stmts[0].cmd.args[0].parts[0].value == "echo"
 
-    def test_block_with_arithmetic(self):
+    def test_block_with_arithmetic(self) -> None:
         """Parse { echo $((1 + 2)); } with ArithmExp inside Block."""
         tree = parse_ast("{ echo $((1 + 2)); }")
         cmd = tree.stmts[0].cmd
@@ -1241,7 +1241,7 @@ class TestBlockNodes:
         assert inner_arith.type == "BinaryArithm"
         assert inner_arith.op == "+"
 
-    def test_deeply_nested_blocks(self):
+    def test_deeply_nested_blocks(self) -> None:
         """Parse { { { echo 'deep'; }; }; } with three levels of nesting."""
         tree = parse_ast("{ { { echo 'deep'; }; }; }")
         outer = tree.stmts[0].cmd
@@ -1253,7 +1253,7 @@ class TestBlockNodes:
         assert inner.stmts[0].cmd.args[0].parts[0].value == "echo"
         assert inner.stmts[0].cmd.args[1].parts[0].value == "deep"
 
-    def test_block_imported_in_module(self):
+    def test_block_imported_in_module(self) -> None:
         """Verify that Block is imported in the lovely_bash_permissions module."""
         from lovely_bash_permissions import Block
 
@@ -1267,7 +1267,7 @@ class TestFuncDeclNodes:
     function name() { body }. The function body is always a Block node.
     """
 
-    def test_func_decl_with_parens(self):
+    def test_func_decl_with_parens(self) -> None:
         """Parse hello() { echo 'hi'; } and verify FuncDecl node."""
         tree = parse_ast("hello() { echo 'hi'; }")
         cmd = tree.stmts[0].cmd
@@ -1289,7 +1289,7 @@ class TestFuncDeclNodes:
         assert body_stmt.args[0].parts[0].value == "echo"
         assert body_stmt.args[1].parts[0].value == "hi"
 
-    def test_func_decl_function_keyword_no_parens(self):
+    def test_func_decl_function_keyword_no_parens(self) -> None:
         """Parse function hello { echo 'hi'; } (POSIX style, no parens)."""
         tree = parse_ast("function hello { echo 'hi'; }")
         cmd = tree.stmts[0].cmd
@@ -1310,7 +1310,7 @@ class TestFuncDeclNodes:
         assert body_stmt.args[0].parts[0].value == "echo"
         assert body_stmt.args[1].parts[0].value == "hi"
 
-    def test_func_decl_function_keyword_with_parens(self):
+    def test_func_decl_function_keyword_with_parens(self) -> None:
         """Parse function hello() { echo 'hi'; } (function keyword + parens)."""
         tree = parse_ast("function hello() { echo 'hi'; }")
         cmd = tree.stmts[0].cmd
@@ -1331,7 +1331,7 @@ class TestFuncDeclNodes:
         assert body_stmt.args[0].parts[0].value == "echo"
         assert body_stmt.args[1].parts[0].value == "hi"
 
-    def test_func_decl_multiple_statements(self):
+    def test_func_decl_multiple_statements(self) -> None:
         """Parse a function with multiple statements in the body."""
         tree = parse_ast("greet() { echo 'hello'; echo 'world'; }")
         cmd = tree.stmts[0].cmd
@@ -1347,7 +1347,7 @@ class TestFuncDeclNodes:
         assert second.args[0].parts[0].value == "echo"
         assert second.args[1].parts[0].value == "world"
 
-    def test_func_decl_with_args(self):
+    def test_func_decl_with_args(self) -> None:
         """Parse a function that uses parameters ($1, $2)."""
         tree = parse_ast("say() { echo $1 $2; }")
         cmd = tree.stmts[0].cmd
@@ -1365,7 +1365,7 @@ class TestFuncDeclNodes:
         assert body_stmt.args[2].parts[0].type == "ParamExp"
         assert body_stmt.args[2].parts[0].param == "2"
 
-    def test_func_decl_with_variables(self):
+    def test_func_decl_with_variables(self) -> None:
         """Parse a function that references external variables."""
         tree = parse_ast("show() { echo $HOME; }")
         cmd = tree.stmts[0].cmd
@@ -1380,7 +1380,7 @@ class TestFuncDeclNodes:
         assert body_stmt.args[1].parts[0].type == "ParamExp"
         assert body_stmt.args[1].parts[0].param == "HOME"
 
-    def test_func_decl_cmdsubst_inside(self):
+    def test_func_decl_cmdsubst_inside(self) -> None:
         """Parse a function with command substitution inside."""
         tree = parse_ast("now() { echo $(date); }")
         cmd = tree.stmts[0].cmd
@@ -1397,7 +1397,7 @@ class TestFuncDeclNodes:
         subst_stmt = body_stmt.args[1].parts[0].stmts[0].cmd
         assert subst_stmt.args[0].parts[0].value == "date"
 
-    def test_func_decl_complex_body(self):
+    def test_func_decl_complex_body(self) -> None:
         """Parse a function with a complex body (pipe, redirect, if, etc.)."""
         tree = parse_ast("""process() {
     if [ -f "$1" ]; then
@@ -1450,7 +1450,7 @@ class TestFuncDeclNodes:
         assert inner_redir_param.type == "ParamExp"
         assert inner_redir_param.param == "2"
 
-    def test_func_decl_position_info(self):
+    def test_func_decl_position_info(self) -> None:
         """Verify FuncDecl nodes have position information from shfmt."""
         tree = parse_ast("hello() { echo 'hi'; }")
         cmd = tree.stmts[0].cmd
@@ -1466,7 +1466,7 @@ class TestFuncDeclNodes:
         # Body should start after function declaration
         assert cmd.body.pos.offset > cmd.pos.offset
 
-    def test_func_decl_nested_calls(self):
+    def test_func_decl_nested_calls(self) -> None:
         """Parse a function that calls other commands."""
         tree = parse_ast("setup() { mkdir -p out; cd out; }")
         cmd = tree.stmts[0].cmd
@@ -1485,7 +1485,7 @@ class TestFuncDeclNodes:
         assert second.args[0].parts[0].value == "cd"
         assert second.args[1].parts[0].value == "out"
 
-    def test_func_decl_with_double_quotes(self):
+    def test_func_decl_with_double_quotes(self) -> None:
         """Parse a function using double-quoted strings."""
         tree = parse_ast('hello() { echo "hello world"; }')
         cmd = tree.stmts[0].cmd
@@ -1500,7 +1500,7 @@ class TestFuncDeclNodes:
         assert body_stmt.args[1].parts[0].type == "DblQuoted"
         assert body_stmt.args[1].parts[0].value == "hello world"
 
-    def test_func_decl_empty_body(self):
+    def test_func_decl_empty_body(self) -> None:
         """Parse a function with empty body (noop using `:` builtin)."""
         # bash requires a statement in the function body
         # `:` is the no-op builtin, so noop() { :; } is an empty-function equivalent
@@ -1513,7 +1513,7 @@ class TestFuncDeclNodes:
         assert len(cmd.body.stmts) == 1
         assert cmd.body.stmts[0].cmd.args[0].parts[0].value == ":"
 
-    def test_func_decl_imported_in_module(self):
+    def test_func_decl_imported_in_module(self) -> None:
         """Verify that FuncDecl is imported in the lovely_bash_permissions module."""
         from lovely_bash_permissions import FuncDecl
 

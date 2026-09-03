@@ -25,7 +25,7 @@ def _find_line(lines, substr):
     )
 
 
-def _assert_adjacent(lines, cmd_substr, redir_substr):
+def _assert_adjacent(lines, cmd_substr, redir_substr) -> None:
     """Assert the redir line directly follows its owning command line."""
     cmd_idx = _find_line(lines, cmd_substr)
     redir_idx = _find_line(lines, redir_substr)
@@ -39,7 +39,7 @@ def _assert_adjacent(lines, cmd_substr, redir_substr):
 class TestCliRedirections:
     """CLI renderer must place each redirection adjacent to its owning command."""
 
-    def test_repro_multisegment_pipe(self, capsys):
+    def test_repro_multisegment_pipe(self, capsys) -> None:
         """Exact reported repro: all three redirections present and ordered."""
         main(["--string", "echo $PATH | cmd2 > 2 | cmd3 >3 | cmd4 > $(ls) | cmd5"])
         lines = _lines(capsys)
@@ -62,7 +62,7 @@ class TestCliRedirections:
             f"> 3 at {idx_3}, > $(...) at {idx_cmdsub}"
         )
 
-    def test_two_segment_both_redirected(self, capsys):
+    def test_two_segment_both_redirected(self, capsys) -> None:
         """2-segment pipe with both segments redirected."""
         main(["--string", "cmd2 > 2 | cmd3 > 3"])
         lines = _lines(capsys)
@@ -74,7 +74,7 @@ class TestCliRedirections:
         idx_r3 = _find_line(lines, "redirection: > 3")
         assert idx_r2 < idx_r3
 
-    def test_three_segment_left_nested_all_redirected(self, capsys):
+    def test_three_segment_left_nested_all_redirected(self, capsys) -> None:
         """3-segment left-nested pipe with all segments redirected."""
         main(["--string", "a > 1 | b > 2 | c > 3"])
         lines = _lines(capsys)
@@ -88,7 +88,7 @@ class TestCliRedirections:
         idx_3 = _find_line(lines, "redirection: > 3")
         assert idx_1 < idx_2 < idx_3
 
-    def test_middle_segment_redirection(self, capsys):
+    def test_middle_segment_redirection(self, capsys) -> None:
         """Middle-segment redirection renders next to its command."""
         main(["--string", "cmd1 | cmd2 > f | cmd3"])
         lines = _lines(capsys)
@@ -104,7 +104,7 @@ class TestCliRedirections:
             f"cmd3 should have no redirection, but found one at line {i}: {lines[i]}"
         )
 
-    def test_adjacency_helper_contract(self, capsys):
+    def test_adjacency_helper_contract(self, capsys) -> None:
         """Verify the adjacency helper catches misplacement (self-test)."""
         main(["--string", "x > xout | y > yout"])
         lines = _lines(capsys)

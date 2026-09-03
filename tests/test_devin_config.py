@@ -22,7 +22,7 @@ def _write_temp_file(content: str, suffix: str = ".json") -> str:
     return path
 
 
-def _clean_temp_file(path: str):
+def _clean_temp_file(path: str) -> None:
     """Remove a temporary file."""
     if os.path.exists(path):
         os.remove(path)
@@ -30,7 +30,7 @@ def _clean_temp_file(path: str):
 
 def _create_project_with_configs(
     project_dir, global_config=None, project_config=None, local_config=None
-):
+) -> None:
     """Create a project directory with optional config files."""
     # Create project .devin directory
     devin_dir = os.path.join(project_dir, ".devin")
@@ -56,28 +56,28 @@ def _create_project_with_configs(
 class TestExecPermissionToRegex:
     """Tests for exec_permission_to_regex function."""
 
-    def test_simple_command(self):
+    def test_simple_command(self) -> None:
         assert exec_permission_to_regex("git") == "^git(\\s|$)"
 
-    def test_command_with_args(self):
+    def test_command_with_args(self) -> None:
         assert exec_permission_to_regex("npm run") == "^npm run(\\s|$)"
 
-    def test_colon_prefix(self):
+    def test_colon_prefix(self) -> None:
         assert exec_permission_to_regex(":") == "^:(\\s|$)"
 
-    def test_escapes_regexp_chars(self):
+    def test_escapes_regexp_chars(self) -> None:
         assert exec_permission_to_regex("echo $HOME") == "^echo \\$HOME(\\s|$)"
         assert exec_permission_to_regex("cat file.txt") == "^cat file\\.txt(\\s|$)"
         assert exec_permission_to_regex("cmd [arg]") == "^cmd \\[arg\\](\\s|$)"
 
-    def test_trims_whitespace(self):
+    def test_trims_whitespace(self) -> None:
         assert exec_permission_to_regex("  git  ") == "^git(\\s|$)"
 
 
 class TestLoadDevinExecPermissions:
     """Tests for load_devin_exec_permissions function."""
 
-    def test_no_config_files(self):
+    def test_no_config_files(self) -> None:
         with (
             tempfile.TemporaryDirectory() as project,
             tempfile.TemporaryDirectory() as devin_global,
@@ -90,7 +90,7 @@ class TestLoadDevinExecPermissions:
             finally:
                 del os.environ["DEVIN_GLOBAL_CONFIG_DIR"]
 
-    def test_global_config_only(self):
+    def test_global_config_only(self) -> None:
         with tempfile.TemporaryDirectory() as project:
             _create_project_with_configs(
                 project,
@@ -106,7 +106,7 @@ class TestLoadDevinExecPermissions:
                     os.path.join(get_devin_global_config_dir(), "config.json")
                 )
 
-    def test_project_config_only(self):
+    def test_project_config_only(self) -> None:
         with tempfile.TemporaryDirectory() as project:
             _create_project_with_configs(
                 project,
@@ -119,7 +119,7 @@ class TestLoadDevinExecPermissions:
             assert result["permissions"][0]["regex"] == "^npm run(\\s|$)"
             assert result["errors"] == []
 
-    def test_local_config_only(self):
+    def test_local_config_only(self) -> None:
         with tempfile.TemporaryDirectory() as project:
             _create_project_with_configs(
                 project,
@@ -130,7 +130,7 @@ class TestLoadDevinExecPermissions:
             assert result["permissions"][0]["regex"] == "^docker compose(\\s|$)"
             assert result["errors"] == []
 
-    def test_all_three_sources(self):
+    def test_all_three_sources(self) -> None:
         with tempfile.TemporaryDirectory() as project:
             _create_project_with_configs(
                 project,
@@ -150,7 +150,7 @@ class TestLoadDevinExecPermissions:
                     os.path.join(get_devin_global_config_dir(), "config.json")
                 )
 
-    def test_ignores_non_exec_entries(self):
+    def test_ignores_non_exec_entries(self) -> None:
         with tempfile.TemporaryDirectory() as project:
             _create_project_with_configs(
                 project,
@@ -172,7 +172,7 @@ class TestLoadDevinExecPermissions:
             assert result["permissions"][0]["regex"] == "^git(\\s|$)"
             assert result["errors"] == []
 
-    def test_reports_malformed_exec_entries(self):
+    def test_reports_malformed_exec_entries(self) -> None:
         with tempfile.TemporaryDirectory() as project:
             _create_project_with_configs(
                 project,
@@ -195,7 +195,7 @@ class TestLoadDevinExecPermissions:
             assert result["permissions"][0]["regex"] == "^git(\\s|$)"
             assert len(result["errors"]) == 5  # The malformed ones
 
-    def test_gracefully_handles_malformed_json(self):
+    def test_gracefully_handles_malformed_json(self) -> None:
         with tempfile.TemporaryDirectory() as project:
             devin_dir = os.path.join(project, ".devin")
             os.makedirs(devin_dir, exist_ok=True)
@@ -206,7 +206,7 @@ class TestLoadDevinExecPermissions:
             assert result["permissions"] == []
             assert result["errors"] == []
 
-    def test_empty_permissions_allow(self):
+    def test_empty_permissions_allow(self) -> None:
         with tempfile.TemporaryDirectory() as project:
             _create_project_with_configs(
                 project, project_config={"permissions": {"allow": []}}
@@ -219,7 +219,7 @@ class TestLoadDevinExecPermissions:
 class TestLoadDevinExecRegexes:
     """Tests for load_devin_exec_regexes function."""
 
-    def test_returns_deduplicated_regexes(self):
+    def test_returns_deduplicated_regexes(self) -> None:
         with tempfile.TemporaryDirectory() as project:
             _create_project_with_configs(
                 project,
@@ -228,7 +228,7 @@ class TestLoadDevinExecRegexes:
             result = load_devin_exec_regexes(project)
             assert result == ["^git(\\s|$)"]
 
-    def test_throws_on_malformed_entries(self):
+    def test_throws_on_malformed_entries(self) -> None:
         with tempfile.TemporaryDirectory() as project:
             _create_project_with_configs(
                 project,

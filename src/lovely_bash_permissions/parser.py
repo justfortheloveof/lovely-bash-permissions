@@ -145,7 +145,7 @@ class ParseError(Exception):
         command: str | None = None,
         returncode: int | None = None,
         stderr: str | None = None,
-    ):
+    ) -> None:
         super().__init__(message)
         self.command = command
         self.returncode = returncode

@@ -13,7 +13,7 @@ from unittest.mock import patch
 class TestSetupOutputFormat:
     """Test --setup CLI output format matches TypeScript reference."""
 
-    def test_setup_output_format(self):
+    def test_setup_output_format(self) -> None:
         """Setup should output the exact TypeScript-style message."""
         with tempfile.TemporaryDirectory() as devin_dir:
             import io
@@ -38,7 +38,7 @@ class TestSetupOutputFormat:
             assert 'Added "Exec(: \'[♡ perms:)" to' in output
             assert 'so Devin auto-approves the hook\'s ":" no-op label' in output
 
-    def test_setup_already_present_format(self):
+    def test_setup_already_present_format(self) -> None:
         """Setup should output the exact TypeScript-style "already present" message."""
         with tempfile.TemporaryDirectory() as devin_dir:
             import io
@@ -77,7 +77,7 @@ class TestPreToolUseResponseFormat:
             "project_dir": ".",
         }
 
-    def test_allow_label_format(self):
+    def test_allow_label_format(self) -> None:
         """Allow response should have the exact label format."""
         # Create minimal config
         with tempfile.TemporaryDirectory() as devin_dir:
@@ -105,7 +105,7 @@ class TestPreToolUseResponseFormat:
                     in response["hookSpecificOutput"]["updatedInput"]["command"]
                 )
 
-    def test_deny_label_format(self):
+    def test_deny_label_format(self) -> None:
         """Deny response should have the exact label format."""
         with tempfile.TemporaryDirectory() as devin_dir:
             with open(f"{devin_dir}/lovely-permissions.jsonc", "w") as f:
@@ -149,7 +149,7 @@ class TestPreToolUseResponseFormat:
                     in response["hookSpecificOutput"]["updatedInput"]["command"]
                 )
 
-    def test_ask_label_format(self):
+    def test_ask_label_format(self) -> None:
         """Ask response should have the exact label format."""
         with tempfile.TemporaryDirectory() as devin_dir:
             with open(f"{devin_dir}/config.json", "w") as f:
@@ -176,7 +176,7 @@ class TestPreToolUseResponseFormat:
 class TestEvaluateReasonFormats:
     """Test evaluate reason formats match TypeScript reference."""
 
-    def test_allowed_reason_format(self):
+    def test_allowed_reason_format(self) -> None:
         """Allowed reason should match TypeScript format."""
         with tempfile.TemporaryDirectory() as devin_dir:
             with open(f"{devin_dir}/config.json", "w") as f:
@@ -193,7 +193,7 @@ class TestEvaluateReasonFormats:
                 # TypeScript: "command matches allowed pattern ^git"
                 assert "command matches allowed pattern" in result["reason"]
 
-    def test_blocked_reason_format(self):
+    def test_blocked_reason_format(self) -> None:
         """Blocked reason should match TypeScript format."""
         with tempfile.TemporaryDirectory() as devin_dir:
             with open(f"{devin_dir}/lovely-permissions.jsonc", "w") as f:
@@ -215,7 +215,7 @@ class TestEvaluateReasonFormats:
                 assert "Blocked by bash permissions:" in result["reason"]
                 assert "The tool has not been run." in result["reason"]
 
-    def test_ask_reason_format(self):
+    def test_ask_reason_format(self) -> None:
         """Ask reason should match TypeScript format."""
         with tempfile.TemporaryDirectory() as devin_dir:
             with open(f"{devin_dir}/config.json", "w") as f:
@@ -238,7 +238,7 @@ class TestEvaluateReasonFormats:
 class TestPermissionRequestResponse:
     """Test PermissionRequest responses match TypeScript reference."""
 
-    def test_permission_request_allow(self):
+    def test_permission_request_allow(self) -> None:
         """PermissionRequest allow should return approve."""
         with tempfile.TemporaryDirectory() as devin_dir:
             with open(f"{devin_dir}/config.json", "w") as f:
@@ -261,7 +261,7 @@ class TestPermissionRequestResponse:
                 # TypeScript: {decision: "approve"}
                 assert response["decision"] == "approve"
 
-    def test_permission_request_deny_format(self):
+    def test_permission_request_deny_format(self) -> None:
         """PermissionRequest deny should have the exact reason format."""
         with tempfile.TemporaryDirectory() as devin_dir:
             with open(f"{devin_dir}/lovely-permissions.jsonc", "w") as f:
@@ -287,7 +287,7 @@ class TestPermissionRequestResponse:
 class TestJsonOutputFormat:
     """Test JSON output format matches TypeScript."""
 
-    def test_test_output_pretty_printed(self):
+    def test_test_output_pretty_printed(self) -> None:
         """--test should produce pretty-printed JSON (indent=2)."""
         import io
 

@@ -10,6 +10,7 @@ import subprocess
 import sys
 from contextlib import redirect_stdout, suppress
 from io import StringIO
+from pathlib import Path
 
 import pytest
 
@@ -50,7 +51,7 @@ def run_cli(*args, input_data=None, env=None, cwd=None, project_dir=None, timeou
 
 def run_cli_in_process(
     *args, input_data=None, project_dir=None, monkeypatch=None, devin_config_dir=None
-):
+) -> str:
     """Run the CLI in-process, allowing monkeypatch to work.
 
     This captures stdout from the CLI's print statements.
@@ -92,7 +93,7 @@ def run_cli_in_process(
 
 
 @pytest.fixture
-def tmp_project(tmp_path):
+def tmp_project(tmp_path) -> Path:
     """Create a temporary project directory."""
     project_dir = tmp_path / "test-project"
     project_dir.mkdir()
@@ -100,7 +101,7 @@ def tmp_project(tmp_path):
 
 
 @pytest.fixture
-def project_with_bash_config(tmp_project):
+def project_with_bash_config(tmp_project) -> Path:
     """Create a project directory with a devin config for bash rules."""
     project_dir = tmp_project
     devin_dir = project_dir / ".devin"
@@ -124,14 +125,14 @@ def project_with_bash_config(tmp_project):
 class TestCliSetup:
     """Test --setup flag: adds label exec permission to devin global config."""
 
-    def test_setup_creates_config_dir(self, tmp_path):
+    def test_setup_creates_config_dir(self, tmp_path) -> None:
         """Setup should create the devin config directory if missing."""
         devin_dir = tmp_path / "devin-config"
         result = run_cli_in_process("--setup", devin_config_dir=str(devin_dir))
         assert devin_dir.joinpath("config.json").exists()
         assert "Added \"Exec(: '[♡ perms:)" in result
 
-    def test_setup_adds_label_exec_permission(self, tmp_path):
+    def test_setup_adds_label_exec_permission(self, tmp_path) -> None:
         """Setup should add label exec permission to the allow list."""
         devin_dir = tmp_path / "devin-config"
         devin_dir.mkdir()
@@ -145,7 +146,7 @@ class TestCliSetup:
             config = json.load(f)
         assert "Exec(: '[♡ perms:)" in config["permissions"]["allow"]
 
-    def test_setup_short_flag(self, tmp_path):
+    def test_setup_short_flag(self, tmp_path) -> None:
         """Short flag -s should work the same as --setup."""
         devin_dir = tmp_path / "devin-config"
         devin_dir.mkdir()
@@ -155,7 +156,7 @@ class TestCliSetup:
         result = run_cli_in_process("-s", devin_config_dir=str(devin_dir))
         assert "Added \"Exec(: '[♡ perms:)" in result
 
-    def test_setup_idempotent(self, tmp_path):
+    def test_setup_idempotent(self, tmp_path) -> None:
         """Running setup twice should be idempotent."""
         devin_dir = tmp_path / "devin-config"
         devin_dir.mkdir()
@@ -165,7 +166,7 @@ class TestCliSetup:
         result = run_cli_in_process("--setup", devin_config_dir=str(devin_dir))
         assert "is already present in" in result
 
-    def test_setup_preserves_existing_permissions(self, tmp_path):
+    def test_setup_preserves_existing_permissions(self, tmp_path) -> None:
         """Setup should preserve existing permissions in the allow list."""
         devin_dir = tmp_path / "devin-config"
         devin_dir.mkdir()
@@ -185,7 +186,7 @@ class TestCliSetup:
 class TestCliTest:
     """Test --test flag: test a command as a PreToolUse event."""
 
-    def test_test_allowed_command(self, project_with_bash_config):
+    def test_test_allowed_command(self, project_with_bash_config) -> None:
         """Testing an allowed command should succeed with exit code 0."""
         result = run_cli(
             "--test",
@@ -200,7 +201,7 @@ class TestCliTest:
         except json.JSONDecodeError:
             pytest.fail("Expected JSON output for allowed command")
 
-    def test_test_short_flag(self, project_with_bash_config):
+    def test_test_short_flag(self, project_with_bash_config) -> None:
         """Short flag -t should work the same as --test."""
         result = run_cli(
             "-t",
@@ -209,7 +210,7 @@ class TestCliTest:
         )
         assert result.returncode == 0
 
-    def test_test_prompt_command(self, project_with_bash_config):
+    def test_test_prompt_command(self, project_with_bash_config) -> None:
         """Testing a prompt command should generate an allow response."""
         result = run_cli(
             "--test",
@@ -224,7 +225,7 @@ class TestCliTest:
         except json.JSONDecodeError:
             pytest.fail("Expected JSON output for prompt command")
 
-    def test_test_unallowed_command(self, project_with_bash_config):
+    def test_test_unallowed_command(self, project_with_bash_config) -> None:
         """Testing an unallowed command should produce a block response."""
         result = run_cli(
             "--test",
@@ -237,7 +238,7 @@ class TestCliTest:
         # Block response should have some indication
         assert response is not None
 
-    def test_test_no_config_project(self, tmp_project):
+    def test_test_no_config_project(self, tmp_project) -> None:
         """Testing in a project without config should still work."""
         result = run_cli(
             "--test",
@@ -251,7 +252,7 @@ class TestCliTest:
 class TestCliShowConfig:
     """Test --show-config flag: show effective config and file paths."""
 
-    def test_show_config_valid_project(self, project_with_bash_config):
+    def test_show_config_valid_project(self, project_with_bash_config) -> None:
         """Show config should output valid JSON with files and effectiveConfig."""
         result = run_cli(
             "--show-config",
@@ -265,7 +266,7 @@ class TestCliShowConfig:
         file_paths = [f["path"] for f in output["files"]]
         assert any(".devin/lovely-permissions.jsonc" in p for p in file_paths)
 
-    def test_show_config_empty_project(self, tmp_project):
+    def test_show_config_empty_project(self, tmp_project) -> None:
         """Show config on an empty project should still work."""
         result = run_cli("--show-config", env={"DEVIN_PROJECT_DIR": str(tmp_project)})
         assert result.returncode == 0
@@ -273,7 +274,7 @@ class TestCliShowConfig:
         assert "files" in output
         assert "effectiveConfig" in output
 
-    def test_show_config_reports_file_existence(self, project_with_bash_config):
+    def test_show_config_reports_file_existence(self, project_with_bash_config) -> None:
         """Show config should report whether config files exist."""
         result = run_cli(
             "--show-config", env={"DEVIN_PROJECT_DIR": str(project_with_bash_config)}
@@ -291,7 +292,7 @@ class TestCliShowConfig:
 class TestHookMode:
     """Test hook mode: receives JSON events on stdin."""
 
-    def test_hook_pretooluse_allowed(self, project_with_bash_config):
+    def test_hook_pretooluse_allowed(self, project_with_bash_config) -> None:
         """Hook mode with an allowed command should generate a response."""
         event = {
             "hook_event_name": "PreToolUse",
@@ -309,7 +310,7 @@ class TestHookMode:
         assert "hookSpecificOutput" in response
         assert response["hookSpecificOutput"]["hookEventName"] == "PreToolUse"
 
-    def test_hook_pretooluse_prompt(self, project_with_bash_config):
+    def test_hook_pretooluse_prompt(self, project_with_bash_config) -> None:
         """Hook mode with a prompt command should generate an allow response."""
         event = {
             "hook_event_name": "PreToolUse",
@@ -325,7 +326,7 @@ class TestHookMode:
         assert response is not None
         assert response["hookSpecificOutput"]["hookEventName"] == "PreToolUse"
 
-    def test_hook_non_exec_tool_ignored(self, project_with_bash_config):
+    def test_hook_non_exec_tool_ignored(self, project_with_bash_config) -> None:
         """Hook mode should exit silently for non-exec tools."""
         event = {
             "hook_event_name": "PreToolUse",
@@ -339,7 +340,7 @@ class TestHookMode:
         assert result.returncode == 0
         assert result.stdout.strip() == ""
 
-    def test_hook_empty_stdin_exits(self, project_with_bash_config):
+    def test_hook_empty_stdin_exits(self, project_with_bash_config) -> None:
         """Hook mode with empty stdin should exit silently."""
         result = run_cli(
             input_data="",
@@ -348,7 +349,7 @@ class TestHookMode:
         assert result.returncode == 0
         assert result.stdout.strip() == ""
 
-    def test_hook_empty_command_ignored(self, project_with_bash_config):
+    def test_hook_empty_command_ignored(self, project_with_bash_config) -> None:
         """Hook mode with empty command should exit silently."""
         event = {
             "hook_event_name": "PreToolUse",
@@ -362,7 +363,7 @@ class TestHookMode:
         assert result.returncode == 0
         assert result.stdout.strip() == ""
 
-    def test_hook_invalid_json_exits(self, project_with_bash_config):
+    def test_hook_invalid_json_exits(self, project_with_bash_config) -> None:
         """Hook mode with invalid JSON should exit silently."""
         result = run_cli(
             input_data="not valid json",
@@ -375,7 +376,7 @@ class TestHookMode:
 class TestFlagPrecedence:
     """Test that CLI flags take precedence over stdin."""
 
-    def test_setup_takes_precedence_over_stdin(self, tmp_path):
+    def test_setup_takes_precedence_over_stdin(self, tmp_path) -> None:
         """--setup should work even with stdin data."""
         devin_dir = tmp_path / "devin-config"
         devin_dir.mkdir()
@@ -397,7 +398,7 @@ class TestFlagPrecedence:
 class TestErrorHandling:
     """Test error handling and error output."""
 
-    def test_cli_errors_use_prefix(self, tmp_project):
+    def test_cli_errors_use_prefix(self, tmp_project) -> None:
         """CLI errors should use the [Lovely] ERROR] prefix."""
         # Create an invalid config
         with open(tmp_project / "lovely-bash-permissions.jsonc", "w") as f:

@@ -26,22 +26,22 @@ from .config.manager import PermissionsManager
 from .hook import generate_hook_response, process_hook_event
 
 
-def get_devin_global_config_dir():
+def get_devin_global_config_dir() -> str:
     devin_dir = os.environ.get("DEVIN_GLOBAL_CONFIG_DIR")
     if devin_dir:
         return Path(devin_dir)
     return Path(os.path.expanduser("~/.config/devin"))
 
 
-def with_error_prefix(message):
+def with_error_prefix(message) -> str:
     return f"{HOOK_LABEL_PREFIX} ERROR] {message}"
 
 
-def get_project_dir():
+def get_project_dir() -> str:
     return os.environ.get("DEVIN_PROJECT_DIR") or os.getcwd()
 
 
-def handle_setup():
+def handle_setup() -> None:
     """Add label exec permission to devin global config."""
     config_dir = get_devin_global_config_dir()
     config_path = config_dir / "config.json"
@@ -93,7 +93,7 @@ def handle_setup():
         sys.exit(1)
 
 
-def handle_test(command):
+def handle_test(command) -> None:
     """Test a command as a PreToolUse event."""
     project_dir = get_project_dir()
     event = {
@@ -114,7 +114,7 @@ def handle_test(command):
     sys.exit(0 if result.get("action") != "block" else 2)
 
 
-def handle_show_config():
+def handle_show_config() -> None:
     """Print effective config and file paths."""
     project_dir = get_project_dir()
     files = []
@@ -143,7 +143,7 @@ def handle_show_config():
     sys.exit(0)
 
 
-def handle_hook_event(event):
+def handle_hook_event(event) -> None:
     """Process a hook event and write response to stdout."""
     result = process_hook_event(event)
     if result.get("action") == "skip":
@@ -152,7 +152,7 @@ def handle_hook_event(event):
     return response
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         prog="lovely-devin-permissions",
         description="Lovely-devin-permissions hook CLI",

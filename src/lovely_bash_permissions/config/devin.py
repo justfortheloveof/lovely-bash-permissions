@@ -62,7 +62,7 @@ def exec_permission_to_regex(prefix: str) -> str:
     return "^" + escape_regexp(trimmed) + "(\\s|$)"
 
 
-def load_devin_exec_permissions(project_dir: str):
+def load_devin_exec_permissions(project_dir: str) -> dict:
     """Load and parse Devin Exec permissions from all config files.
 
     Returns:
@@ -117,7 +117,7 @@ def load_devin_exec_permissions(project_dir: str):
     return {"permissions": permissions, "errors": errors}
 
 
-def load_devin_exec_regexes(project_dir: str):
+def load_devin_exec_regexes(project_dir: str) -> list:
     """Load and deduplicate Devin Exec permission regexes.
 
     Raises ValueError if any malformed Exec(...) entries are found.

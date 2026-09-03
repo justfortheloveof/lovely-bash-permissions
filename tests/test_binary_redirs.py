@@ -14,7 +14,7 @@ from lovely_bash_permissions import BinaryCmd, parse_ast
 class TestBinaryPerSideRedirs:
     """BinaryCmd must carry per-operand redirections in its AST fields."""
 
-    def test_simple_two_segment_per_side(self):
+    def test_simple_two_segment_per_side(self) -> None:
         """cmd2 > 2 | cmd3 > 3 splits redirs onto left_redirs and right_redirs."""
         tree = parse_ast("cmd2 > 2 | cmd3 > 3")
         stmt = tree.stmts[0]
@@ -30,7 +30,7 @@ class TestBinaryPerSideRedirs:
         merged_targets = [r.word.parts[0].value for r in bc.redirs]
         assert merged_targets == ["2", "3"]
 
-    def test_three_segment_left_nested_per_side(self):
+    def test_three_segment_left_nested_per_side(self) -> None:
         """a > 1 | b > 2 | c > 3 — redirs split per-side across the nested chain."""
         tree = parse_ast("a > 1 | b > 2 | c > 3")
         stmt = tree.stmts[0]

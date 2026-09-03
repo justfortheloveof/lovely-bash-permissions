@@ -11,7 +11,7 @@ class PermissionsManager:
     Exposes both for use by the bash tool.
     """
 
-    def __init__(self, project_dir: str):
+    def __init__(self, project_dir: str) -> None:
         """Create PermissionsManager. project_dir is the current working directory."""
         self._project_dir = project_dir
         self._lovely_config = {}
@@ -20,7 +20,7 @@ class PermissionsManager:
         self._devin_error = None
         self._load()
 
-    def _load(self):
+    def _load(self) -> None:
         """Load config from disk, capturing errors."""
         # Load lovely-permissions config
         try:
