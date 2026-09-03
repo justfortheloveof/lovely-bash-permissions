@@ -163,3 +163,61 @@ def check_input_redirection(tree: dict[str, Any], rules: dict) -> dict:
             "status": "deny",
             "reason": f"input redirection denied from {', '.join(targets)}",
         }
+
+
+def check_background_execution(tree: dict[str, Any], rules: dict) -> dict:
+    """Evaluate background execution against rules.
+
+    Detects background execution (trailing & operator) from the AST and
+    applies the configured allow/ask/deny policy.
+
+    Args:
+        tree: The shfmt JSON AST representation of the bash command.
+        rules: Policy dict with "background_execution" key set to
+            "allow", "ask", or "deny" (or object form with per-type policies).
+
+    Returns:
+        dict with "status" ("allow"/"ask"/"deny") and "reason" string.
+        If no background execution is found, returns {"status": "allow", "reason": "no background execution"}.
+    """
+    policy = rules.get("background_execution", "allow")
+
+    # If policy is an object, use the wildcard level for now
+    # (per-type policies handled in the evaluator layer)
+    if isinstance(policy, dict):
+        level = policy.get("*", policy.get("allow", "allow"))
+    else:
+        level = policy
+
+    background_commands = []
+    for stmt in tree.get("Stmts", []):
+        if stmt.get("Background"):
+            cmd = stmt.get("Cmd", {})
+            if cmd.get("Type") == "CallExpr":
+                args = cmd.get("Args", [])
+                if args:
+                    parts = args[0].get("Parts", [])
+                    if parts:
+                        background_commands.append(parts[0].get("Value", ""))
+
+    if not background_commands:
+        return {
+            "status": "allow",
+            "reason": "no background execution",
+        }
+
+    if level == "allow":
+        return {
+            "status": "allow",
+            "reason": f"background execution allowed: {', '.join(background_commands)}",
+        }
+    elif level == "ask":
+        return {
+            "status": "ask",
+            "reason": f"background execution requires approval: {', '.join(background_commands)}",
+        }
+    else:  # deny
+        return {
+            "status": "deny",
+            "reason": f"background execution denied: {', '.join(background_commands)}",
+        }

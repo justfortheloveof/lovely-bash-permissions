@@ -100,12 +100,14 @@ Create a Devin CLI permission hook (`lovely-devin-permissions`) that evaluates b
 - All 370 tests pass (358 existing + 12 new)
 **Acceptance:** Input redirection tests pass ✓
 
-## Step 2b5: Background Execution Rules
+## Step 2b5: Background Execution Rules [COMPLETE]
 **Files:** `src/lovely_bash_permissions/rules.py`
-- Implement `check_background_execution(tree, rules)`
-- Detect background execution (trailing `&`) from segments
-- Apply allow/ask/deny rules
-**Acceptance:** Background execution tests pass
+- Implemented `check_background_execution(tree, rules)` following same pattern as other rules
+- Detects background execution (trailing `&`) from AST via Background field on statements
+- Applies allow/ask/deny policy; extracts and reports command names in reason string
+- Added comprehensive tests: no background, allowed/denied/ask, distinct from && chaining, multiple background commands, default policy, object form wildcard
+- All 379 tests pass (370 existing + 9 new)
+**Acceptance:** Background execution tests pass ✓
 
 ## Step 2c: Permission Evaluator
 **Files:** `src/lovely_bash_permissions/evaluate.py`

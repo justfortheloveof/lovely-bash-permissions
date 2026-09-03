@@ -3,6 +3,7 @@
 from lovely_bash_permissions.parser import parse
 from lovely_bash_permissions.rules import (
     check_allowed_patterns,
+    check_background_execution,
     check_blocked_patterns,
     check_input_redirection,
     check_output_redirection,
@@ -263,4 +264,81 @@ def test_object_form_input_policy_wildcard() -> None:
     tree = parse("cat < /tmp/in.txt")
     rules = {"input_redirection": {"*": "deny"}}
     result = check_input_redirection(tree, rules)
+    assert result["status"] == "deny"
+
+
+# Tests for check_background_execution
+
+
+def test_no_background_execution_allowed() -> None:
+    """Command with no background execution is allowed regardless of rules."""
+    tree = parse("ls -la")
+    result = check_background_execution(tree, {"background_execution": "deny"})
+    assert result["status"] == "allow"
+    assert result["reason"] == "no background execution"
+
+
+def test_allowed_background_execution_simple() -> None:
+    """Simple background execution is allowed when policy is allow."""
+    tree = parse("sleep 5 &")
+    result = check_background_execution(tree, {"background_execution": "allow"})
+    assert result["status"] == "allow"
+    assert "sleep" in result["reason"]
+
+
+def test_denied_background_execution_simple() -> None:
+    """Simple background execution is denied when policy is deny."""
+    tree = parse("sleep 5 &")
+    result = check_background_execution(tree, {"background_execution": "deny"})
+    assert result["status"] == "deny"
+    assert "sleep" in result["reason"]
+
+
+def test_ask_background_execution() -> None:
+    """Background execution triggers ask when policy is ask."""
+    tree = parse("sleep 5 &")
+    result = check_background_execution(tree, {"background_execution": "ask"})
+    assert result["status"] == "ask"
+    assert "sleep" in result["reason"]
+
+
+def test_background_execution_distinct_from_and_chaining() -> None:
+    """Background execution (&) is distinct from and-chaining (&&)."""
+    # && chaining is not background execution
+    tree = parse("ls && grep pattern")
+    result = check_background_execution(tree, {"background_execution": "deny"})
+    assert result["status"] == "allow"
+    assert result["reason"] == "no background execution"
+
+
+def test_multiple_background_execution_allowed() -> None:
+    """Multiple background executions are allowed when policy is allow."""
+    tree = parse("sleep 5 & bg_task &")
+    result = check_background_execution(tree, {"background_execution": "allow"})
+    assert result["status"] == "allow"
+    assert "sleep" in result["reason"]
+    assert "bg_task" in result["reason"]
+
+
+def test_multiple_background_execution_denied() -> None:
+    """Multiple background executions are denied when policy is deny."""
+    tree = parse("sleep 5 & bg_task &")
+    result = check_background_execution(tree, {"background_execution": "deny"})
+    assert result["status"] == "deny"
+    assert "sleep" in result["reason"]
+    assert "bg_task" in result["reason"]
+
+
+def test_default_background_policy_is_allow() -> None:
+    """When rules dict has no background_execution key, default is allow."""
+    tree = parse("sleep 5 &")
+    result = check_background_execution(tree, {})
+    assert result["status"] == "allow"
+
+
+def test_object_form_background_policy_wildcard() -> None:
+    """Object form policy uses wildcard level for background execution."""
+    tree = parse("sleep 5 &")
+    rules = {"background_execution": {"*": "deny"}}
+    result = check_background_execution(tree, rules)
     assert result["status"] == "deny"
