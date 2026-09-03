@@ -28,11 +28,14 @@ def check_allowed_patterns(command_name: str, allowed_patterns: list[str]) -> bo
     return any(re.search(pattern, command_name) for pattern in allowed_patterns)
 
 
-def check_blocked_patterns(args: list[str], blocked_patterns: list[str]) -> bool:
-    """Test each argument against blocked_paths_regex patterns.
-    Returns True if any argument matches a blocked pattern, False otherwise.
+def check_blocked_patterns(
+    command_name: str, args: list[str], blocked_patterns: list[str]
+) -> bool:
+    """Test command name and arguments against blocked_paths_regex patterns.
+    Returns True if any match a blocked pattern, False otherwise.
 
     Args:
+        command_name: The name of the command to check.
         args: List of argument strings to check.
         blocked_patterns: List of regex patterns to test against.
 
@@ -40,7 +43,11 @@ def check_blocked_patterns(args: list[str], blocked_patterns: list[str]) -> bool
         True if ANY argument matches ANY blocked pattern,
         False if none match or patterns list is empty.
     """
-    return any(re.search(pattern, arg) for arg in args for pattern in blocked_patterns)
+    if not blocked_patterns:
+        return False
+    return any(re.search(pattern, command_name) for pattern in blocked_patterns) or any(
+        re.search(pattern, arg) for arg in args for pattern in blocked_patterns
+    )
 
 
 def check_output_redirection(tree: dict[str, Any], rules: dict) -> dict:

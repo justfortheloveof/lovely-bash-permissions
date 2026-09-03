@@ -213,6 +213,9 @@ Add new entry: `lovely-devin-permissions = "lovely_bash_permissions.devin_cli:ma
 
 **Acceptance:** CLI tests pass for all commands, mode detection, exit codes, and label injection
 
+### Status: COMPLETE
+All 21 CLI tests pass. Fixed import typo (devins_cli → devin_cli), ensured config loader respects DEVIN_GLOBAL_CONFIG_DIR env var, and fixed test setup.
+
 ## Step 4a: Config Tests
 **Files:** `tests/test_config.py`
 - Tests for JSONC parsing, file loading, merge, schema validation

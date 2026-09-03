@@ -97,6 +97,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict:
     segment_results = []
     overall_status = "allow"
     reasons = []
+    any_segment_not_allowed = False
 
     for i, segment in enumerate(segments):
         cmd_name = segment.get("command", "")
@@ -110,15 +111,17 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict:
                 reasons.append(f'command "{cmd_name}" matches allowed pattern')
             else:
                 segment_result["allowed"] = False
+                any_segment_not_allowed = True
                 reasons.append(f'command "{cmd_name}" does not match allowed patterns')
         else:
             segment_result["allowed"] = True
 
         # Check blocked patterns
         if blocked_patterns:
-            if check_blocked_patterns(args, blocked_patterns):
+            if check_blocked_patterns(cmd_name, args, blocked_patterns):
                 segment_result["blocked"] = True
-                reasons.append("command arguments match blocked paths")
+                overall_status = "deny"
+                reasons.append("command matches blocked patterns")
             else:
                 segment_result["blocked"] = False
         else:
@@ -150,6 +153,12 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict:
     elif bg_result["status"] == "ask" and overall_status == "allow":
         overall_status = "ask"
         reasons.append(bg_result["reason"])
+
+    # Commands not matching allowed patterns require approval
+    if allowed_patterns and any_segment_not_allowed:
+        if overall_status == "allow":
+            overall_status = "ask"
+        reasons.append("command does not match allowed patterns")
 
     # Command substitution requires approval
     if has_subshell:

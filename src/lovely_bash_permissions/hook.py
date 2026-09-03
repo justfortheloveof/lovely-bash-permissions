@@ -6,6 +6,7 @@ ask, block, or skip command execution.
 
 from typing import Any
 
+from .config.effective_bash import get_effective_bash_config
 from .config.manager import PermissionsManager
 from .evaluate import evaluate_bash_command
 
@@ -135,7 +136,12 @@ def process_hook_event(event: dict[str, Any]) -> dict[str, Any]:
 
     try:
         manager = PermissionsManager(project_dir)
-        config = manager.get_lovely_config()
+        raw_config = manager.get_lovely_config()
+    except Exception as e:
+        return handle_load_error(e)
+
+    try:
+        config = get_effective_bash_config(raw_config.get("bash"), project_dir)
     except Exception as e:
         return handle_load_error(e)
 

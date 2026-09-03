@@ -22,9 +22,13 @@ def get_devin_global_config_dir() -> Path:
     """Return the Devin global config directory.
 
     Uses APPDATA on Windows, ~/.config/devin elsewhere.
+    Respects DEVIN_GLOBAL_CONFIG_DIR environment variable.
     """
     import os
 
+    devin_dir = os.environ.get("DEVIN_GLOBAL_CONFIG_DIR")
+    if devin_dir:
+        return Path(devin_dir)
     appdata = os.environ.get("APPDATA")
     if appdata:
         return Path(appdata) / "devin"
