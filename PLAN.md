@@ -10,6 +10,13 @@ Identify the top 10 issues to fix in our code — start with the most obvious mi
 
 [x] Scan for remaining issues — Complete. No remaining issues found; project is complete.
 
+### Pass 9: Final review and cleanup (optional)
+1. Run `ruff` + `mypy --strict` for type-checking pass
+2. Check README and docs match current code
+3. Remove any leftover TODOs, dead code, test-only functions in source
+4. Confirm git diff is clean except docs/config files
+5. If all clear, mark project complete and stop loop
+
 ## ISSUES
 
 ### Fixed (pass 4)
