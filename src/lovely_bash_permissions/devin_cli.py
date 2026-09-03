@@ -11,10 +11,10 @@ import argparse
 import json
 import os
 import sys
-from pathlib import Path
 
 from .config.devin import (
     get_devin_config_file_paths,
+    get_devin_global_config_dir,
 )
 from .config.effective_bash import get_effective_bash_config
 from .config.loader import get_permissions_config_file_paths
@@ -23,13 +23,6 @@ from .hook import generate_hook_response, process_hook_event
 
 HOOK_LABEL_PREFIX = "[♡ perms: "
 LABEL_EXEC_NAME = "Exec(: '[♡ perms:)"
-
-
-def get_devin_global_config_dir() -> str:
-    devin_dir = os.environ.get("DEVIN_GLOBAL_CONFIG_DIR")
-    if devin_dir:
-        return Path(devin_dir)
-    return Path(os.path.expanduser("~/.config/devin"))
 
 
 def with_error_prefix(message: str) -> str:

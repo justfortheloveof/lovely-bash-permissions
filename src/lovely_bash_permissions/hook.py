@@ -12,18 +12,6 @@ from .config.manager import PermissionsManager
 from .evaluate import evaluate_bash_command
 
 
-def handle_load_error(err: Exception) -> dict[str, Any]:
-    """Return a block result with error message.
-
-    Args:
-        err: The exception that occurred while loading config.
-
-    Returns:
-        dict with action "block" and reason.
-    """
-    return {"action": "block", "reason": str(err)}
-
-
 def generate_hook_response(event: dict[str, Any], decision: dict[str, Any]) -> dict[str, Any] | None:
     """Generate hook response JSON for agent tool permission events.
 
@@ -125,13 +113,13 @@ def process_hook_event(event: dict[str, Any]) -> dict[str, Any]:
         raw_config = manager.get_lovely_config()
     except Exception as e:  # noqa: BLE001
         print(f"error: {e}", file=sys.stderr)
-        return handle_load_error(e)
+        return {"action": "block", "reason": str(e)}
 
     try:
         config = get_effective_bash_config(raw_config.get("bash"), project_dir)
     except Exception as e:  # noqa: BLE001
         print(f"error: {e}", file=sys.stderr)
-        return handle_load_error(e)
+        return {"action": "block", "reason": str(e)}
 
     result = evaluate_bash_command(command, config)
     status = result.get("status", "ask")
