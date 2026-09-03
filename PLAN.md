@@ -4,9 +4,9 @@
 
 Identify the top 10 issues to fix in our code — start with the most obvious mistakes or errors or inconsistencies. Then spawn agents to fix them. The list of issues should not grow larger than 100.
 
-## Status: Pass 5 — Working on remaining 3 issues.
+## Status: Pass 6 — Fixing output redirection bug.
 
-450 tests pass. Three new issues identified in this pass; fixing them now.
+450 tests pass. Issue #11 (output redirection not asking for approval in pipes) fixed; two more issues identified.
 
 ## ISSUES
 
@@ -16,23 +16,16 @@ Identify the top 10 issues to fix in our code — start with the most obvious mi
 3. [x] **Unused constant `HOOK_LABEL_PREFIX`** — moved to `devin_cli.py` where consumed.
 4. [x] **Duplicate `_word_value()`** — cli.py imports from inspect, no duplicate.
 5. [x] **`read_jsonc_file()` silently wraps non-object JSON** — returns `None` for non-dict values.
-6. [x] **Empty `config/__init__.py`** — deleted dead file.
+6. [x] **Empty `config/__init.py`** — deleted dead file.
 7. [x] **Redundant dict-branch in `_extract_segments()`** — removed, parse_segments() handles conversion.
 
-### In progress (pass 5)
+### Fixed (pass 5)
 8. [x] **`handle_load_error()` in hook.py is redundant** — only called twice within same file; inlined.
 9. [x] **Duplicate `get_devin_global_config_dir()`** — exists in both config/devin.py (returns Path) and devin_cli.py (returned str); consolidated into config.devins version, removed duplicate from devin_cli.py.
 10. [x] **`PermissionsManager.reload()` never called from source** — only used by tests; verified no source callers missing it, kept as public API.
-11. [ ] Bug with output redirection not asking for approval even though global config is configured for it to ask
-here is how you can reproduce:
-```
-❯ uv run lovely-devin-permissions --test 'echo ; ls | grep bla > /tmp/deleteme'
-{
-  "hookSpecificOutput": {
-    "hookEventName": "PreToolUse",
-    "updatedInput": {
-      "command": ": '[♡ perms: 💚 auto-approved] command matches allowed pattern ^echo(\\s+.*)?$; command matches allowed pattern ^ls(\\s+.*)?$; command matches allowed pattern ^grep\\s+.+$' ; echo ; ls | grep bla > /tmp/deleteme"
-    }
-  }
-}
-```
+
+### Fixed (pass 6)
+11. [x] **Output redirection not asking for approval in pipes** — fixed `check_output/input/background` functions to recursively walk AST (BinaryCmd.X/Y operands); added 11 regression tests.
+
+### Remaining
+12. [ ] Bug between TS and Python — list matching regexes joined (TS does it, Python repeats per command)

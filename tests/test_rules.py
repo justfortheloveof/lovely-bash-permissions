@@ -342,3 +342,99 @@ def test_object_form_background_policy_wildcard() -> None:
     rules = {"background_execution": {"*": "deny"}}
     result = check_background_execution(tree, rules)
     assert result["status"] == "deny"
+
+
+# Tests for pipe redirections (regression tests for BinaryCmd traversal)
+
+
+def test_pipe_output_redirection_ask() -> None:
+    """Output redirection inside a pipe triggers ask."""
+    tree = parse("ls | grep bla > /tmp/deleteme")
+    result = check_output_redirection(tree, {"output_redirection": "ask"})
+    assert result["status"] == "ask"
+    assert result["reason"] == "output redirection requires approval"
+
+
+def test_pipe_output_redirection_deny() -> None:
+    """Output redirection inside a pipe is denied."""
+    tree = parse("ls | grep bla > /tmp/deleteme")
+    result = check_output_redirection(tree, {"output_redirection": "deny"})
+    assert result["status"] == "deny"
+    assert "/tmp/deleteme" in result["reason"]
+
+
+def test_pipe_output_redirection_no_redir() -> None:
+    """Pipe with no redirection is allowed."""
+    tree = parse("ls | grep bla")
+    result = check_output_redirection(tree, {"output_redirection": "deny"})
+    assert result["status"] == "allow"
+    assert result["reason"] == "no output redirection"
+
+
+def test_triple_pipe_output_redirection() -> None:
+    """Redirections across a three-segment pipe are all found."""
+    tree = parse("a > 1 | b > 2 | c > 3")
+    result = check_output_redirection(tree, {"output_redirection": "ask"})
+    assert result["status"] == "ask"
+
+
+def test_pipe_input_redirection_ask() -> None:
+    """Input redirection inside a pipe triggers ask."""
+    tree = parse("grep bla < /tmp/input")
+    result = check_input_redirection(tree, {"input_redirection": "ask"})
+    assert result["status"] == "ask"
+
+
+def test_pipe_input_redirection_no_redir() -> None:
+    """Pipe with no input redirection is allowed."""
+    tree = parse("grep bla")
+    result = check_input_redirection(tree, {"input_redirection": "deny"})
+    assert result["status"] == "allow"
+    assert result["reason"] == "no input redirection"
+
+
+def test_mixed_pipe_input_output_redirection() -> None:
+    """Pipe with both input and output redirection."""
+    tree = parse("cat < /tmp/in.txt | grep pattern > /tmp/out.txt")
+    rules = {
+        "input_redirection": "ask",
+        "output_redirection": "deny",
+    }
+    result_input = check_input_redirection(tree, rules)
+    result_output = check_output_redirection(tree, rules)
+    assert result_input["status"] == "ask"
+    assert result_output["status"] == "deny"
+    assert "/tmp/out.txt" in result_output["reason"]
+
+
+def test_pipe_background_execution_ask() -> None:
+    """Background execution inside a pipe triggers ask."""
+    tree = parse("ls | grep bla &")
+    result = check_background_execution(tree, {"background_execution": "ask"})
+    assert result["status"] == "ask"
+    assert "ls" in result["reason"]
+    assert "grep" in result["reason"]
+
+
+def test_pipe_background_execution_deny() -> None:
+    """Background execution inside a pipe is denied."""
+    tree = parse("ls | grep bla &")
+    result = check_background_execution(tree, {"background_execution": "deny"})
+    assert result["status"] == "deny"
+
+
+def test_no_pipe_background_execution() -> None:
+    """Pipe without & is not background execution."""
+    tree = parse("ls | grep bla")
+    result = check_background_execution(tree, {"background_execution": "deny"})
+    assert result["status"] == "allow"
+    assert result["reason"] == "no background execution"
+
+
+def test_pipe_chain_with_background() -> None:
+    """Multi-segment pipe with background flag."""
+    tree = parse("a > 1 | b &")
+    result = check_background_execution(tree, {"background_execution": "ask"})
+    assert result["status"] == "ask"
+    assert "a" in result["reason"]
+    assert "b" in result["reason"]

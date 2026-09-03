@@ -11,6 +11,78 @@ import re
 from typing import Any
 
 
+def _find_redirs(node: dict) -> list:
+    """Recursively collect all redirection dicts from an AST node.
+
+    Walks CallExpr.Redirs, BinaryCmd.X/Y/Redirs (merged list), and recurses into
+    AndCmd/OrCmd operands so redirections nested inside pipes are found.
+
+    Args:
+        node: A dict representing an AST node from shfmt's JSON output.
+
+    Returns:
+        List of redirection dicts (each with "Op" and "Word").
+    """
+    redirs: list = []
+
+    # CallExpr has Redirs directly on the node itself
+    if node.get("Type") == "CallExpr":
+        redirs.extend(node.get("Redirs", []))
+
+    # BinaryCmd has Redirs on X/Y wrapper nodes (also merged at node level)
+    if node.get("Type") == "BinaryCmd":
+        redirs.extend(node.get("Redirs", []))
+        x = node.get("X", {})
+        redirs.extend(x.get("Redirs", []))  # wrapper-level RedDirs
+        y = node.get("Y", {})
+        redirs.extend(y.get("Redirs", []))  # wrapper-level RedDirs
+
+    # AndCmd / OrCmd operands may also carry redirections
+    if node.get("Type") in ("AndCmd", "OrCmd"):
+        left = node.get("Left", {})
+        redirs.extend(_find_redirs(left))
+        right = node.get("Right", {})
+        redirs.extend(_find_redirs(right))
+
+    return redirs
+
+
+def _find_background_flags(node: dict) -> list:
+    """Recursively collect background flags from an AST node.
+
+    Finds statements with ``Background: true`` regardless of whether their Cmd
+    is a CallExpr or BinaryCmd (pipes).
+
+    Args:
+        node: A dict representing an AST node from shfmt's JSON output.
+
+    Returns:
+        List of (command_name, background_flag) tuples found in CallExpr args.
+    """
+    results: list = []
+
+    if node.get("Type") == "CallExpr":
+        args = node.get("Args", [])
+        if args:
+            parts = args[0].get("Parts", [])
+            if parts:
+                results.append(parts[0].get("Value", ""))
+
+    if node.get("Type") == "BinaryCmd":
+        x = node.get("X", {})
+        results.extend(_find_background_flags(x.get("Cmd", {})))
+        y = node.get("Y", {})
+        results.extend(_find_background_flags(y.get("Cmd", {})))
+
+    if node.get("Type") in ("AndCmd", "OrCmd"):
+        left = node.get("Left", {})
+        results.extend(_find_background_flags(left))
+        right = node.get("Right", {})
+        results.extend(_find_background_flags(right))
+
+    return results
+
+
 def check_allowed_patterns(command_name: str, allowed_patterns: list[str]) -> bool:
     """Test command name against allowed_cmds_regex patterns.
 
@@ -71,17 +143,24 @@ def check_output_redirection(tree: dict[str, Any], rules: dict) -> dict:
     # (per-type policies handled in the evaluator layer)
     level = policy.get("*", policy.get("allow", "allow")) if isinstance(policy, dict) else policy
 
-    redirections = []
+    redirs = []
     for stmt in tree.get("Stmts", []):
-        for redir in stmt.get("Redirs", []):
-            op = redir.get("Op", "")
-            if op in (">", ">>"):
-                target = ""
-                word = redir.get("Word", {})
-                parts = word.get("Parts", [])
-                if parts:
-                    target = parts[0].get("Value", "")
-                redirections.append({"op": op, "target": target})
+        # Redirs on the statement node itself (simple statements)
+        redirs.extend(stmt.get("Redirs", []))
+        # Redirs inside Cmd (pipes BinaryCmd, etc.)
+        cmd = stmt.get("Cmd", {})
+        redirs.extend(_find_redirs(cmd))
+
+    redirections = []
+    for redir in redirs:
+        op = redir.get("Op", "")
+        if op in (">", ">>"):
+            target = ""
+            word = redir.get("Word", {})
+            parts = word.get("Parts", [])
+            if parts:
+                target = parts[0].get("Value", "")
+            redirections.append({"op": op, "target": target})
 
     if not redirections:
         return {
@@ -131,17 +210,24 @@ def check_input_redirection(tree: dict[str, Any], rules: dict) -> dict:
     # (per-type policies handled in the evaluator layer)
     level = policy.get("*", policy.get("allow", "allow")) if isinstance(policy, dict) else policy
 
-    redirections = []
+    redirs = []
     for stmt in tree.get("Stmts", []):
-        for redir in stmt.get("Redirs", []):
-            op = redir.get("Op", "")
-            if op in ("<", "<<"):
-                target = ""
-                word = redir.get("Word", {})
-                parts = word.get("Parts", [])
-                if parts:
-                    target = parts[0].get("Value", "")
-                redirections.append({"op": op, "target": target})
+        # Redirs on the statement node itself (simple statements)
+        redirs.extend(stmt.get("Redirs", []))
+        # Redirs inside Cmd (pipes BinaryCmd, etc.)
+        cmd = stmt.get("Cmd", {})
+        redirs.extend(_find_redirs(cmd))
+
+    redirections = []
+    for redir in redirs:
+        op = redir.get("Op", "")
+        if op in ("<", "<<"):
+            target = ""
+            word = redir.get("Word", {})
+            parts = word.get("Parts", [])
+            if parts:
+                target = parts[0].get("Value", "")
+            redirections.append({"op": op, "target": target})
 
     if not redirections:
         return {
@@ -195,12 +281,7 @@ def check_background_execution(tree: dict[str, Any], rules: dict) -> dict:
     for stmt in tree.get("Stmts", []):
         if stmt.get("Background"):
             cmd = stmt.get("Cmd", {})
-            if cmd.get("Type") == "CallExpr":
-                args = cmd.get("Args", [])
-                if args:
-                    parts = args[0].get("Parts", [])
-                    if parts:
-                        background_commands.append(parts[0].get("Value", ""))
+            background_commands.extend(_find_background_flags(cmd))
 
     if not background_commands:
         return {
