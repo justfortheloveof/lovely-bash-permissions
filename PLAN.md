@@ -4,9 +4,9 @@
 
 Identify the top 10 issues to fix in our code — start with the most obvious mistakes or errors or inconsistencies. Then spawn agents to fix them. The list of issues should not grow larger than 100.
 
-## Status: Pass 6 — Output redirection bug fixed. Running pass 7.
+## Status: Pass 7 — Fixing TS/Python regex list discrepancy.
 
-461 tests pass (was 450, added 11 regression tests). Issue #11 fixed; issue #12 (TS/Python regex list discrepancy) remains.
+461 tests pass. Issue #12 remains: Python repeats "command matches pattern X" per command instead of joining them like TS does.
 
 ## ISSUES
 
