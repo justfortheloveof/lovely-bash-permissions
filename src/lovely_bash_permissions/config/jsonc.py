@@ -54,8 +54,8 @@ def read_jsonc_file(file_path: str) -> dict | None:
     """Read and parse a JSONC file.
 
     Returns:
-        dict if the file exists and contains valid JSONC
-        None if the file doesn't exist or is empty/invalid
+        dict if the file exists and contains a valid JSON object
+        None if the file doesn't exist, is empty/invalid, or contains a non-object value
     """
     path = Path(file_path)
     if not path.exists():
@@ -63,10 +63,14 @@ def read_jsonc_file(file_path: str) -> dict | None:
 
     try:
         text = path.read_text(encoding="utf-8")
-        return parse_jsonc(text)
+        value = parse_jsonc(text)
     except Exception as e:  # noqa: BLE001
         print(f"error: {e}", file=sys.stderr)
         return None
+
+    if not isinstance(value, dict):
+        return None
+    return value
 
 
 def is_record(value: dict | list | None) -> bool:

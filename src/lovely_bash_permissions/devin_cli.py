@@ -16,14 +16,13 @@ from pathlib import Path
 from .config.devin import (
     get_devin_config_file_paths,
 )
-from .config.effective_bash import (
-    HOOK_LABEL_PREFIX,
-    LABEL_EXEC_NAME,
-    get_effective_bash_config,
-)
+from .config.effective_bash import get_effective_bash_config
 from .config.loader import get_permissions_config_file_paths
 from .config.manager import PermissionsManager
 from .hook import generate_hook_response, process_hook_event
+
+HOOK_LABEL_PREFIX = "[♡ perms: "
+LABEL_EXEC_NAME = "Exec(: '[♡ perms:)"
 
 
 def get_devin_global_config_dir() -> str:

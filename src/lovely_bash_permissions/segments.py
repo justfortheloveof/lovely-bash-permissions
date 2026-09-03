@@ -17,8 +17,6 @@ If parsing fails, an empty list is returned.
 
 from __future__ import annotations
 
-import sys
-
 from .ast import (
     AndCmd,
     BinaryCmd,
@@ -106,31 +104,6 @@ def _extract_segments(node: object) -> list[dict]:
         # File: extract from all statements
         for stmt in node.stmts:
             segments.extend(_extract_segments(stmt))
-
-    # Handle raw shfmt JSON nodes
-    elif isinstance(node, dict):
-        node_type = node.get("Type", "")
-        if node_type == "BinaryCmd" and node.get("Op") in ("|", "|&") or node_type == "AndCmd" or node_type == "OrCmd":
-            segments.extend(_extract_segments(node.get("X")))
-            segments.extend(_extract_segments(node.get("Y")))
-        elif node_type == "CallExpr":
-            args = node.get("Args", [])
-            if args:
-                segments.append(
-                    {
-                        "command": _word_value(args[0]),
-                        "arguments": [_word_value(arg) for arg in args[1:]],
-                        "redirections": [],
-                    }
-                )
-        else:
-            # Fall back to converting to Python node
-            try:
-                converted = node_from_json(node)
-                if converted is not None:
-                    return _extract_segments(converted)
-            except Exception as e:  # noqa: BLE001
-                print(f"error: {e}", file=sys.stderr)
 
     return segments
 

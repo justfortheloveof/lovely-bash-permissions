@@ -9,11 +9,8 @@ import re
 
 from .devin import exec_permission_to_regex, load_devin_exec_regexes
 
-HOOK_LABEL_PREFIX = "[♡ perms: "
 HOOK_COMMAND_PREFIX = ": [♡ perms:"
 HOOK_LABEL_REGEX = exec_permission_to_regex(HOOK_COMMAND_PREFIX)
-LABEL_EXEC_PERMISSION = "Exec(: '[♡ perms:)"
-LABEL_EXEC_NAME = "Exec(: '[♡ perms:)"
 
 
 def _deny_item_to_regex(item: str) -> str:
