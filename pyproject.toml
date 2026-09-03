@@ -33,6 +33,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "pytest-xdist>=3.8.0",
     "pytest>=9.1.1",
     "ruff",
 ]
@@ -52,3 +53,6 @@ quote-style = "double"
 markers = [
     "linting: ruff lint and format checks (deselect with '-m not linting')",
 ]
+# -n auto = automatically detect CPU cores and spin up that number of workers
+# --dist loadscope = group tests by their class or module
+addopts = "-n auto --dist loadscope"
