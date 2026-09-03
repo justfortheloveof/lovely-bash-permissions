@@ -147,11 +147,12 @@ Key TypeScript files:
 - Test reason formatting for allowed, ask, deny
 - **Priority:** High (ensure regression protection)
 
-### [ ] Step 12: Update Documentation
+### [x] Step 12: Update Documentation
 **Files:** `docs/lovely-devin-permissions.md`, `README.md`
-- Update CLI documentation to match TypeScript behavior
-- Add examples showing exact output format
-- **Priority:** Low
+- Updated CLI documentation to match TypeScript behavior
+- Added examples showing exact output format (💚/❤️/💛 labels, reason strings)
+- Updated setup output messages
+- **Priority:** Low (completed)
 
 ## Testing Strategy
 1. **Side-by-side comparison:** Run both Python and TypeScript implementations with identical inputs, compare outputs
@@ -170,7 +171,6 @@ For each UX area, the Python implementation must:
 6. Pass all existing tests + new UX tests
 
 ## Priority Order
-**Done:** Steps 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
+**Done:** Steps 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
 
-**Pending (next in order):**
-1. Step 12 (Documentation)
+**Status:** Complete. All 12 implementation steps finished. Python fully aligns with TypeScript reference (lovely-devin-permissions). 448/448 tests pass. Verified: emoji labels, setup output, eval reasons, DEVIN_GLOBAL_CONFIG_DIR loader integration, all UX tests pass. Harmony pass 4 verification complete — no further implementation steps required.
