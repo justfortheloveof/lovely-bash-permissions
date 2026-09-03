@@ -75,7 +75,7 @@ def handle_setup():
     # Check if already present
     if LABEL_EXEC_NAME in allow:
         print(
-            f"{HOOK_LABEL_PREFIX}Label exec permission already present in {config_path}"
+            f'The Devin permission "{LABEL_EXEC_NAME}" is already present in {config_path}'
         )
         sys.exit(0)
 
@@ -84,7 +84,7 @@ def handle_setup():
     try:
         with open(config_path, "w") as f:
             json.dump(config, f, indent=2)
-        print(f"{HOOK_LABEL_PREFIX}Added label exec permission to {config_path}")
+        print(f'Added "{LABEL_EXEC_NAME}" to {config_path} so Devin auto-approves the hook\'s ":" no-op label')
         sys.exit(0)
     except Exception as e:
         print(with_error_prefix(f"Failed to write config: {e}"), file=sys.stderr)
