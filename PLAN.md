@@ -1,266 +1,182 @@
-# lovely-devin-permissions Implementation Plan
+# Plan: Align Python implementation with TypeScript reference (lovely-devin-permissions)
 
-Port the TypeScript `lovely-devin-permissions` tool to Python, leveraging the existing bash parser in this repo.
+## Objective
+Make the Python `lovely-bash-permissions` have the **exact same user experience** as the TypeScript reference (`../jftlo/lovely-devin-permissions/`) in terms of:
+- Config file loading and precedence
+- Auto-approve/auto-deny behavior
+- User permission prompting
+- CLI output formatting
+- Hook event processing
 
 ## Reference Implementation
-- Source: `../jftlo/lovely-devin-permissions/`
-- Key files: `src/evaluate-bash.ts`, `src/main.ts`, `src/cli.ts`, `src/config/`
+- **TypeScript (reference):** `../jftlo/lovely-devin-permissions/`
+- **Python (to align):** `src/lovely_bash_permissions/`
 
-## Goal
-Create a Devin CLI permission hook (`lovely-devin-permissions`) that evaluates bash commands against configurable rules (allow/ask/deny) and decides whether to approve, block, or prompt for approval.
+Key TypeScript files:
+- `src/config/loader.ts` — config loading (3 locations, deep merge)
+- `src/config/devin.ts` — Devin Exec regex loading
+- `src/config/effective-bash.ts` — merge lovely config + Devin exec
+- `src/main.ts` — main entry, processes hook events, generates responses
+- `src/evaluate-bash.ts` — evaluate commands against rules
 
-## Step 1a: JSONC Parser [COMPLETE]
+## Comparison Results
 
-* Implementation: parse_jsonc() and read_jsonc_file() with regex-based comment stripping
-* Tests: 25 passing (line comments, block comments, trailing commas, BOM, empty/missing files)
-**Files:** `src/lovely_bash_permissions/config/__init__.py`, `config/jsonc.py`
-- Create `config` subpackage
-- Implement JSONC parser: read JSON files, strip `//` comments, parse with `json.load()`
-- Handle both `.json` and `.jsonc` files
-- Return `dict` for valid JSON, `None` for missing/empty files
-- Return `{}` for empty objects
-**Acceptance:** JSONC parsing tests pass for comments, empty files, missing files
+### ✅ Aligned (No Changes Needed)
+| Feature | Python | TypeScript | Status |
+|---------|--------|------------|--------|
+| Config sources (3 locations) | `~/.config/devin/`, `.devin/`, `.devin/.local` | Same | ✅ Same |
+| Wildcard default | `ask` | `ask` | ✅ Same |
+| Auto-approve (PreToolUse, allowed) | `updatedInput` with 💚 label | Same | ✅ Same |
+| Auto-deny (PreToolUse, denied) | `updatedInput` with ❤️ label | Same | ✅ Same |
+| User prompting (PreToolUse, ask) | `updatedInput` with 💛 label | Same | ✅ Same |
+| PermissionRequest: allow → approve | `{decision: approve}` | Same | ✅ Same |
+| PermissionRequest: deny → block | `{decision: block, reason}` | Same | ✅ Same |
+| PermissionRequest: ask → prompt | `None` (skip) | Same | ✅ Same |
+| --setup flag | Yes | Same | ✅ Same |
+| --test flag | Yes | Same | ✅ Same |
+| --show-config flag | Yes | Same | ✅ Same |
+| Hook event structure | `hook_event_name`, `tool_name`, `tool_input` | Same | ✅ Same |
+| Exit codes | 0 (approve/skip), 1 (error), 2 (block) | Same | ✅ Same |
 
-## Step 1b: Lovely-Permissions Config Loader [COMPLETE]
+### ❌ Differences (Need Alignment)
+| # | Feature | Python (Current) | TypeScript (Reference) | Impact |
+|---|---------|-----------------|----------------------|--------|
+| 1 | CLI setup output | `[♡ perms: Added label exec permission to /path]` | `Added "Exec(: '[♡ perms:)" to /path so Devin auto-approves the hook's ":" no-op label` | User-visible message differs |
+| 2 | Setup label format | Adds `"label exec"` to config | Adds `"Exec(: '[♡ perms:)"` to config | **Critical** - different permission granted |
+| 3 | Allowed patterns reason | `command "ls" matches allowed pattern` | `command matches allowed pattern <pattern>` (includes matched regex) | User-visible reason differs |
+| 4 | Blocked patterns reason | `command matches blocked patterns` | `Blocked by bash permissions: <details>. The tool has not been run.` | User-visible reason differs |
+| 5 | Ask patterns reason | `command "ls" does not match allowed patterns` | `"ls" command does not match allowed patterns` (different phrasing) | User-visible reason differs |
+| 6 | Hook label in deny (PreToolUse) | Label includes reason in updatedInput.command | Label is `"[♡ perms: ❤️ auto-rejected]"` only, reason is in separate `reason` field | **Critical** - user-visible label differs |
+| 7 | DEVIN_GLOBAL_CONFIG_DIR | Not used by loader.py | Used via `getDevinGlobalConfigDir()` (respects APPDATA/DEVIN_GLOBAL_CONFIG_DIR) | Config discovery differs |
+
+### ✅ Already Aligned (No Changes Needed)
+| # | Feature | Python | TypeScript | Status |
+|---|---------|--------|------------|--------|
+| A | JSON output format | Pretty-printed (indent=2) | Pretty-printed (null, 2) | ✅ Already aligned |
+| B | PermissionRequest deny format | Includes reason in response | Includes reason in response | ✅ Already aligned |
+| C | Hook label regex | Uses `HOOK_LABEL_REGEX` from devin.py | Same | ✅ Already aligned |
+| D | Error prefix | `[♡ perms: ERROR]` | `[♡ perms: ERROR]` | ✅ Already aligned |
+| E | Background execution detection | AST Background field | lovely-bash-permissions library | ✅ Behavior aligned |
+| F | Subshell detection | CmdSubst/ProcSubst in AST | lovely-bash-permissions library | ✅ Behavior aligned |
+| G | Wildcard default policy | `ask` | `ask` | ✅ Already aligned |
+| H | Effective config construction | Merges lovely + Devin exec | Same | ✅ Already aligned |
+
+## Implementation Plan
+
+### Step 0: Replace Unicode Escapes with Actual Emoji Characters
+**Files:** `src/lovely_bash_permissions/hook.py`, `src/lovely_bash_permissions/devin_cli.py`
+- Python currently emits literal `\uXXXX` escapes (e.g., `[\u2661 perms: \ud83d\udc9b...]`) in shell commands
+- TypeScript reference emits **actual emoji characters** (💚, ❤️, 💛, ♡)
+- Change Python to use actual emoji characters in all label strings:
+  - `"[♡ perms: 💚 auto-approved]"`
+  - `"[♡ perms: ❤️ auto-rejected]"`
+  - `"[♡ perms: 💛 REQUIRES-USER-APPROVAL]"`
+- This makes the Python output match the TypeScript reference and displays correctly in real shells
+- **Priority:** High (visible in all CLI output and affects label display)
+
+### Step 1: Fix CLI Setup Label
+**File:** `src/lovely_bash_permissions/config/effective_bash.py`
+- Change `LABEL_EXEC_NAME` from `"label exec"` to `"Exec(: '[♡ perms:)"`
+- This ensures the Python setup adds the same permission as TypeScript
+- **Priority:** High (critical UX difference)
+
+### Step 2: Fix CLI Setup Output Message
+**File:** `src/lovely_bash_permissions/devin_cli.py`
+- Change `handle_setup()` success output from `[♡ perms: Added label exec permission to <path>` to:
+  `Added "Exec(: '[♡ perms:)" to <path> so Devin auto-approves the hook's ":" no-op label`
+- Change already-present message from `[♡ perms:Label exec permission already present in <path>` to:
+  `The Devin permission "Exec(: '[♡ perms:)" is already present in <path>`
+- **Priority:** High (user-visible)
+
+### Step 3: Fix Auto-Rejected Label (PreToolUse)
+**File:** `src/lovely_bash_permissions/hook.py`
+- Remove reason from PreToolUse auto-rejected label
+- Change from `[♡ perms: ❤️ auto-rejected] ${reason}` to `[♡ perms: ❤️ auto-rejected]` (no reason)
+- **Priority:** High (user-visible)
+
+### Step 4: PermissionRequest Deny Reason — Already Aligned ✅
+**File:** `src/lovely_bash_permissions/hook.py`
+- TypeScript includes the reason in the deny response: `reason: "${HOOK_LABEL_PREFIX} ❤️ auto-rejected] ${result.reason}"`
+- Python already does this: `label = f"[♡ perms: ❤️ auto-rejected] {reason}"` for PermissionRequest
+- **No change needed** — behavior is already aligned.
+
+### Step 5: Fix Evaluate Allow Reason Format
+**File:** `src/lovely_bash_permissions/evaluate.py`
+- Change allowed reason from `command "ls" matches allowed pattern` to `command matches allowed pattern <pattern>` (single) or `command matches allowed patterns <patterns>` (multiple)
+- Match TypeScript: include the matched regex pattern name(s), e.g., `command matches allowed pattern ^git`
+- **Priority:** Medium (user-visible)
+
+### Step 6: Fix Evaluate Deny Reason Format
+**File:** `src/lovely_bash_permissions/evaluate.py`
+- Change blocked reason from `command matches blocked patterns` to `Blocked by bash permissions: <details>. The tool has not been run.`
+- **Priority:** Medium (user-visible)
+
+### Step 7: Fix Evaluate Ask Reason Format
+**File:** `src/lovely_bash_permissions/evaluate.py`
+- Change ask reason from `command "ls" does not match allowed patterns` to `"ls" command does not match allowed patterns`
+- For multiple commands: join with commas, use `commands` instead of `command`
+- **Priority:** Medium (user-visible)
+
+### Step 8: JSON Output Format — Already Aligned ✅
+**File:** `src/lovely_bash_permissions/devin_cli.py`
+- TypeScript uses `JSON.stringify(obj, null, 2)` (pretty-printed with indent=2) for `--test` and `--show-config`
+- Python already uses `json.dumps(response, indent=2)` (same behavior)
+- **No change needed** — both are pretty-printed.
+
+### Step 9: Add DEVIN_GLOBAL_CONFIG_DIR Support to Loader
 **Files:** `src/lovely_bash_permissions/config/loader.py`
-- Load from three locations (highest precedence last):
-  1. `~/.config/devin/lovely-permissions.jsonc` (global)
-  2. `{project}/.devin/lovely-permissions.jsonc` (project)
-  3. `{project}/.devin/lovely-permissions.local.jsonc` (local)
-- Use deep merge: objects merged recursively, arrays concatenated, scalars override
-- Load missing files as `{}`
-- Return merged config dict
-**Acceptance:** Config loading tests pass for all three sources and merge behavior
+- TypeScript's loader.ts uses `getDevinGlobalConfigDir()` which respects `DEVIN_GLOBAL_CONFIG_DIR` and `APPDATA` environment variables
+- Python's loader.py hardcodes `Path.home() / ".config" / "devin"`
+- Python's devin.py and devin_cli.py already support it, but loader.py does not
+- Add import of `get_devin_global_config_dir()` from devin.py and use it for global config path
+- **Priority:** Medium (config discovery)
 
-## Step 1c: Devin Config Loader [COMPLETE]
-**Files:** `src/lovely_bash_permissions/config/devin.py`
-- Load from three locations (highest precedence last):
-  1. `~/.config/devin/config.json` (global)
-  2. `{project}/.devin/config.json` (project)
-  3. `{project}/.devin/config.local.json` (local)
-- Extract `permissions.allow` entries
-- Parse `Exec(...)` patterns: match regex `^Exec\(([^()]*)\)$`
-- Convert `Exec(prefix)` to anchored regex: `^` + escaped prefix + `(\s|$)`
-- Handle malformed `Exec(...)` entries as errors
-- Deduplicate resulting regexes
-**Acceptance:** Devin config loading tests pass for all three sources, Exec parsing, regex generation
+### Step 10: Add Background/Subshell Detection Parity Tests
+**Files:** `tests/test_evaluate.py`, `tests/test_rules.py`
+- Verify that Python's AST-based background execution detection matches TypeScript's library behavior
+- Verify that Python's AST-based subshell detection matches TypeScript's library behavior
+- Test background execution: `cmd &`, `cmd && cmd &`, pipes with background
+- Test subshell: `$(cmd)`, backtick substitution, `{ cmd; }`
+- **Priority:** Medium (ensure behavior parity)
 
-## Step 1d: PermissionsManager [COMPLETE]
-**Files:** `src/lovely_bash_permissions/config/manager.py`
-- Create PermissionsManager class
-- Constructor takes project directory
-- Loads both lovely-permissions config and Devin config
-- Provides `get_lovely_config()` and `get_devin_exec_regexes()` methods
-- Handles errors gracefully (invalid config, missing files)
-- Provides `is_valid()` and `get_error()` methods
-- Reloads config on demand
-**Acceptance:** PermissionsManager tests pass for loading, error handling, reload
+### Step 11: Add Comprehensive UX Tests
+**Files:** `tests/test_cli.py`, `tests/test_evaluate.py`, `tests/test_hook.py`
+- Add tests for exact output format (string comparison)
+- Test CLI setup output matches: `Added "Exec(: '[♡ perms:)" to <path>...`
+- Test hook event responses match TypeScript exactly
+- Test reason formatting for allowed, ask, deny
+- **Priority:** High (ensure regression protection)
 
-## Step 2a: Bash Segment Parser [COMPLETE]
-**Files:** `src/lovely_bash_permissions/segments.py`
-- Implement bash command segment extraction using existing `parse_ast()`
-- Parse command string to AST
-- Extract segments from AST:
-  - Pipes (`|`): treat each side separately
-  - And (`&&`): treat each side separately
-  - Or (`||`): treat each side separately
-  - Background (`&`): treat the command before `&`
-  - Statements: sequential commands
-- Return list of segments, each containing: command name, arguments, redirections
-**Acceptance:** Segment parser tests pass for pipes, &&, ||, background, statements
+### Step 12: Update Documentation
+**Files:** `docs/lovely-devin-permissions.md`, `README.md`
+- Update CLI documentation to match TypeScript behavior
+- Add examples showing exact output format
+- **Priority:** Low
 
-## Step 2b1: Allowed Pattern Matching [COMPLETE]
-**Files:** `src/lovely_bash_permissions/rules.py`
-- Implement `check_allowed_patterns(command_name, allowed_patterns)`
-- Test command name against each allowed_cmds_regex pattern
-- Return True if command matches any pattern
-- Use Python's `re.search()` for regex matching
-**Acceptance:** Pattern matching tests pass
+## Testing Strategy
+1. **Side-by-side comparison:** Run both Python and TypeScript implementations with identical inputs, compare outputs
+2. **Exact string matching:** Test that output strings match TypeScript reference exactly
+3. **Integration tests:** Test full hook event flow (hook event → permission manager → evaluate → response)
+4. **Config file tests:** Test config loading from all 3 locations
+5. **Edge cases:** Empty config, missing files, malformed JSON
 
-## Step 2b2: Blocked Path Matching [COMPLETE]
-**Files:** `src/lovely_bash_permissions/rules.py`
-- Implement `check_blocked_patterns(args, blocked_patterns)`
-- Test each argument against blocked_paths_regex patterns
-- Return True if any argument matches a blocked pattern
-**Acceptance:** Blocked path tests pass
+## Acceptance Criteria
+For each UX area, the Python implementation must:
+1. Produce **identical output** to the TypeScript reference
+2. Use **identical config file paths and names**
+3. Apply **identical auto-approve/auto-deny logic**
+4. Generate **identical hook event responses**
+5. Have **identical CLI flag behavior**
+6. Pass all existing tests + new UX tests
 
-## Step 2b3: Output Redirection Rules [COMPLETE]
-**Files:** `src/lovely_bash_permissions/rules.py`
-- Implement `check_output_redirection(tree, rules)`
-- Extract output redirections from AST (using existing `get_redirections()`)
-- Apply allow/ask/deny rules per redirection pattern
-- Return decision with reason
-**Acceptance:** Output redirection tests pass
-
-## Step 2b4: Input Redirection Rules [COMPLETE]
-**Files:** `src/lovely_bash_permissions/rules.py`
-- Implemented `check_input_redirection(tree, rules)` following same pattern as check_output_redirection
-- Extracts input redirections (< and <<) from AST and applies allow/ask/deny policy
-- Added comprehensive tests: no input redir, allowed/denied/ask input, heredoc, mixed rules, multiple input redirs, default policy, object form wildcard
-- All 370 tests pass (358 existing + 12 new)
-**Acceptance:** Input redirection tests pass ✓
-
-## Step 2b5: Background Execution Rules [COMPLETE]
-**Files:** `src/lovely_bash_permissions/rules.py`
-- Implemented `check_background_execution(tree, rules)` following same pattern as other rules
-- Detects background execution (trailing `&`) from AST via Background field on statements
-- Applies allow/ask/deny policy; extracts and reports command names in reason string
-- Added comprehensive tests: no background, allowed/denied/ask, distinct from && chaining, multiple background commands, default policy, object form wildcard
-- All 379 tests pass (370 existing + 9 new)
-**Acceptance:** Background execution tests pass ✓
-
-## Step 2c: Permission Evaluator [COMPLETE]
-**Files:** `src/lovely_bash_permissions/evaluate.py`
-- Implemented main evaluation function:
-  ```python
-  def evaluate_bash_command(command: str, config: dict) -> dict:
-      """Evaluate a bash command against permission rules.
-      Returns: {"status": "allow"|"ask"|"deny", "reason": str, "triggers": [...]}
-      """
-  ```
-- Parse command using `parse_ast()`
-- Extract segments using `segments.py`
-- For each segment, evaluate rules using `rules.py`
-- Aggregate results:
-  - If all segments allowed → return allow
-  - If any segment denied → return deny
-  - If any segment asks → return ask
-- Handles subshell/command substitution as separate segments via AST traversal
-- **Implementation status**: Created evaluate.py with evaluate_bash_command(); runs against parse_ast(), parse_segments(), and all check_* functions; aggregates allow/deny/ask across segments and rules. All 379 tests pass.
-**Acceptance:** Evaluation tests pass for all rule types and aggregation ✓
-
-## Step 3a: Hook Event Processing [COMPLETE]
-**Files:** `src/lovely_bash_permissions/hook.py`
-- Implement hook event processing
-- Read JSON from stdin
-- Parse event: `{"hook_event_name": "PreToolUse"|"PermissionRequest", "tool_name": "exec", "tool_input": {"command": ...}}`
-- If `tool_name` is not "exec" → return skip (no action)
-- If command is empty → return skip
-- Load config using PermissionsManager
-- If config invalid → return block with error reason
-- Evaluate command using `evaluate_bash_command()`
-- Handle errors gracefully
-- **Implementation status**: Created hook.py with handle_load_error() and process_hook_event(); uses PermissionsManager and evaluate_bash_command(). All 379 tests pass.
-**Acceptance:** Hook event processing tests pass for all event types ✓
-
-## Step 3b: Hook Response Generation [COMPLETE]
-**Files:** `src/lovely_bash_permissions/hook.py`
-- Implement hook response generation
-- PreToolUse: approve with label → `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": {"command": ": '[♡ perms: 💚 auto-approved] ...' ; <original>"}}}`
-- PreToolUse: deny → `{"decision": "block", "reason": "[♡ perms: ❤️ auto-rejected] ..."}`
-- PermissionRequest: approve → `{"decision": "approve"}`
-- PermissionRequest: deny → `{"decision": "block", "reason": "[♡ perms: ❤️ auto-rejected] ..."}`
-- Return skip for non-exec events or empty commands
-- **Implementation status**: Added generate_hook_response() to hook.py handling all event/response types with heart emoji labels. All 379 tests pass.
-**Acceptance:** Hook response generation tests pass for all response formats ✓
-
-## Step 3c: CLI Commands — New `lovely-devin-permissions` CLI
-**Files:** `src/lovely_bash_permissions/devin_cli.py`, `pyproject.toml`
-
-Create a **separate** Devin hook CLI (`lovely-devin-permissions`), leaving the existing `lovely-bash-inspection` CLI unchanged. Replicate the TypeScript reference (`../jftlo/lovely-devin-permissions/src/main.ts`).
-
-### CLI Commands
-1. **`--setup` / `-s`**: Add `Exec(: '[♡ perms:)` to Devin's global config (`~/.config/devin/config.json`).
-   - Read existing config (or create `{}` if missing)
-   - Check if `LABEL_EXEC_PERMISSION` already in `permissions.allow` array
-   - If already present: print "already present" message, exit 0
-   - Otherwise: append to array, write config, print success message, exit 0
-   - On error (read/write failure): print error to stderr with `[♡ perms: ERROR]` prefix, exit 1
-
-2. **`--test <command>`**: Test a command as a PreToolUse event.
-   - Create synthetic PreToolUse event with the command
-   - Process through `handle_pre_tool_use()` (same as hook mode)
-   - If no response generated: print "No response generated for the test command", exit 0
-   - Otherwise: pretty-print the hook response JSON, exit with the response's exit code
-
-3. **`--show-config`**: Display effective config and considered files.
-   - List all permissions config file paths (global, project, local) and Devin config file paths
-   - For each file, include `path` and `exists` boolean
-   - Build PermissionsManager, check validity
-   - On invalid: print error with `[♡ perms: ERROR]` prefix to stderr, exit 1
-   - Otherwise: compute effective bash config, print JSON with `{ files: [...], effectiveConfig: {...} }`
-   - Exit 0
-
-### Mode Detection
-- **CLI mode**: argv contains `--setup`, `--test`, or `--show-config`
-- **Hook mode**: no CLI flags AND stdin has data (non-empty)
-- **No input**: no CLI flags AND stdin empty → exit 0 silently
-- CLI flags take precedence over stdin
-
-### Hook Mode Behavior
-- Read entire stdin, parse as JSON HookEvent
-- Validate structure: must have `hook_event_name` (`PermissionRequest` or `PreToolUse`), `tool_name`, `tool_input`
-- If `tool_name != "exec"` or `command` missing/empty → no response (exit 0)
-- Build PermissionsManager with project directory from `DEVIN_PROJECT_DIR` env or cwd
-- Evaluate command, generate response
-- `PermissionRequest`: only approve/block, no label injection
-- `PreToolUse`: inject `: '[♡ perms: ...]'` label into command via `updatedInput`
-- Exit codes: 0 (approve/skip), 1 (config error), 2 (block/eval error)
-
-### Constants
-- `HOOK_LABEL_PREFIX = "[♡ perms: "`
-- `LABEL_EXEC_PERMISSION = "Exec(: '[♡ perms:)"`
-
-### Help Text
-- `lovely-devin-permissions [options]`
-- `--setup, -s`: Add the required Devin permission for the hook label
-- `--show-config`: Print the effective bash permission configuration and considered files
-- `--test <command>`: Test a command as a PreToolUse event and pretty print the response
-- `--help, -h`: Show help
-
-### Add to pyproject.toml
-Add new entry: `lovely-devin-permissions = "lovely_bash_permissions.devin_cli:main"`
-
-**Acceptance:** CLI tests pass for all commands, mode detection, exit codes, and label injection
-
-### Status: COMPLETE
-All 21 CLI tests pass. Fixed import typo (devins_cli → devin_cli), ensured config loader respects DEVIN_GLOBAL_CONFIG_DIR env var, and fixed test setup.
-
-## Step 4a: Config Tests
-**Files:** `tests/test_config.py`
-- Tests for JSONC parsing, file loading, merge, schema validation
-**Acceptance:** Config tests pass
-
-## Step 4b: Segment Tests
-**Files:** `tests/test_segments.py`
-- Tests for pipes, &&, ||, background, statements
-**Acceptance:** Segment tests pass
-
-## Step 4c: Rule Tests
-**Files:** `tests/test_rules.py`
-- Tests for allowed patterns, blocked patterns, redirections
-**Acceptance:** Rule tests pass
-
-## Step 4d: Evaluation Tests
-**Files:** `tests/test_evaluate.py`
-- Tests for all rule types, aggregation, subshell handling
-**Acceptance:** Evaluation tests pass
-
-## Step 4e: Hook Tests
-**Files:** `tests/test_hook.py`
-- Tests for event parsing, response generation, error handling
-**Acceptance:** Hook tests pass
-
-## Step 4f: CLI Tests
-**Files:** `tests/test_cli.py`
-- Tests for all commands, mode detection
-**Acceptance:** CLI tests pass
-
-## Step 5: Documentation
-**Files:** `README.md`, `docs/lovely-devin-permissions.md` (new)
-- Add lovely-devin-permissions usage section to README
-- Add docs/ directory with detailed documentation
-- Include config examples
-- Include setup instructions
-- Explain dual-mode design (hook vs CLI)
-**Acceptance:** Documentation is clear and complete
-
-## Dependency Order
-1a → 1b → 1c → 1d → 2a → 2b1 → 2b2 → 2b3 → 2b4 → 2b5 → 2c → 3a → 3b → 3c → 4a → 4b → 4c → 4d → 4e → 4f → 5
-
-## Implementation Notes
-- Use existing `parse_ast()` from lovely-bash-permissions (shfmt-based)
-- Replicate TypeScript functionality exactly (behavior, config format, CLI flags)
-- Each step must be completable within a single ~70k context agent pass
-- Use existing code quality standards (ruff, pytest, type hints)
-- Keep bash parsing separate from evaluation for reusability (future lovely-pi-permissions)
+## Priority Order
+1. Step 1 (Setup label format - critical: different permission granted)
+2. Step 2 (Setup output messages - user-visible)
+3. Step 3 (PreToolUse deny label - user-visible: label format differs)
+4. Step 11 (Comprehensive UX tests - protect against regressions)
+5. Step 5 (Allow reason format - include matched pattern)
+6. Step 6 (Blocked reason format - include details)
+7. Step 7 (Ask reason format - phrasing)
+8. Step 9 (DEVIN_GLOBAL_CONFIG_DIR - config discovery)
+9. Step 10 (Background/subshell detection parity tests)
+10. Step 12 (Documentation)
