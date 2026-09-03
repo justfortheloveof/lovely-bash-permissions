@@ -10,16 +10,16 @@ Uses deep merge: objects merged recursively, arrays concatenated, scalars overri
 
 from pathlib import Path
 
+from .devin import get_devin_global_config_dir
 from .jsonc import is_record, read_jsonc_file
 
 PROJECT_CONFIG_FILE = "lovely-permissions.jsonc"
-GLOBAL_CONFIG_DIR = Path.home() / ".config" / "devin"
 
 
 def get_permissions_config_file_paths(project_dir: str) -> list:
     """Return the three config file paths (global, project, local)."""
     return [
-        str(GLOBAL_CONFIG_DIR / PROJECT_CONFIG_FILE),
+        str(get_devin_global_config_dir() / PROJECT_CONFIG_FILE),
         str(Path(project_dir) / ".devin" / PROJECT_CONFIG_FILE),
         str(Path(project_dir) / ".devin" / "lovely-permissions.local.jsonc"),
     ]

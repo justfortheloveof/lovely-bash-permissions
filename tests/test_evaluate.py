@@ -4,8 +4,6 @@ Tests the evaluate_bash_command function across different rule types,
 aggregation behavior, and edge cases.
 """
 
-import pytest
-
 from lovely_bash_permissions.evaluate import evaluate_bash_command
 
 

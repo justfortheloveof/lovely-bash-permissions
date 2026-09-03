@@ -129,7 +129,7 @@ class TestCliSetup:
         devin_dir = tmp_path / "devin-config"
         result = run_cli_in_process("--setup", devin_config_dir=str(devin_dir))
         assert devin_dir.joinpath("config.json").exists()
-        assert "Added label exec permission" in result
+        assert "Added \"Exec(: '[♡ perms:)" in result
 
     def test_setup_adds_label_exec_permission(self, tmp_path):
         """Setup should add label exec permission to the allow list."""
@@ -139,11 +139,11 @@ class TestCliSetup:
             json.dump({"permissions": {"allow": []}}, f)
 
         result = run_cli_in_process("--setup", devin_config_dir=str(devin_dir))
-        assert "Added label exec permission" in result
+        assert "Added \"Exec(: '[♡ perms:)" in result
 
         with open(devin_dir / "config.json") as f:
             config = json.load(f)
-        assert "label exec" in config["permissions"]["allow"]
+        assert "Exec(: '[♡ perms:)" in config["permissions"]["allow"]
 
     def test_setup_short_flag(self, tmp_path):
         """Short flag -s should work the same as --setup."""
@@ -153,17 +153,17 @@ class TestCliSetup:
             json.dump({"permissions": {"allow": []}}, f)
 
         result = run_cli_in_process("-s", devin_config_dir=str(devin_dir))
-        assert "Added label exec permission" in result
+        assert "Added \"Exec(: '[♡ perms:)" in result
 
     def test_setup_idempotent(self, tmp_path):
         """Running setup twice should be idempotent."""
         devin_dir = tmp_path / "devin-config"
         devin_dir.mkdir()
         with open(devin_dir / "config.json", "w") as f:
-            json.dump({"permissions": {"allow": ["label exec"]}}, f)
+            json.dump({"permissions": {"allow": ["Exec(: '[♡ perms:)"]}}, f)
 
         result = run_cli_in_process("--setup", devin_config_dir=str(devin_dir))
-        assert "already present" in result
+        assert "is already present in" in result
 
     def test_setup_preserves_existing_permissions(self, tmp_path):
         """Setup should preserve existing permissions in the allow list."""
@@ -173,13 +173,13 @@ class TestCliSetup:
             json.dump({"permissions": {"allow": ["Exec(git)", "Exec(npm)"]}}, f)
 
         result = run_cli_in_process("--setup", devin_config_dir=str(devin_dir))
-        assert "Added label exec permission" in result
+        assert "Added \"Exec(: '[♡ perms:)" in result
 
         with open(devin_dir / "config.json") as f:
             config = json.load(f)
         assert "Exec(git)" in config["permissions"]["allow"]
         assert "Exec(npm)" in config["permissions"]["allow"]
-        assert "label exec" in config["permissions"]["allow"]
+        assert "Exec(: '[♡ perms:)" in config["permissions"]["allow"]
 
 
 class TestCliTest:
@@ -391,7 +391,7 @@ class TestFlagPrecedence:
             "--setup", devin_config_dir=str(devin_dir), input_data=json.dumps(event)
         )
         # Setup should have run (ignoring stdin)
-        assert "Added label exec permission" in result
+        assert "Added \"Exec(: '[♡ perms:)" in result
 
 
 class TestErrorHandling:

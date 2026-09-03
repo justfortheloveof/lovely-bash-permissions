@@ -130,7 +130,8 @@ class TestLoadPermissionsConfig:
     def test_all_files_missing_returns_empty(self, monkeypatch, temp_global):
         """No config files exist -> empty dict."""
         monkeypatch.setattr(
-            "lovely_bash_permissions.config.loader.GLOBAL_CONFIG_DIR", temp_global[1]
+            "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+            lambda: temp_global[1],
         )
         result = load_permissions_config(str(temp_global[0]))
         assert result == {}
@@ -140,13 +141,21 @@ class TestLoadPermissionsConfig:
         global_file = temp_global[1] / "lovely-permissions.jsonc"
         self._write_jsonc(global_file, {"read": {"permission": "allow"}})
         monkeypatch.setattr(
-            "lovely_bash_permissions.config.loader.GLOBAL_CONFIG_DIR", temp_global[1]
+            "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+            lambda: temp_global[1],
         )
         result = load_permissions_config(str(temp_global[0]))
         assert result == {"read": {"permission": "allow"}}
 
     def test_project_only(self, monkeypatch, temp_project):
         """Only project config exists."""
+        tmpdir = tempfile.mkdtemp()
+        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir.mkdir(parents=True)
+        monkeypatch.setattr(
+            "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+            lambda: config_dir,
+        )
         project_file = temp_project[1] / "lovely-permissions.jsonc"
         self._write_jsonc(project_file, {"bash": {"permission": "ask"}})
         result = load_permissions_config(str(temp_project[0]))
@@ -154,6 +163,13 @@ class TestLoadPermissionsConfig:
 
     def test_local_only(self, monkeypatch, temp_project):
         """Only local config exists."""
+        tmpdir = tempfile.mkdtemp()
+        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir.mkdir(parents=True)
+        monkeypatch.setattr(
+            "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+            lambda: config_dir,
+        )
         local_file = temp_project[1] / "lovely-permissions.local.jsonc"
         self._write_jsonc(local_file, {"write": {"permission": "deny"}})
         result = load_permissions_config(str(temp_project[0]))
@@ -172,13 +188,21 @@ class TestLoadPermissionsConfig:
         self._write_jsonc(project_file, {"read": {"permission": "allow"}})
 
         monkeypatch.setattr(
-            "lovely_bash_permissions.config.loader.GLOBAL_CONFIG_DIR", temp_global[1]
+            "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+            lambda: temp_global[1],
         )
         result = load_permissions_config(project_dir)
         assert result == {"read": {"permission": "allow"}}
 
     def test_local_overrides_project(self, monkeypatch, temp_project):
         """Local config overrides project per tool."""
+        tmpdir = tempfile.mkdtemp()
+        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir.mkdir(parents=True)
+        monkeypatch.setattr(
+            "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+            lambda: config_dir,
+        )
         project_file = temp_project[1] / "lovely-permissions.jsonc"
         self._write_jsonc(project_file, {"read": {"permission": "deny"}})
 
@@ -202,7 +226,8 @@ class TestLoadPermissionsConfig:
         self._write_jsonc(local_file, {"tool": {"perm": "allow"}})
 
         monkeypatch.setattr(
-            "lovely_bash_permissions.config.loader.GLOBAL_CONFIG_DIR", temp_global[1]
+            "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+            lambda: temp_global[1],
         )
         result = load_permissions_config(project_dir)
         assert result == {"tool": {"perm": "allow"}}
@@ -219,7 +244,8 @@ class TestLoadPermissionsConfig:
         self._write_jsonc(project_file, {"bash": {"permission": "ask"}})
 
         monkeypatch.setattr(
-            "lovely_bash_permissions.config.loader.GLOBAL_CONFIG_DIR", temp_global[1]
+            "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+            lambda: temp_global[1],
         )
         result = load_permissions_config(project_dir)
         assert result == {
@@ -245,7 +271,8 @@ class TestLoadPermissionsConfig:
         )
 
         monkeypatch.setattr(
-            "lovely_bash_permissions.config.loader.GLOBAL_CONFIG_DIR", temp_global[1]
+            "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+            lambda: temp_global[1],
         )
         result = load_permissions_config(project_dir)
         assert result["bash"]["permission"] == "ask"
@@ -270,13 +297,21 @@ class TestLoadPermissionsConfig:
         )
 
         monkeypatch.setattr(
-            "lovely_bash_permissions.config.loader.GLOBAL_CONFIG_DIR", temp_global[1]
+            "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+            lambda: temp_global[1],
         )
         result = load_permissions_config(project_dir)
         assert result["bash"]["allowed_cmds_regex"] == ["^ls", "^cat", "^mkdir"]
 
     def test_invalid_json_treated_as_missing(self, monkeypatch, temp_project):
         """Invalid JSON files are treated as missing (empty)."""
+        tmpdir = tempfile.mkdtemp()
+        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir.mkdir(parents=True)
+        monkeypatch.setattr(
+            "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+            lambda: config_dir,
+        )
         project_file = temp_project[1] / "lovely-permissions.jsonc"
         project_file.write_text("{invalid json}")
         result = load_permissions_config(str(temp_project[0]))
@@ -284,6 +319,13 @@ class TestLoadPermissionsConfig:
 
     def test_json_with_comments_works(self, monkeypatch, temp_project):
         """JSONC files with comments parse correctly."""
+        tmpdir = tempfile.mkdtemp()
+        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir.mkdir(parents=True)
+        monkeypatch.setattr(
+            "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+            lambda: config_dir,
+        )
         project_file = temp_project[1] / "lovely-permissions.jsonc"
         project_file.write_text(
             '{\n  // This is a comment\n  "bash": {\n    "permission": "allow"\n  }\n}'

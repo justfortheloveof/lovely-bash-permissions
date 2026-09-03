@@ -84,7 +84,9 @@ def handle_setup():
     try:
         with open(config_path, "w") as f:
             json.dump(config, f, indent=2)
-        print(f'Added "{LABEL_EXEC_NAME}" to {config_path} so Devin auto-approves the hook\'s ":" no-op label')
+        print(
+            f'Added "{LABEL_EXEC_NAME}" to {config_path} so Devin auto-approves the hook\'s ":" no-op label'
+        )
         sys.exit(0)
     except Exception as e:
         print(with_error_prefix(f"Failed to write config: {e}"), file=sys.stderr)

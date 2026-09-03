@@ -78,10 +78,17 @@ class TestLoadDevinExecPermissions:
     """Tests for load_devin_exec_permissions function."""
 
     def test_no_config_files(self):
-        with tempfile.TemporaryDirectory() as project:
-            result = load_devin_exec_permissions(project)
-            assert result["permissions"] == []
-            assert result["errors"] == []
+        with (
+            tempfile.TemporaryDirectory() as project,
+            tempfile.TemporaryDirectory() as devin_global,
+        ):
+            os.environ["DEVIN_GLOBAL_CONFIG_DIR"] = devin_global
+            try:
+                result = load_devin_exec_permissions(project)
+                assert result["permissions"] == []
+                assert result["errors"] == []
+            finally:
+                del os.environ["DEVIN_GLOBAL_CONFIG_DIR"]
 
     def test_global_config_only(self):
         with tempfile.TemporaryDirectory() as project:

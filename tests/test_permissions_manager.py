@@ -1,6 +1,7 @@
 """Tests for PermissionsManager."""
 
 import json
+import tempfile
 from unittest.mock import patch
 
 import pytest
@@ -207,16 +208,20 @@ class TestPermissionsManagerGetMethods:
 class TestPermissionsManagerEndToEnd:
     """End-to-end tests with real config files."""
 
-    def test_empty_project(self, mock_project):
+    def test_empty_project(self, mock_project, monkeypatch):
         """Empty project (no config files) should be valid with empty config."""
+        devin_global = tempfile.mkdtemp()
+        monkeypatch.setenv("DEVIN_GLOBAL_CONFIG_DIR", devin_global)
         manager = PermissionsManager(str(mock_project))
 
         assert manager.is_valid()
         assert manager.get_lovely_config() == {}
         assert manager.get_devin_exec_regexes() == []
 
-    def test_with_lovely_permissions_config(self, mock_project):
+    def test_with_lovely_permissions_config(self, mock_project, monkeypatch):
         """Test with a lovely-permissions config file."""
+        devin_global = tempfile.mkdtemp()
+        monkeypatch.setenv("DEVIN_GLOBAL_CONFIG_DIR", devin_global)
         # Create project lovely-permissions.jsonc
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
         config_data = {"bash": {"permission": "allow", "allowed_cmds_regex": ["^git"]}}
