@@ -4,6 +4,7 @@ Processes hook events from agent tools to decide whether to allow,
 ask, block, or skip command execution.
 """
 
+import sys
 from typing import Any
 
 from .config.effective_bash import get_effective_bash_config
@@ -133,12 +134,14 @@ def process_hook_event(event: dict[str, Any]) -> dict[str, Any]:
     try:
         manager = PermissionsManager(project_dir)
         raw_config = manager.get_lovely_config()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        print(f"error: {e}", file=sys.stderr)
         return handle_load_error(e)
 
     try:
         config = get_effective_bash_config(raw_config.get("bash"), project_dir)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        print(f"error: {e}", file=sys.stderr)
         return handle_load_error(e)
 
     result = evaluate_bash_command(command, config)

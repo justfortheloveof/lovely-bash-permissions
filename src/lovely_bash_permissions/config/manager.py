@@ -1,5 +1,7 @@
 """PermissionsManager: loads and manages lovely-devin-permissions and Devin config."""
 
+import sys
+
 from .devin import load_devin_exec_regexes
 from .loader import load_permissions_config
 
@@ -26,17 +28,19 @@ class PermissionsManager:
         try:
             self._lovely_config = load_permissions_config(self._project_dir)
             self._lovely_error = None
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             self._lovely_config = {}
             self._lovely_error = str(e)
+            print(f"error: {e}", file=sys.stderr)
 
         # Load Devin exec regexes
         try:
             self._devin_regexes = load_devin_exec_regexes(self._project_dir)
             self._devin_error = None
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             self._devin_regexes = []
             self._devin_error = str(e)
+            print(f"error: {e}", file=sys.stderr)
 
     def get_lovely_config(self) -> dict:
         """Return the merged lovely-permissions config (may be empty dict)."""

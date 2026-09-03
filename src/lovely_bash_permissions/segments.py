@@ -17,6 +17,8 @@ If parsing fails, an empty list is returned.
 
 from __future__ import annotations
 
+import sys
+
 from .ast import (
     AndCmd,
     BinaryCmd,
@@ -132,8 +134,8 @@ def _extract_segments(node: object) -> list[dict]:
                 converted = node_from_json(node)
                 if converted is not None:
                     return _extract_segments(converted)
-            except Exception:
-                pass
+            except Exception as e:  # noqa: BLE001
+                print(f"error: {e}", file=sys.stderr)
 
     return segments
 

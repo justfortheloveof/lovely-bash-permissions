@@ -88,7 +88,7 @@ def handle_setup() -> None:
             f'Added "{LABEL_EXEC_NAME}" to {config_path} so Devin auto-approves the hook\'s ":" no-op label'
         )
         sys.exit(0)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(with_error_prefix(f"Failed to write config: {e}"), file=sys.stderr)
         sys.exit(1)
 
@@ -134,7 +134,7 @@ def handle_show_config() -> None:
     raw_bash = manager.get_lovely_config()
     try:
         bash = get_effective_bash_config(raw_bash.get("bash"), project_dir)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(with_error_prefix(str(e)), file=sys.stderr)
         sys.exit(1)
 

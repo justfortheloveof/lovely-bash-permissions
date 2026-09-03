@@ -5,6 +5,7 @@ Strips comments and parses JSON. Supports both .json and .jsonc files.
 
 import json
 import re
+import sys
 from pathlib import Path
 
 
@@ -69,7 +70,8 @@ def read_jsonc_file(file_path: str) -> dict | None:
             return result
         # If it's not an object, wrap in empty dict
         return {}
-    except Exception:
+    except Exception as e:  # noqa: BLE001
+        print(f"error: {e}", file=sys.stderr)
         return None
 
 
