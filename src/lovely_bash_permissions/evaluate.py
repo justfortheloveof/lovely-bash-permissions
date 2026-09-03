@@ -182,9 +182,19 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict:
 
     # Commands not matching allowed patterns require approval
     if allowed_patterns and any_segment_not_allowed:
+        non_matching = [
+            seg["command"] for seg in segment_results if not seg.get("allowed", True)
+        ]
+        if non_matching:
+            names = [f'"{name}"' for name in non_matching]
+            if len(non_matching) == 1:
+                reasons.append(f"{names[0]} command does not match allowed patterns")
+            else:
+                reasons.append(
+                    f"{', '.join(names)} commands do not match allowed patterns"
+                )
         if overall_status == "allow":
             overall_status = wildcard
-        reasons.append("command does not match allowed patterns")
 
     # Command substitution requires approval
     if has_subshell:

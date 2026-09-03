@@ -40,6 +40,29 @@ eu run lovely-devin-permissions --show-config
 eu run lovely-devin-permissions --setup
 ```
 
+## Hook Response Labels
+
+The hook adds emoji labels to commands in hook responses, identical to the TypeScript reference:
+
+| Label | Status | Example |
+|-------|--------|---------|
+| 💚 auto-approved | Allowed | `: '[♡ perms: 💚 auto-approved] command matches allowed pattern ^ls$' ls -la` |
+| ❤️ auto-rejected | Denied | `: '[♡ perms: ❤️ auto-rejected]' cat /etc/passwd` |
+| 💛 REQUIRES-USER-APPROVAL | Ask | `: '[♡ perms: 💛 REQUIRES-USER-APPROVAL] "ls" command does not match allowed patterns' ls -la` |
+
+## Setup
+
+The `--setup` flag adds a Devin permission that auto-approves the hook's own label prefix, preventing infinite loops. The output message is:
+
+```
+Added "Exec(: '[♡ perms:)" to <path> so Devin auto-approves the hook's ":" no-op label
+```
+
+If already present:
+```
+The Devin permission "Exec(: '[♡ perms:)" is already present in <path>
+```
+
 ## Configuration
 
 ### Sources
@@ -169,12 +192,15 @@ For commands with multiple segments (pipes, `&&`, `||`), the most restrictive re
 ```bash
 # Allowed: both commands allowed
 eu run lovely-devin-permissions --test "ls -la && cat file.txt"
+# Response includes: 💚 auto-approved with reason "command matches allowed pattern..."
 
 # Ask: cat not allowed, ls is
 eu run lovely-devin-permissions --test "ls -la && cat /etc/passwd"
+# Response includes: 💛 REQUIRES-USER-APPROVAL with reason "cat" does not match allowed patterns
 
 # Blocked: cat /etc/passwd blocked
 eu run lovely-devin-permissions --test "cat /etc/passwd"
+# Response includes: ❤️ auto-rejected with reason "Blocked by bash permissions: cat matches blocked patterns. The tool has not been run."
 ```
 
 ## Dev Setup

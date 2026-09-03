@@ -489,6 +489,7 @@ eu run lovely-devin-permissions --test "ls -la && cat file.txt"
 
 # Ask: cat not allowed, ls is
 eu run lovely-devin-permissions --test "ls -la && cat /etc/passwd"
+# Response includes: 💛 REQUIRES-USER-APPROVAL
 
 # Blocked: cat /etc/passwd blocked
 eu run lovely-devin-permissions --test "cat /etc/passwd"

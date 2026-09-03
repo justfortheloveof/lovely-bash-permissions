@@ -111,7 +111,7 @@ Key TypeScript files:
 - Change blocked reason from `command matches blocked patterns` to `Blocked by bash permissions: <details>. The tool has not been run.`
 - **Priority:** Medium (user-visible)
 
-### [x] Step 7: Fix Evaluate Ask Reason Format
+### [x] Step 7: Fix Evaluate Ask Reason Format (duplicate reason removed)
 **File:** `src/lovely_bash_permissions/evaluate.py`
 - Change ask reason from `command "ls" does not match allowed patterns` to `"ls" command does not match allowed patterns`
 - For multiple commands: join with commas, use `commands` instead of `command`
@@ -131,7 +131,7 @@ Key TypeScript files:
 - Add import of `get_devin_global_config_dir()` from devin.py and use it for global config path
 - **Priority:** Medium (config discovery)
 
-### Step 10: Add Background/Subshell Detection Parity Tests
+### [x] Step 10: Add Background/Subshell Detection Parity Tests
 **Files:** `tests/test_evaluate.py`, `tests/test_rules.py`
 - Verify that Python's AST-based background execution detection matches TypeScript's library behavior
 - Verify that Python's AST-based subshell detection matches TypeScript's library behavior
@@ -139,7 +139,7 @@ Key TypeScript files:
 - Test subshell: `$(cmd)`, backtick substitution, `{ cmd; }`
 - **Priority:** Medium (ensure behavior parity)
 
-### Step 11: Add Comprehensive UX Tests
+### [x] Step 11: Add Comprehensive UX Tests
 **Files:** `tests/test_cli.py`, `tests/test_evaluate.py`, `tests/test_hook.py`
 - Add tests for exact output format (string comparison)
 - Test CLI setup output matches: `Added "Exec(: '[♡ perms:)" to <path>...`
@@ -147,7 +147,7 @@ Key TypeScript files:
 - Test reason formatting for allowed, ask, deny
 - **Priority:** High (ensure regression protection)
 
-### Step 12: Update Documentation
+### [ ] Step 12: Update Documentation
 **Files:** `docs/lovely-devin-permissions.md`, `README.md`
 - Update CLI documentation to match TypeScript behavior
 - Add examples showing exact output format
@@ -170,9 +170,7 @@ For each UX area, the Python implementation must:
 6. Pass all existing tests + new UX tests
 
 ## Priority Order
-**Done:** Steps 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
+**Done:** Steps 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
 
 **Pending (next in order):**
-1. Step 11 (Comprehensive UX tests - protect against regressions)
-2. Step 10 (Background/subshell detection parity tests)
-3. Step 12 (Documentation)
+1. Step 12 (Documentation)
