@@ -28,9 +28,7 @@ def check_allowed_patterns(command_name: str, allowed_patterns: list[str]) -> bo
     return any(re.search(pattern, command_name) for pattern in allowed_patterns)
 
 
-def check_blocked_patterns(
-    command_name: str, args: list[str], blocked_patterns: list[str]
-) -> bool:
+def check_blocked_patterns(command_name: str, args: list[str], blocked_patterns: list[str]) -> bool:
     """Test command name and arguments against blocked_paths_regex patterns.
     Returns True if any match a blocked pattern, False otherwise.
 
@@ -227,10 +225,7 @@ def check_background_execution(tree: dict[str, Any], rules: dict) -> dict:
     elif level == "ask":
         return {
             "status": "ask",
-            "reason": (
-                f"background execution requires approval: "
-                f"{', '.join(background_commands)}"
-            ),
+            "reason": (f"background execution requires approval: {', '.join(background_commands)}"),
         }
     else:  # deny
         return {

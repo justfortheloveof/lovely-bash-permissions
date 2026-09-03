@@ -74,10 +74,7 @@ def handle_setup() -> None:
 
     # Check if already present
     if LABEL_EXEC_NAME in allow:
-        print(
-            f'The Devin permission "{LABEL_EXEC_NAME}" is'
-            + f" already present in {config_path}"
-        )
+        print(f'The Devin permission "{LABEL_EXEC_NAME}" is' + f" already present in {config_path}")
         sys.exit(0)
 
     # Append and write
@@ -85,10 +82,7 @@ def handle_setup() -> None:
     try:
         with open(config_path, "w") as f:
             json.dump(config, f, indent=2)
-        print(
-            f'Added "{LABEL_EXEC_NAME}" to {config_path} so Devin'
-            + ' auto-approves the hook\'s ":" no-op label'
-        )
+        print(f'Added "{LABEL_EXEC_NAME}" to {config_path} so Devin' + ' auto-approves the hook\'s ":" no-op label')
         sys.exit(0)
     except Exception as e:  # noqa: BLE001
         print(with_error_prefix(f"Failed to write config: {e}"), file=sys.stderr)
@@ -165,12 +159,8 @@ def main() -> None:
         action="store_true",
         help="Add label exec permission to devin global config",
     )
-    parser.add_argument(
-        "-t", "--test", type=str, help="Test a command as a PreToolUse event"
-    )
-    parser.add_argument(
-        "--show-config", action="store_true", help="Show effective config"
-    )
+    parser.add_argument("-t", "--test", type=str, help="Test a command as a PreToolUse event")
+    parser.add_argument("--show-config", action="store_true", help="Show effective config")
 
     args = parser.parse_args()
 

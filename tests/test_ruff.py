@@ -20,9 +20,7 @@ def test_ruff_check() -> None:
         text=True,
         check=False,
     )
-    assert result.returncode == 0, (
-        f"ruff check failed:\n{result.stdout}\n{result.stderr}"
-    )
+    assert result.returncode == 0, f"ruff check failed:\n{result.stdout}\n{result.stderr}"
 
 
 @pytest.mark.linting
@@ -33,6 +31,4 @@ def test_ruff_format_check() -> None:
         text=True,
         check=False,
     )
-    assert result.returncode == 0, (
-        f"ruff format --check failed:\n{result.stdout}\n{result.stderr}"
-    )
+    assert result.returncode == 0, f"ruff format --check failed:\n{result.stdout}\n{result.stderr}"

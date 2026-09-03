@@ -144,11 +144,7 @@ def _redir_text(redir: Redir) -> str:
 
 def _assign_text(assign: Assign) -> str:
     """Reconstruct a best-effort string for an assignment's left-hand side."""
-    name = (
-        assign.name.value
-        if isinstance(assign.name, Lit)
-        else (assign.name.value if assign.name else "?")
-    )
+    name = assign.name.value if isinstance(assign.name, Lit) else (assign.name.value if assign.name else "?")
     if assign.index is not None and isinstance(assign.index, Word):
         name += f"[{_word_value(assign.index)}]"
     op = "+=" if assign.append else "="
@@ -239,9 +235,7 @@ class _Report:
         return list(self._lines)
 
 
-def _render_statement(
-    command: Node, redirs: list[Redir], report: _Report, indent: int = 1
-) -> bool:
+def _render_statement(command: Node, redirs: list[Redir], report: _Report, indent: int = 1) -> bool:
     """Render a statement group: its commands plus any nested statements.
 
     *redirs* apply to the group's trailing command.  A ``BinaryCmd``'s
@@ -255,9 +249,7 @@ def _render_statement(
     if not items:
         return False
 
-    last_cmd = max(
-        (i for i, (kind, _, _) in enumerate(items) if kind == "cmd"), default=-1
-    )
+    last_cmd = max((i for i, (kind, _, _) in enumerate(items) if kind == "cmd"), default=-1)
 
     for i, (kind, node, seg_redirs) in enumerate(items):
         if kind == "cmd":
@@ -323,9 +315,7 @@ def _render_redirs(redirs: list[Redir], indent: int, report: _Report) -> None:
             for subst in _iter_substs(redir.word):
                 for stmt in subst.stmts:
                     if stmt.cmd is not None:
-                        _render_statement(
-                            stmt.cmd, _redirs_of(stmt), report, indent + 1
-                        )
+                        _render_statement(stmt.cmd, _redirs_of(stmt), report, indent + 1)
 
 
 def _render_word_subs(words: list[Word], indent: int, report: _Report) -> bool:

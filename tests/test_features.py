@@ -41,9 +41,7 @@ class TestIfStatements:
         assert has_variable(tree)
 
     def test_nested_if(self) -> None:
-        tree = parse_ast(
-            "if [ -f file.txt ]; then if [ -r file.txt ]; then cat file.txt; fi; fi"
-        )
+        tree = parse_ast("if [ -f file.txt ]; then if [ -r file.txt ]; then cat file.txt; fi; fi")
         assert get_commands(tree) == ["[", "[", "cat"]
 
     def test_if_with_pipe(self) -> None:
@@ -89,21 +87,13 @@ class TestAndOrOperators:
         assert get_commands(tree) == ["mkdir", "cd", "ls"]
 
     def test_mixed_and_or(self) -> None:
-        tree = parse_ast(
-            "[ -f file.txt ] && cat file.txt | grep pattern || echo no match"
-        )
+        tree = parse_ast("[ -f file.txt ] && cat file.txt | grep pattern || echo no match")
         assert get_commands(tree) == ["[", "cat", "grep", "echo"]
 
 
 class TestMultiLineCommands:
     def test_multiline_if(self) -> None:
-        cmd = (
-            "if [ -f file.txt ]; then\n"
-            "    cat file.txt\n"
-            "else\n"
-            '    echo "file not found"\n'
-            "fi"
-        )
+        cmd = 'if [ -f file.txt ]; then\n    cat file.txt\nelse\n    echo "file not found"\nfi'
         tree = parse_ast(cmd)
         assert get_commands(tree) == ["[", "cat", "echo"]
 

@@ -189,11 +189,7 @@ def _convert_dbl_quoted(data: dict) -> DblQuoted:
     if parts:
         vals: list[str] = []
         for p in parts:
-            if (
-                isinstance(p, (Lit, SglQuoted))
-                or isinstance(p, DblQuoted)
-                and p.value is not None
-            ):
+            if isinstance(p, (Lit, SglQuoted)) or isinstance(p, DblQuoted) and p.value is not None:
                 vals.append(p.value)
             else:
                 vals.append("")
@@ -583,11 +579,7 @@ def _convert_case_clause(data: dict) -> CaseClause:
         expr=_convert_word(data.get("Word")),
         branches=[
             CaseBranch(
-                patterns=[
-                    w
-                    for p in b.get("Patterns", [])
-                    if (w := _convert_word(p)) is not None
-                ],
+                patterns=[w for p in b.get("Patterns", []) if (w := _convert_word(p)) is not None],
                 body=[_convert_stmt(s) for s in b.get("Stmts", [])],
             )
             for b in data.get("Items", [])
@@ -733,9 +725,7 @@ def _convert_let_clause(data: dict) -> LetClause:
         pos=pos,
         end=end,
         let_pos=_parse_position(data.get("Let")),
-        exprs=[
-            n for e in data.get("Exprs", []) if (n := node_from_json(e)) is not None
-        ],
+        exprs=[n for e in data.get("Exprs", []) if (n := node_from_json(e)) is not None],
     )
 
 
@@ -787,9 +777,7 @@ def _convert_case_item(data: dict) -> CaseItem:
         pos=pos,
         end=end,
         op=data.get("Op", ""),
-        patterns=[
-            w for p in data.get("Patterns", []) if (w := _convert_word(p)) is not None
-        ],
+        patterns=[w for p in data.get("Patterns", []) if (w := _convert_word(p)) is not None],
         stmts=[_convert_stmt(s) for s in data.get("Stmts", [])],
     )
 
@@ -798,9 +786,7 @@ def _convert_word_iter(data: dict) -> WordIter:
     pos, end = _parse_pos_end(data)
     name_data = data.get("Name")
     name_node = (
-        _convert_lit(name_data)
-        if isinstance(name_data, dict)
-        else Lit(value=str(name_data) if name_data else "")
+        _convert_lit(name_data) if isinstance(name_data, dict) else Lit(value=str(name_data) if name_data else "")
     )
     return WordIter(
         pos=pos,

@@ -44,10 +44,7 @@ def parse(command: str, dialect: str = "bash") -> dict[str, Any]:
         FileNotFoundError: If no shfmt binary can be located.
     """
     if dialect not in _VALID_DIALECTS:
-        raise ValueError(
-            f"Unknown dialect {dialect!r}. "
-            f"Must be one of: {', '.join(sorted(_VALID_DIALECTS))}"
-        )
+        raise ValueError(f"Unknown dialect {dialect!r}. Must be one of: {', '.join(sorted(_VALID_DIALECTS))}")
 
     shfmt_path = find_shfmt()
 
@@ -128,9 +125,7 @@ def find_shfmt() -> str:
     if system_shfmt:
         return system_shfmt
 
-    raise FileNotFoundError(
-        "shfmt binary not found. Please ensure shfmt-py is installed."
-    )
+    raise FileNotFoundError("shfmt binary not found. Please ensure shfmt-py is installed.")
 
 
 class ParseError(Exception):

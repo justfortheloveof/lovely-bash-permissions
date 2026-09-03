@@ -226,9 +226,7 @@ class TestWildcardPolicy:
 
     def test_wildcard_with_explicit_allow(self) -> None:
         """Wildcard ask but command explicitly allowed -> allow."""
-        result = evaluate_bash_command(
-            "ls", make_config(allowed=["^ls"], wildcard="ask")
-        )
+        result = evaluate_bash_command("ls", make_config(allowed=["^ls"], wildcard="ask"))
         assert result["status"] == "allow"
 
     def test_wildcard_with_explicit_deny(self) -> None:

@@ -96,9 +96,7 @@ def load_devin_exec_permissions(project_dir: str) -> dict:
             if not match:
                 # Only error on malformed Exec(...) entries, ignore others
                 if entry.startswith("Exec("):
-                    errors.append(
-                        f'Invalid Exec(...) permission in {source}: "{entry}"'
-                    )
+                    errors.append(f'Invalid Exec(...) permission in {source}: "{entry}"')
                 continue
 
             prefix = (match.group(1) or "").strip()

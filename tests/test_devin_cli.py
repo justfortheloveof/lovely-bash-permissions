@@ -286,13 +286,9 @@ class TestCliShowConfig:
         assert "files" in output
         assert "effectiveConfig" in output
 
-    def test_show_config_reports_file_existence(
-        self, project_with_bash_config: Path
-    ) -> None:
+    def test_show_config_reports_file_existence(self, project_with_bash_config: Path) -> None:
         """Show config should report whether config files exist."""
-        result = run_cli(
-            "--show-config", env={"DEVIN_PROJECT_DIR": str(project_with_bash_config)}
-        )
+        result = run_cli("--show-config", env={"DEVIN_PROJECT_DIR": str(project_with_bash_config)})
         output = json.loads(result.stdout)
         for f in output["files"]:
             assert "exists" in f
@@ -402,9 +398,7 @@ class TestFlagPrecedence:
             "tool_name": "exec",
             "tool_input": {"command": "git status"},
         }
-        result = run_cli_in_process(
-            "--setup", devin_config_dir=str(devin_dir), input_data=json.dumps(event)
-        )
+        result = run_cli_in_process("--setup", devin_config_dir=str(devin_dir), input_data=json.dumps(event))
         # Setup should have run (ignoring stdin)
         assert "Added \"Exec(: '[♡ perms:)" in result
 

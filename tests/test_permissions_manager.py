@@ -24,9 +24,7 @@ class TestPermissionsManagerConstruction:
 
     @patch("lovely_bash_permissions.config.manager.load_permissions_config")
     @patch("lovely_bash_permissions.config.manager.load_devin_exec_regexes")
-    def test_loads_during_construction(
-        self, mock_devin: MagicMock, mock_lovely: MagicMock, mock_project: Path
-    ) -> None:
+    def test_loads_during_construction(self, mock_devin: MagicMock, mock_lovely: MagicMock, mock_project: Path) -> None:
         """Manager should load config during construction."""
         mock_lovely.return_value = {"read": {"permission": "ask"}}
         mock_devin.return_value = ["^git"]
@@ -73,9 +71,7 @@ class TestPermissionsManagerReload:
 
     @patch("lovely_bash_permissions.config.manager.load_permissions_config")
     @patch("lovely_bash_permissions.config.manager.load_devin_exec_regexes")
-    def test_reload_loads_fresh_config(
-        self, mock_devin: MagicMock, mock_lovely: MagicMock, mock_project: Path
-    ) -> None:
+    def test_reload_loads_fresh_config(self, mock_devin: MagicMock, mock_lovely: MagicMock, mock_project: Path) -> None:
         """reload() should load fresh config from disk."""
         mock_lovely.return_value = {"read": {"permission": "ask"}}
         mock_devin.return_value = ["^git"]
@@ -94,9 +90,7 @@ class TestPermissionsManagerReload:
 
     @patch("lovely_bash_permissions.config.manager.load_permissions_config")
     @patch("lovely_bash_permissions.config.manager.load_devin_exec_regexes")
-    def test_reload_clears_errors(
-        self, mock_devin: MagicMock, mock_lovely: MagicMock, mock_project: Path
-    ) -> None:
+    def test_reload_clears_errors(self, mock_devin: MagicMock, mock_lovely: MagicMock, mock_project: Path) -> None:
         """reload() should clear previous errors if config loads successfully."""
         mock_lovely.side_effect = Exception("initial error")
         mock_devin.return_value = []
@@ -139,9 +133,7 @@ class TestPermissionsManagerReload:
 
     @patch("lovely_bash_permissions.config.manager.load_permissions_config")
     @patch("lovely_bash_permissions.config.manager.load_devin_exec_regexes")
-    def test_reload_passes_project_dir(
-        self, mock_devin: MagicMock, mock_lovely: MagicMock, mock_project: Path
-    ) -> None:
+    def test_reload_passes_project_dir(self, mock_devin: MagicMock, mock_lovely: MagicMock, mock_project: Path) -> None:
         """reload() should pass project_dir to loaders."""
         mock_lovely.return_value = {}
         mock_devin.return_value = []
@@ -203,9 +195,7 @@ class TestPermissionsManagerGetMethods:
 
     @patch("lovely_bash_permissions.config.manager.load_permissions_config")
     @patch("lovely_bash_permissions.config.manager.load_devin_exec_regexes")
-    def test_is_valid_and_get_error(
-        self, mock_devin: MagicMock, mock_lovely: MagicMock, mock_project: Path
-    ) -> None:
+    def test_is_valid_and_get_error(self, mock_devin: MagicMock, mock_lovely: MagicMock, mock_project: Path) -> None:
         """is_valid() and get_error() should be consistent."""
         mock_lovely.return_value = {"read": {"permission": "ask"}}
         mock_devin.return_value = []
@@ -225,9 +215,7 @@ class TestPermissionsManagerGetMethods:
 class TestPermissionsManagerEndToEnd:
     """End-to-end tests with real config files."""
 
-    def test_empty_project(
-        self, mock_project: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_empty_project(self, mock_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Empty project (no config files) should be valid with empty config."""
         devin_global = tempfile.mkdtemp()
         monkeypatch.setenv("DEVIN_GLOBAL_CONFIG_DIR", devin_global)
@@ -237,9 +225,7 @@ class TestPermissionsManagerEndToEnd:
         assert manager.get_lovely_config() == {}
         assert manager.get_devin_exec_regexes() == []
 
-    def test_with_lovely_permissions_config(
-        self, mock_project: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_with_lovely_permissions_config(self, mock_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test with a lovely-permissions config file."""
         devin_global = tempfile.mkdtemp()
         monkeypatch.setenv("DEVIN_GLOBAL_CONFIG_DIR", devin_global)

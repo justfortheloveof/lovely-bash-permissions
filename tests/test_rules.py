@@ -79,9 +79,7 @@ def test_blocked_empty_patterns() -> None:
 
 def test_blocked_pattern_matches_part_of_path() -> None:
     """Pattern matches part of path (not anchored)."""
-    assert (
-        check_blocked_patterns("cmd", ["/etc/passwd.backup"], ["/etc/passwd"]) is True
-    )
+    assert check_blocked_patterns("cmd", ["/etc/passwd.backup"], ["/etc/passwd"]) is True
 
 
 # Tests for check_output_redirection

@@ -22,9 +22,7 @@ def _find_line(lines: list[str], substr: str) -> int:
     for i, line in enumerate(lines):
         if substr in line:
             return i
-    raise AssertionError(
-        f"No line containing {substr!r} found in:\n" + "\n".join(lines)
-    )
+    raise AssertionError(f"No line containing {substr!r} found in:\n" + "\n".join(lines))
 
 
 def _assert_adjacent(lines: list[str], cmd_substr: str, redir_substr: str) -> None:
@@ -47,9 +45,8 @@ class TestCliRedirections:
         lines = _lines(capsys)
 
         redir_lines = [line for line in lines if "redirection:" in line]
-        assert len(redir_lines) >= 3, (
-            f"Expected at least 3 redirection lines, got {len(redir_lines)}:\n"
-            + "\n".join(redir_lines)
+        assert len(redir_lines) >= 3, f"Expected at least 3 redirection lines, got {len(redir_lines)}:\n" + "\n".join(
+            redir_lines
         )
 
         _assert_adjacent(lines, "cmd: cmd2", "redirection: > 2")
@@ -60,13 +57,10 @@ class TestCliRedirections:
         idx_3 = _find_line(lines, "redirection: > 3")
         idx_cmdsub = _find_line(lines, "redirection: > $(...)")
         assert idx_2 < idx_3 < idx_cmdsub, (
-            f"Redirections out of order: > 2 at {idx_2}, "
-            f"> 3 at {idx_3}, > $(...) at {idx_cmdsub}"
+            f"Redirections out of order: > 2 at {idx_2}, > 3 at {idx_3}, > $(...) at {idx_cmdsub}"
         )
 
-    def test_two_segment_both_redirected(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+    def test_two_segment_both_redirected(self, capsys: pytest.CaptureFixture[str]) -> None:
         """2-segment pipe with both segments redirected."""
         main(["--string", "cmd2 > 2 | cmd3 > 3"])
         lines = _lines(capsys)
@@ -78,9 +72,7 @@ class TestCliRedirections:
         idx_r3 = _find_line(lines, "redirection: > 3")
         assert idx_r2 < idx_r3
 
-    def test_three_segment_left_nested_all_redirected(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+    def test_three_segment_left_nested_all_redirected(self, capsys: pytest.CaptureFixture[str]) -> None:
         """3-segment left-nested pipe with all segments redirected."""
         main(["--string", "a > 1 | b > 2 | c > 3"])
         lines = _lines(capsys)
@@ -94,9 +86,7 @@ class TestCliRedirections:
         idx_3 = _find_line(lines, "redirection: > 3")
         assert idx_1 < idx_2 < idx_3
 
-    def test_middle_segment_redirection(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+    def test_middle_segment_redirection(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Middle-segment redirection renders next to its command."""
         main(["--string", "cmd1 | cmd2 > f | cmd3"])
         lines = _lines(capsys)
@@ -108,13 +98,9 @@ class TestCliRedirections:
         for i in range(cmd3_idx + 1, min(cmd3_idx + 3, len(lines))):
             if "redirection:" in lines[i]:
                 redir_after_cmd3 = True
-        assert not redir_after_cmd3, (
-            f"cmd3 should have no redirection, but found one at line {i}: {lines[i]}"
-        )
+        assert not redir_after_cmd3, f"cmd3 should have no redirection, but found one at line {i}: {lines[i]}"
 
-    def test_adjacency_helper_contract(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+    def test_adjacency_helper_contract(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Verify the adjacency helper catches misplacement (self-test)."""
         main(["--string", "x > xout | y > yout"])
         lines = _lines(capsys)

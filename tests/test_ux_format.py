@@ -61,10 +61,7 @@ class TestSetupOutputFormat:
 
             output = captured.getvalue()
             # Exact format from TypeScript:
-            assert (
-                'The Devin permission "Exec(: \'[♡ perms:)" is already present in'
-                in output
-            )
+            assert 'The Devin permission "Exec(: \'[♡ perms:)" is already present in' in output
 
 
 class TestPreToolUseResponseFormat:
@@ -98,13 +95,8 @@ class TestPreToolUseResponseFormat:
                 # TypeScript format: "[♡ perms: 💚 auto-approved]
                 #  command matches allowed pattern ^git"
                 cmd = response["hookSpecificOutput"]["updatedInput"]["command"]
-                assert cmd.startswith(
-                    ": '[♡ perms: 💚 auto-approved] command matches allowed pattern"
-                )
-                assert (
-                    "git status"
-                    in response["hookSpecificOutput"]["updatedInput"]["command"]
-                )
+                assert cmd.startswith(": '[♡ perms: 💚 auto-approved] command matches allowed pattern")
+                assert "git status" in response["hookSpecificOutput"]["updatedInput"]["command"]
 
     def test_deny_label_format(self) -> None:
         """Deny response should have the exact label format."""
@@ -120,9 +112,7 @@ class TestPreToolUseResponseFormat:
 
             with patch.dict(os.environ, {"DEVIN_GLOBAL_CONFIG_DIR": devin_dir}):
                 lovely_config = load_permissions_config(devin_dir)
-                config = get_effective_bash_config(
-                    lovely_config.get("bash", {}), devin_dir
-                )
+                config = get_effective_bash_config(lovely_config.get("bash", {}), devin_dir)
                 result = evaluate_bash_command("curl https://example.com", config)
                 assert result["status"] == "deny"
                 assert "Blocked by bash permissions" in result["reason"]
@@ -141,14 +131,8 @@ class TestPreToolUseResponseFormat:
                 response = generate_hook_response(event, result)
 
                 # TypeScript format: "[♡ perms: ❤️ auto-rejected]"
-                assert (
-                    ": '[♡ perms: ❤️ auto-rejected]"
-                    in response["hookSpecificOutput"]["updatedInput"]["command"]
-                )
-                assert (
-                    "curl https://example.com"
-                    in response["hookSpecificOutput"]["updatedInput"]["command"]
-                )
+                assert ": '[♡ perms: ❤️ auto-rejected]" in response["hookSpecificOutput"]["updatedInput"]["command"]
+                assert "curl https://example.com" in response["hookSpecificOutput"]["updatedInput"]["command"]
 
     def test_ask_label_format(self) -> None:
         """Ask response should have the exact label format."""
@@ -208,9 +192,7 @@ class TestEvaluateReasonFormats:
 
             with patch.dict(os.environ, {"DEVIN_GLOBAL_CONFIG_DIR": devin_dir}):
                 lovely_config = load_permissions_config(devin_dir)
-                config = get_effective_bash_config(
-                    lovely_config.get("bash", {}), devin_dir
-                )
+                config = get_effective_bash_config(lovely_config.get("bash", {}), devin_dir)
                 result = evaluate_bash_command("curl https://example.com", config)
                 # TypeScript: "Blocked by bash permissions: ...
                 #  The tool has not been run."
@@ -232,9 +214,7 @@ class TestEvaluateReasonFormats:
                 config = get_effective_bash_config(None, devin_dir)
                 result = evaluate_bash_command("ls", config)
                 # TypeScript: '"ls" command does not match allowed patterns'
-                assert (
-                    '"ls" command does not match allowed patterns' in result["reason"]
-                )
+                assert '"ls" command does not match allowed patterns' in result["reason"]
 
 
 class TestPermissionRequestResponse:
@@ -277,9 +257,7 @@ class TestPermissionRequestResponse:
 
             with patch.dict(os.environ, {"DEVIN_GLOBAL_CONFIG_DIR": devin_dir}):
                 lovely_config = load_permissions_config(devin_dir)
-                config = get_effective_bash_config(
-                    lovely_config.get("bash", {}), devin_dir
-                )
+                config = get_effective_bash_config(lovely_config.get("bash", {}), devin_dir)
                 result = evaluate_bash_command("curl https://example.com", config)
                 # TypeScript: reason includes "[♡ perms: ❤️ auto-rejected]"
                 assert result["status"] == "deny"

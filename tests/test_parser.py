@@ -167,9 +167,7 @@ class TestComplexCommands:
     """Test complex command parsing."""
 
     def test_complex_pipeline(self) -> None:
-        tree = parse_ast(
-            'cat data.csv | grep pattern | awk "{print $1}" | sort -u > results.txt'
-        )
+        tree = parse_ast('cat data.csv | grep pattern | awk "{print $1}" | sort -u > results.txt')
         commands = get_commands(tree)
         assert "cat" in commands
         assert "grep" in commands
@@ -199,9 +197,7 @@ class TestComplexCommands:
 
     def test_long_command(self) -> None:
         tree = parse_ast(
-            "tar -czvf archive.tar.gz "
-            '$(find . -name "*.py" -not -path "./.venv/*" '
-            '-not -path "./tests/*")'
+            'tar -czvf archive.tar.gz $(find . -name "*.py" -not -path "./.venv/*" -not -path "./tests/*")'
         )
         assert get_commands(tree) == ["tar", "find"]
         assert has_variable(tree)
@@ -1222,10 +1218,7 @@ class TestBlockNodes:
         assert cmd.type == "Block"
         inner_stmt = cmd.stmts[0]
         assert inner_stmt.cmd.args[1].parts[0].type == "CmdSubst"
-        assert (
-            inner_stmt.cmd.args[1].parts[0].stmts[0].cmd.args[0].parts[0].value
-            == "date"
-        )
+        assert inner_stmt.cmd.args[1].parts[0].stmts[0].cmd.args[0].parts[0].value == "date"
 
     def test_block_if_inside(self) -> None:
         """Parse { if true; then echo 'yes'; fi; } with if statement inside Block."""

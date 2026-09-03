@@ -47,10 +47,7 @@ class TestBinaryPerSideRedirs:
         assert inner.right_redirs[0].word.parts[0].value == "2"
 
         merged_targets = [
-            r.word.parts[0].value
-            for node in (inner, outer)
-            if isinstance(node, BinaryCmd)
-            for r in node.redirs
+            r.word.parts[0].value for node in (inner, outer) if isinstance(node, BinaryCmd) for r in node.redirs
         ]
         assert "1" in merged_targets
         assert "2" in merged_targets

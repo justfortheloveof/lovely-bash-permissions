@@ -110,12 +110,7 @@ def _extract_segments(node: object) -> list[dict]:
     # Handle raw shfmt JSON nodes
     elif isinstance(node, dict):
         node_type = node.get("Type", "")
-        if (
-            node_type == "BinaryCmd"
-            and node.get("Op") in ("|", "|&")
-            or node_type == "AndCmd"
-            or node_type == "OrCmd"
-        ):
+        if node_type == "BinaryCmd" and node.get("Op") in ("|", "|&") or node_type == "AndCmd" or node_type == "OrCmd":
             segments.extend(_extract_segments(node.get("X")))
             segments.extend(_extract_segments(node.get("Y")))
         elif node_type == "CallExpr":

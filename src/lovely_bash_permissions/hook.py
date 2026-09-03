@@ -24,9 +24,7 @@ def handle_load_error(err: Exception) -> dict[str, Any]:
     return {"action": "block", "reason": str(err)}
 
 
-def generate_hook_response(
-    event: dict[str, Any], decision: dict[str, Any]
-) -> dict[str, Any] | None:
+def generate_hook_response(event: dict[str, Any], decision: dict[str, Any]) -> dict[str, Any] | None:
     """Generate hook response JSON for agent tool permission events.
 
     Args:
@@ -51,11 +49,7 @@ def generate_hook_response(
         if tool_name != "exec" or not command:
             return None
         if action == "allow":
-            label = (
-                f"[♡ perms: 💚 auto-approved] {reason}"
-                if reason
-                else "[♡ perms: 💚 auto-approved]"
-            )
+            label = f"[♡ perms: 💚 auto-approved] {reason}" if reason else "[♡ perms: 💚 auto-approved]"
             return {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
@@ -74,9 +68,7 @@ def generate_hook_response(
             }
         elif action == "ask":
             label = (
-                f"[♡ perms: 💛 REQUIRES-USER-APPROVAL] {reason}"
-                if reason
-                else "[♡ perms: 💛 REQUIRES-USER-APPROVAL]"
+                f"[♡ perms: 💛 REQUIRES-USER-APPROVAL] {reason}" if reason else "[♡ perms: 💛 REQUIRES-USER-APPROVAL]"
             )
             return {
                 "hookSpecificOutput": {
@@ -91,11 +83,7 @@ def generate_hook_response(
         if action == "allow":
             return {"decision": "approve"}
         elif action == "block":
-            label = (
-                f"[♡ perms: ❤️ auto-rejected] {reason}"
-                if reason
-                else "[♡ perms: ❤️ auto-rejected]"
-            )
+            label = f"[♡ perms: ❤️ auto-rejected] {reason}" if reason else "[♡ perms: ❤️ auto-rejected]"
             return {"decision": "block", "reason": label}
         elif action == "ask":
             return None

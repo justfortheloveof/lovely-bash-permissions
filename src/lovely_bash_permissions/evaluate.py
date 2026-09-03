@@ -134,14 +134,9 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict:
             if matched_patterns:
                 segment_result["allowed"] = True
                 if len(matched_patterns) == 1:
-                    reasons.append(
-                        f"command matches allowed pattern {matched_patterns[0]}"
-                    )
+                    reasons.append(f"command matches allowed pattern {matched_patterns[0]}")
                 else:
-                    reasons.append(
-                        f"command matches allowed patterns "
-                        f"{', '.join(matched_patterns)}"
-                    )
+                    reasons.append(f"command matches allowed patterns {', '.join(matched_patterns)}")
             else:
                 segment_result["allowed"] = False
                 any_segment_not_allowed = True
@@ -155,9 +150,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict:
                 segment_result["blocked"] = True
                 overall_status = "deny"
                 reasons.append(
-                    f"Blocked by bash permissions: "
-                    f'"{cmd_name}" matches blocked patterns. '
-                    "The tool has not been run."
+                    f'Blocked by bash permissions: "{cmd_name}" matches blocked patterns. The tool has not been run.'
                 )
             else:
                 segment_result["blocked"] = False
@@ -193,17 +186,13 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict:
 
     # Commands not matching allowed patterns require approval
     if allowed_patterns and any_segment_not_allowed:
-        non_matching = [
-            seg["command"] for seg in segment_results if not seg.get("allowed", True)
-        ]
+        non_matching = [seg["command"] for seg in segment_results if not seg.get("allowed", True)]
         if non_matching:
             names = [f'"{name}"' for name in non_matching]
             if len(non_matching) == 1:
                 reasons.append(f"{names[0]} command does not match allowed patterns")
             else:
-                reasons.append(
-                    f"{', '.join(names)} commands do not match allowed patterns"
-                )
+                reasons.append(f"{', '.join(names)} commands do not match allowed patterns")
         if overall_status == "allow":
             overall_status = wildcard
 
@@ -214,12 +203,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict:
         reasons.append("command substitution detected")
 
     # If no specific rules matched, apply wildcard policy
-    if (
-        not allowed_patterns
-        and not blocked_patterns
-        and overall_status == "allow"
-        and wildcard != "allow"
-    ):
+    if not allowed_patterns and not blocked_patterns and overall_status == "allow" and wildcard != "allow":
         overall_status = wildcard
         reasons.append(f"wildcard policy is {wildcard}")
 

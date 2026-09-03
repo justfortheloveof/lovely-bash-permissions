@@ -127,9 +127,7 @@ def _traverse(
         current = stack.pop()
         visitor(current)
         # Reverse so that children are visited in natural order
-        children = list(
-            iter_children(current, include_call_args=recurse_call_expr_args)
-        )
+        children = list(iter_children(current, include_call_args=recurse_call_expr_args))
         stack.extend(reversed(children))
 
 

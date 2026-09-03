@@ -24,9 +24,7 @@ class TestFindCommands:
         assert len(commands) == 2
 
     def test_complex_pipeline(self) -> None:
-        commands = find_commands(
-            parse_ast('cat data.csv | grep pattern | awk "{print $1}" | sort -u')
-        )
+        commands = find_commands(parse_ast('cat data.csv | grep pattern | awk "{print $1}" | sort -u'))
         assert len(commands) == 4
 
     def test_no_commands(self) -> None:
@@ -117,9 +115,7 @@ class TestIntegration:
     """Integration tests combining multiple inspection methods."""
 
     def test_complex_command(self) -> None:
-        command = (
-            'cat data.csv | grep pattern | awk "{print $1}" | sort -u > results.txt'
-        )
+        command = 'cat data.csv | grep pattern | awk "{print $1}" | sort -u > results.txt'
         tree = parse_ast(command)
 
         commands = get_commands(tree)

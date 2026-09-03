@@ -48,10 +48,7 @@ def _node_repr(obj: object, depth: int = 1) -> str:
         if val is None or val == "" or val == []:
             continue
         if isinstance(val, list):
-            items = ", ".join(
-                _node_repr(v, depth - 1) if dataclasses.is_dataclass(v) else repr(v)
-                for v in val
-            )
+            items = ", ".join(_node_repr(v, depth - 1) if dataclasses.is_dataclass(v) else repr(v) for v in val)
             parts.append(f"{f.name}=[{items}]")
         elif dataclasses.is_dataclass(val):
             parts.append(f"{f.name}={_node_repr(val, depth - 1)}")
@@ -185,11 +182,7 @@ class DblQuoted(Node):
         if self.value is None and self.parts:
             vals: list[str] = []
             for p in self.parts:
-                if (
-                    isinstance(p, (Lit, SglQuoted))
-                    or isinstance(p, DblQuoted)
-                    and p.value is not None
-                ):
+                if isinstance(p, (Lit, SglQuoted)) or isinstance(p, DblQuoted) and p.value is not None:
                     vals.append(p.value)
                 else:
                     vals.append("")

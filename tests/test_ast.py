@@ -126,8 +126,7 @@ class TestAllExports:
         namespace = {
             name
             for name in dir(lovely_bash_permissions)
-            if not name.startswith("_")
-            and not isinstance(getattr(lovely_bash_permissions, name), types.ModuleType)
+            if not name.startswith("_") and not isinstance(getattr(lovely_bash_permissions, name), types.ModuleType)
         }
         missing_from_all = namespace - all_set
         extra_in_all = all_set - namespace
