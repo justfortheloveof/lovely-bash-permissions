@@ -106,7 +106,7 @@ def handle_test(command: str) -> None:
     if response is None:
         print("No response generated for the test command")
         sys.exit(0)
-    print(json.dumps(response, indent=2))
+    print(json.dumps(response, indent=2, ensure_ascii=False))
     sys.exit(0 if result.get("action") != "block" else 2)
 
 
@@ -197,7 +197,7 @@ def main() -> None:
 
         response = handle_hook_event(event)
         if response is not None:
-            print(json.dumps(response))
+            print(json.dumps(response, ensure_ascii=False))
         sys.exit(0)
 
 
