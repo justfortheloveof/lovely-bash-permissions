@@ -1,0 +1,164 @@
+"""
+Permission evaluation for bash commands.
+
+This module provides the :func:`evaluate_bash_command` function, which
+parses a bash command, extracts command segments, and evaluates each
+segment against a permission configuration to determine whether to
+allow, ask for approval, or deny the command.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from .parser import parse
+from .rules import (
+    check_allowed_patterns,
+    check_background_execution,
+    check_blocked_patterns,
+    check_input_redirection,
+    check_output_redirection,
+)
+from .segments import parse_segments
+
+
+def _has_cmd_subst(tree: dict[str, Any]) -> bool:
+    """Check if the AST contains any command substitution.
+
+    Traverses the raw shfmt AST and returns True if any Word contains
+    a CmdSubst or ProcSubst part.
+    """
+
+    def visit(node: Any) -> bool:
+        if not isinstance(node, dict):
+            return False
+        node_type = node.get("Type", "")
+        if node_type == "Word":
+            for part in node.get("Parts", []):
+                if part.get("Type") in ("CmdSubst", "ProcSubst"):
+                    return True
+        for value in node.values():
+            if isinstance(value, dict):
+                if visit(value):
+                    return True
+            elif isinstance(value, list):
+                for item in value:
+                    if isinstance(item, dict) and visit(item):
+                        return True
+        return False
+
+    return visit(tree)
+
+
+def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict:
+    """Evaluate a bash command against a permission configuration.
+
+    Parses the command using shfmt, extracts command segments, and
+    evaluates each segment against rules from the configuration.
+    Aggregates results:
+        - All segments allowed -> return allow
+        - Any segment denied -> return deny
+        - Any segment asks -> return ask
+
+    Args:
+        command: The bash command to evaluate.
+        config: Permission configuration dict with keys:
+            - 'allowed_cmds_regex': list of regex patterns for allowed commands
+            - 'blocked_paths_regex': list of regex patterns for blocked paths
+            - 'output_redirection': allow/ask/deny policy
+            - 'input_redirection': allow/ask/deny policy
+            - 'background_execution': allow/ask/deny policy
+            - Other policy keys from devin config
+
+    Returns:
+        dict with keys:
+            - 'status': 'allow', 'ask', or 'deny'
+            - 'reason': human-readable explanation
+            - 'segments': list of per-segment results
+    """
+    # Extract rules from config
+    allowed_patterns = config.get("allowed_cmds_regex", [])
+    blocked_patterns = config.get("blocked_paths_regex", [])
+
+    rules = {
+        "output_redirection": config.get("output_redirection", "allow"),
+        "input_redirection": config.get("input_redirection", "allow"),
+        "background_execution": config.get("background_execution", "allow"),
+    }
+
+    # Parse the command to check for command substitution
+    raw_tree = parse(command)
+    has_subshell = _has_cmd_subst(raw_tree)
+
+    # Extract segments
+    segments = parse_segments(command)
+
+    # Evaluate each segment
+    segment_results = []
+    overall_status = "allow"
+    reasons = []
+
+    for i, segment in enumerate(segments):
+        cmd_name = segment.get("command", "")
+        args = segment.get("arguments", [])
+        segment_result = {"index": i, "command": cmd_name, "args": args}
+
+        # Check allowed patterns
+        if allowed_patterns:
+            if check_allowed_patterns(cmd_name, allowed_patterns):
+                segment_result["allowed"] = True
+                reasons.append(f'command "{cmd_name}" matches allowed pattern')
+            else:
+                segment_result["allowed"] = False
+                reasons.append(f'command "{cmd_name}" does not match allowed patterns')
+        else:
+            segment_result["allowed"] = True
+
+        # Check blocked patterns
+        if blocked_patterns:
+            if check_blocked_patterns(args, blocked_patterns):
+                segment_result["blocked"] = True
+                reasons.append("command arguments match blocked paths")
+            else:
+                segment_result["blocked"] = False
+        else:
+            segment_result["blocked"] = False
+
+        segment_results.append(segment_result)
+
+    # Check redirection rules
+    output_result = check_output_redirection(raw_tree, rules)
+    if output_result["status"] == "deny":
+        overall_status = "deny"
+        reasons.append(f"output redirection denied: {output_result['reason']}")
+    elif output_result["status"] == "ask" and overall_status == "allow":
+        overall_status = "ask"
+        reasons.append(output_result["reason"])
+
+    input_result = check_input_redirection(raw_tree, rules)
+    if input_result["status"] == "deny":
+        overall_status = "deny"
+        reasons.append(f"input redirection denied: {input_result['reason']}")
+    elif input_result["status"] == "ask" and overall_status == "allow":
+        overall_status = "ask"
+        reasons.append(input_result["reason"])
+
+    bg_result = check_background_execution(raw_tree, rules)
+    if bg_result["status"] == "deny":
+        overall_status = "deny"
+        reasons.append(f"background execution denied: {bg_result['reason']}")
+    elif bg_result["status"] == "ask" and overall_status == "allow":
+        overall_status = "ask"
+        reasons.append(bg_result["reason"])
+
+    # Command substitution requires approval
+    if has_subshell:
+        if overall_status == "allow":
+            overall_status = "ask"
+        reasons.append("command substitution detected")
+
+    return {
+        "status": overall_status,
+        "reason": "; ".join(reasons) if reasons else "command is allowed",
+        "segments": segment_results,
+    }
