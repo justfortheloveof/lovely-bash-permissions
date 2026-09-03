@@ -1,26 +1,39 @@
-# Plan:
+# Plan: [x] Fix unicode escaping in JSON output (ensure_ascii=False)
 
 ## Objective
 
-We MUST fix this issue, where what gets added to the config file has an escaped unicode char instead of the char itself.
+Look at our previous commit where we fixed a ASCII issue with json dump, we seemingly have the same or a related issue with the hook output, where I want the actual unicode chars, not the escaped ones.
 
 This is how I reproduced the issue:
 
 ```
-❯ rm ~/.config/devin/config.json
-
-❯ cat ~/.config/devin/config.json
-cat: /home/alx/.config/devin/config.json: No such file or directory
-
-✗ uv run lovely-devin-permissions -s
-Added "Exec(: '[♡ perms:)" to /home/alx/.config/devin/config.json so Devin auto-approves the hook's ":" no-op label
-
-❯ cat ~/.config/devin/config.json
+lovely-bash-permissions devin-cli ❯ uv run lovely-devin-permissions --test 'git log --help ; echo hello'
 {
-  "permissions": {
-    "allow": [
-      "Exec(: '[\u2661 perms:)"
-    ]
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "updatedInput": {
+      "command": ": '[\u2661 perms: \ud83d\udc9a auto-approved] command matches allowed pattern ^git\\s+(?!.*--output\\b)(-C\\s+[\\w./\\\\-]+\\s+)?(log|diff|status|show|ls-files|ls-tree)(\\s+.*)?$; command matches allowed pattern ^echo(\\s+.*)?$' ; git log --help ; echo hello"
+    }
+  }
+}
+
+lovely-bash-permissions devin-cli ❯ uv run lovely-devin-permissions --test 'rm'
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "updatedInput": {
+      "command": ": '[\u2661 perms: \ud83d\udc9b REQUIRES-USER-APPROVAL] \"rm\" command does not match allowed patterns; \"rm\" command does not match allowed patterns' ; rm"
+    }
+  }
+}
+
+lovely-bash-permissions devin-cli ❯ uv run lovely-devin-permissions --test 'ls /etc/'
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "updatedInput": {
+      "command": ": '[\u2661 perms: \ud83d\udc9a auto-approved] command matches allowed pattern ^ls(\\s+.*)?$' ; ls /etc/"
+    }
   }
 }
 ```
