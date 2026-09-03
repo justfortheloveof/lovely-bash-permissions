@@ -4,9 +4,7 @@
 
 Identify the top 10 issues to fix in our code — start with the most obvious mistakes or errors or inconsistencies. Then spawn agents to fix them. The list of issues should not grow larger than 100.
 
-## Status: Pass 8 — Complete. All previously-known issues fixed.
-
-461 tests pass. All 12 known issues resolved.
+## Status: Pass 9 — Complete. All TS/Python parity issues resolved.
 
 [x] Scan for remaining issues — Complete. No remaining issues found; project is complete.
 
@@ -36,5 +34,4 @@ Identify the top 10 issues to fix in our code — start with the most obvious mi
 ### Fixed (pass 6)
 11. [x] **Output redirection not asking for approval in pipes** — fixed `check_output/input/background` functions to recursively walk AST (BinaryCmd.X/Y operands); added 11 regression tests.
 
-### Fixed (pass 7)
-12. [x] **Bug between TS and Python — list matching regexes joined (TS does it, Python repeats per command)** — Python now collects matched patterns across all segments and produces one joined reason string, matching TS `summarizeCommandMatches`.
+12. [x] **Bug between TS and Python — list matching regexes joined** — fixed: allow now produces one "command matches allowed patterns" string; added `decision` field to response for approve/block cases (matching TS).

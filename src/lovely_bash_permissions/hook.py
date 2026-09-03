@@ -39,10 +39,11 @@ def generate_hook_response(event: dict[str, Any], decision: dict[str, Any]) -> d
         if action == "allow":
             label = f"[♡ perms: 💚 auto-approved] {reason}" if reason else "[♡ perms: 💚 auto-approved]"
             return {
+                "decision": "approve",
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
                     "updatedInput": {"command": f": '{label}' ; {command}"},
-                }
+                },
             }
         elif action == "block":
             label = "[♡ perms: ❤️ auto-rejected]"
