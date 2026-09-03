@@ -34,18 +34,18 @@ class TestAllowedPatterns:
     """Tests for allowed_cmds_regex evaluation."""
 
     def test_allowed_pattern_matches(self):
-        """Command matches allowed pattern -> allow."""
+        """Command name only matches -> ask (no args pattern)."""
         result = evaluate_bash_command(
             "ls -la",
-            make_config(allowed=["^ls$", "^cat$"]),
+            make_config(allowed=["^ls$"]),
         )
-        assert result["status"] == "allow"
+        assert result["status"] == "ask"
 
     def test_allowed_pattern_no_match(self):
         """Command doesn't match any allowed pattern -> ask."""
         result = evaluate_bash_command(
             "rm -rf /",
-            make_config(allowed=["^ls$", "^cat$"]),
+            make_config(allowed=["^ls", "^cat"]),
         )
         assert result["status"] == "ask"
 
@@ -55,18 +55,44 @@ class TestAllowedPatterns:
         assert result["status"] == "allow"
 
     def test_multiple_commands_one_allowed(self):
-        """Multiple commands, one matches -> allow."""
+        """Multiple commands, one matches by name only -> ask."""
         result = evaluate_bash_command(
             "ls && cat file.txt",
-            make_config(allowed=["^ls$", "^cat$"]),
+            make_config(allowed=["^ls", "^notcat"]),
         )
-        assert result["status"] == "allow"
+        assert result["status"] == "ask"
 
     def test_multiple_commands_none_allowed(self):
         """Multiple commands, none match -> ask."""
         result = evaluate_bash_command(
             "rm -rf / && echo done",
-            make_config(allowed=["^ls$", "^cat$"]),
+            make_config(allowed=["^ls", "^cat"]),
+        )
+        assert result["status"] == "ask"
+
+    def test_allowed_pattern_full_command_line(self):
+        """Allowed pattern should match full command line including args.
+
+        Bug: patterns like ^git\\s+(log|diff|status)(\\s+.*)?$ match "git log"
+        but not just the command name "git". The Python implementation was
+        matching patterns against cmd_name only, not the full command line.
+        """
+        # This pattern should match "git log" but not "git"
+        result = evaluate_bash_command(
+            "git log",
+            make_config(allowed=["^git\\s+(log|diff|status)(\\s+.*)?$"]),
+        )
+        assert result["status"] == "allow"
+
+    def test_allowed_pattern_mismatch_full_command_line(self):
+        """Pattern requiring args should not match bare command name.
+
+        The pattern ^git\\s+log$ requires the full "git log" command,
+        so bare "git" should not match.
+        """
+        result = evaluate_bash_command(
+            "git",
+            make_config(allowed=["^git\\s+log$"]),
         )
         assert result["status"] == "ask"
 
@@ -124,10 +150,10 @@ class TestAggregation:
     """Tests for combined allow/deny/ask aggregation."""
 
     def test_all_allowed(self):
-        """All segments allowed -> allow."""
+        """All segments allowed by full command match -> allow."""
         result = evaluate_bash_command(
-            "ls && cat file.txt",
-            make_config(allowed=["^ls$", "^cat$"]),
+            "ls -la && cat file.txt",
+            make_config(allowed=["^ls\\s+-la", "^cat\\s+file.txt"]),
         )
         assert result["status"] == "allow"
 
@@ -151,7 +177,7 @@ class TestAggregation:
         """Some allowed, some asking -> ask."""
         result = evaluate_bash_command(
             "ls && rm -rf /",
-            make_config(allowed=["^ls$"]),
+            make_config(allowed=["^ls"]),
         )
         assert result["status"] == "ask"
 
@@ -172,10 +198,10 @@ class TestAggregation:
         assert result["status"] == "deny"
 
     def test_allowed_overrides_asking(self):
-        """Allowed overrides ask in aggregation."""
+        """Allowed overrides ask in aggregation (full command match)."""
         result = evaluate_bash_command(
             "ls && rm -rf /",
-            make_config(allowed=["^ls$", "^rm$"]),
+            make_config(allowed=["^ls", "^rm\\s+-rf\\s+/"]),
         )
         assert result["status"] == "allow"
 
@@ -201,7 +227,7 @@ class TestWildcardPolicy:
     def test_wildcard_with_explicit_allow(self):
         """Wildcard ask but command explicitly allowed -> allow."""
         result = evaluate_bash_command(
-            "ls", make_config(allowed=["^ls$"], wildcard="ask")
+            "ls", make_config(allowed=["^ls"], wildcard="ask")
         )
         assert result["status"] == "allow"
 
@@ -221,7 +247,7 @@ class TestSubshellHandling:
         """Subshell should be detected in command substitution."""
         result = evaluate_bash_command(
             "cat $(ls)",
-            make_config(allowed=["^cat$", "^ls$"]),
+            make_config(allowed=["^cat", "^ls"]),
         )
         # Subshell adds complexity but commands are allowed
         assert result["status"] in ["allow", "ask"]
@@ -230,7 +256,7 @@ class TestSubshellHandling:
         """Nested command substitution."""
         result = evaluate_bash_command(
             "echo $(cat $(ls))",
-            make_config(allowed=["^echo$", "^cat$", "^ls$"]),
+            make_config(allowed=["^echo", "^cat", "^ls"]),
         )
         assert result["status"] in ["allow", "ask"]
 
@@ -259,38 +285,38 @@ class TestEdgeCases:
 
     def test_single_command(self):
         """Single command."""
-        result = evaluate_bash_command("ls", make_config(allowed=["^ls$"]))
+        result = evaluate_bash_command("ls", make_config(allowed=["^ls"]))
         assert result["status"] == "allow"
 
     def test_multiple_arguments(self):
-        """Multiple arguments."""
+        """Multiple arguments (full command match)."""
         result = evaluate_bash_command(
             "ls -la /etc",
-            make_config(allowed=["^ls$"]),
+            make_config(allowed=["^ls\\s+-la\\s+/etc"]),
         )
         assert result["status"] == "allow"
 
     def test_quoted_arguments(self):
-        """Quoted arguments."""
+        """Quoted arguments (full command match)."""
         result = evaluate_bash_command(
             "echo 'hello world'",
-            make_config(allowed=["^echo$"]),
+            make_config(allowed=["^echo\\s+'hello\\s+world'"]),
         )
         assert result["status"] == "allow"
 
     def test_variables(self):
-        """Shell variables."""
+        """Shell variables (full command match)."""
         result = evaluate_bash_command(
             "ls $HOME",
-            make_config(allowed=["^ls$"]),
+            make_config(allowed=["^ls\\s+\\$HOME"]),
         )
         assert result["status"] == "allow"
 
     def test_complex_pipeline(self):
-        """Complex pipeline with multiple rules."""
+        """Complex pipeline with multiple rules (full command match)."""
         result = evaluate_bash_command(
             "ls | grep foo | head",
-            make_config(allowed=["^ls$", "^grep$", "^head$"]),
+            make_config(allowed=["^ls", "^grep\\s+foo", "^head"]),
         )
         assert result["status"] == "allow"
 

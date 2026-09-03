@@ -115,13 +115,21 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict:
         args = segment.get("arguments", [])
         segment_result = {"index": i, "command": cmd_name, "args": args}
 
-        # Check allowed patterns
+        # Check allowed patterns against the full command line
         if allowed_patterns:
             matched_patterns = []
             import re
 
+            if len(segments) == 1:
+                # Single command: use raw command text (preserves quotes)
+                full_command = command.strip()
+            else:
+                # Multiple segments: use reconstructed text
+                full_command = cmd_name
+                if args:
+                    full_command = " ".join([cmd_name] + args)
             for pattern in allowed_patterns:
-                if re.match(pattern, cmd_name):
+                if re.match(pattern, full_command):
                     matched_patterns.append(pattern)
             if matched_patterns:
                 segment_result["allowed"] = True
