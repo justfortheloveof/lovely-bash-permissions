@@ -1,36 +1,16 @@
-# Plan: Align Python implementation with TypeScript reference (lovely-devin-permissions)
+# Plan: Comply with ruff check config
 
 ## Objective
 
-We have a bug in lovely-devin-permissions with allowed_cmds_regex not being parsed as expected.
+We need to comply with `ruff check`'s current configuration and ensure that running: `uv run ruff check` passes with 0 warnings or errors.
 
-You can reproduce the issue by running:
+We must also ensure that we do not break or change any behavior by confirming the tests still pass after any change by running: `uv run pytest --ignore tests/test_ruff.py`
 
-```
-uv run lovely-devin-permissions --test 'echo'  # accepted as expected
-uv run lovely-devin-permissions --test 'git log'  # requires user approval but should match global config allowed_cmds_regex
-```
-
+Once and only once the above is clean, all tests, including ruff, should also pass: `uv run pytest`
 
 ### Workflow
 
-Spawn agents to investigate the issues and make the appropriate changes.
-You must give the smallest work item possible to agents, and spawn as many of them as you need, sequentially.
-When an agent finishes, update this PLAN.md file's Findings and Changes sections accordinly. We need to be able to resume work on this by simply reading this file.
-
-## Findings
-
-The bug is in `src/lovely_bash_permissions/evaluate.py`. The function `evaluate_bash_command()` was matching `allowed_cmds_regex` patterns against the command name only (`cmd_name`), but the TypeScript reference and user config expect patterns to match the FULL command line including arguments. For example, `git log` should match `^git\s+(log|diff|status)...` from the global config, but the Python code only checked `^git$` against the command name "git".
-
-## Changes
-
-- **Modified**: `src/lovely_bash_permissions/evaluate.py` - Changed allowed pattern matching from `re.match(pattern, cmd_name)` to `re.match(pattern, full_command)` where `full_command` is the command name plus all arguments joined with spaces.
-- **Added**: 2 new test cases in `tests/test_evaluate.py` (`test_allowed_pattern_full_command_line` and `test_allowed_pattern_mismatch_full_command_line`) to verify the fix.
-- **Updated**: Multiple existing test cases in `tests/test_evaluate.py` to use the corrected behavior with full-command-line matching patterns.
-- **Modified**: `src/lovely_bash_permissions/evaluate.py` - For single-command segments, use the raw command text (preserving quotes) for allowed pattern matching. For multiple segments (pipelines, etc.), continue using reconstructed text. This ensures quoted argument patterns like `^echo\s+'hello\s+world'` match correctly.
-
-**Current status**: All 450 tests pass (including `test_quoted_arguments`).
-
-**Next steps**: 
-1. Verify that `uv run lovely-devin-permissions --test 'git log'` passes with the global config allowed_cmds_regex
-2. Run the full test suite with any remaining edge cases
+You are the orchestrator and you MUST spawn agents to investigate the issues and make the appropriate changes.
+You MUST NOT make the changes yourself.
+You must give the smallest work item possiblessible to agents, and spawn as many of them as you need, sequentially.
+When an agent finishes verify and commit its changes and spawn another agent to fix the next ruff reported issue.
