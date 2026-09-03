@@ -95,7 +95,8 @@ class TestPreToolUseResponseFormat:
                 result = process_hook_event(event)
                 response = generate_hook_response(event, result)
 
-                # TypeScript format: "[♡ perms: 💚 auto-approved] command matches allowed pattern ^git"
+                # TypeScript format: "[♡ perms: 💚 auto-approved]
+                #  command matches allowed pattern ^git"
                 cmd = response["hookSpecificOutput"]["updatedInput"]["command"]
                 assert cmd.startswith(
                     ": '[♡ perms: 💚 auto-approved] command matches allowed pattern"
@@ -211,7 +212,8 @@ class TestEvaluateReasonFormats:
                     lovely_config.get("bash", {}), devin_dir
                 )
                 result = evaluate_bash_command("curl https://example.com", config)
-                # TypeScript: "Blocked by bash permissions: ... The tool has not been run."
+                # TypeScript: "Blocked by bash permissions: ...
+                #  The tool has not been run."
                 assert "Blocked by bash permissions:" in result["reason"]
                 assert "The tool has not been run." in result["reason"]
 

@@ -62,8 +62,10 @@ def check_output_redirection(tree: dict[str, Any], rules: dict) -> dict:
             "allow", "ask", or "deny" (or object form with per-type policies).
 
     Returns:
-        dict with "status" ("allow"/"ask"/"deny") and "reason" string.
-        If no output redirection is found, returns {"status": "allow", "reason": "no output redirection"}.
+        dict with "status" ("allow"/"ask"/"deny") and
+        "reason" string.
+        If no output redirection is found, returns
+        {"status": "allow", "reason": "no output redirection"}.
     """
     policy = rules.get("output_redirection", "allow")
 
@@ -123,8 +125,10 @@ def check_input_redirection(tree: dict[str, Any], rules: dict) -> dict:
             "allow", "ask", or "deny" (or object form with per-type policies).
 
     Returns:
-        dict with "status" ("allow"/"ask"/"deny") and "reason" string.
-        If no input redirection is found, returns {"status": "allow", "reason": "no input redirection"}.
+        dict with "status" ("allow"/"ask"/"deny") and
+        "reason" string.
+        If no input redirection is found, returns
+        {"status": "allow", "reason": "no input redirection"}.
     """
     policy = rules.get("input_redirection", "allow")
 
@@ -184,8 +188,10 @@ def check_background_execution(tree: dict[str, Any], rules: dict) -> dict:
             "allow", "ask", or "deny" (or object form with per-type policies).
 
     Returns:
-        dict with "status" ("allow"/"ask"/"deny") and "reason" string.
-        If no background execution is found, returns {"status": "allow", "reason": "no background execution"}.
+        dict with "status" ("allow"/"ask"/"deny") and
+        "reason" string.
+        If no background execution is found, returns
+        {"status": "allow", "reason": "no background execution"}.
     """
     policy = rules.get("background_execution", "allow")
 
@@ -221,7 +227,10 @@ def check_background_execution(tree: dict[str, Any], rules: dict) -> dict:
     elif level == "ask":
         return {
             "status": "ask",
-            "reason": f"background execution requires approval: {', '.join(background_commands)}",
+            "reason": (
+                f"background execution requires approval: "
+                f"{', '.join(background_commands)}"
+            ),
         }
     else:  # deny
         return {

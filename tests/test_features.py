@@ -1,4 +1,5 @@
-"""Comprehensive Phase 3 tests: edge cases, error handling, shell features, multi-line commands."""
+"""Comprehensive Phase 3 tests: edge cases, error handling,
+shell features, multi-line commands."""
 
 import pytest
 
@@ -96,7 +97,13 @@ class TestAndOrOperators:
 
 class TestMultiLineCommands:
     def test_multiline_if(self) -> None:
-        cmd = 'if [ -f file.txt ]; then\n    cat file.txt\nelse\n    echo "file not found"\nfi'
+        cmd = (
+            "if [ -f file.txt ]; then\n"
+            "    cat file.txt\n"
+            "else\n"
+            '    echo "file not found"\n'
+            "fi"
+        )
         tree = parse_ast(cmd)
         assert get_commands(tree) == ["[", "cat", "echo"]
 

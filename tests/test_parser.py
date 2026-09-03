@@ -199,7 +199,9 @@ class TestComplexCommands:
 
     def test_long_command(self) -> None:
         tree = parse_ast(
-            'tar -czvf archive.tar.gz $(find . -name "*.py" -not -path "./.venv/*" -not -path "./tests/*")'
+            "tar -czvf archive.tar.gz "
+            '$(find . -name "*.py" -not -path "./.venv/*" '
+            '-not -path "./tests/*")'
         )
         assert get_commands(tree) == ["tar", "find"]
         assert has_variable(tree)
@@ -500,7 +502,8 @@ class TestParamExpNodes:
         assert cmd.args[1].parts[0].short is True
 
     def test_braced_param_expansion(self) -> None:
-        """Parse echo ${HOME} and verify it produces a ParamExp node with Short=False."""
+        """Parse echo ${HOME} and verify it produces a ParamExp
+        node with Short=False."""
         tree = parse_ast("echo ${HOME}")
         cmd = tree.stmts[0].cmd
         assert cmd.args[1].parts[0].type == "ParamExp"
@@ -623,7 +626,8 @@ class TestDblQuotedNodes:
         assert parts[1].param == "world"
 
     def test_double_quoted_multiple_variables(self) -> None:
-        """Parse echo "$USER is here" and verify DblQuoted with multiple ParamExp parts."""
+        """Parse echo "$USER is here" and verify DblQuoted
+        with multiple ParamExp parts."""
         tree = parse_ast('echo "$USER is here"')
         cmd = tree.stmts[0].cmd
         parts = cmd.args[1].parts[0].parts
@@ -643,7 +647,8 @@ class TestDblQuotedNodes:
 
     def test_empty_double_quoted_shfmt_go(self) -> None:
         """Test shfmt Go-style empty DblQuoted handling (for completeness)."""
-        # In shfmt Go, empty double quotes would give a DblQuoted with an empty parts array.
+        # In shfmt Go, empty double quotes would give a DblQuoted
+        # with an empty parts array.
         # Our parser should handle both: None parts (shfmt-py) and [] parts (shfmt Go).
         from lovely_bash_permissions.ast import DblQuoted
 
@@ -678,7 +683,8 @@ class TestDblQuotedNodes:
         tree = parse_ast('echo "\\n\\t\\r"')
         cmd = tree.stmts[0].cmd
         assert cmd.args[1].parts[0].type == "DblQuoted"
-        # In shfmt-py, escaped sequences in double quotes become Lit parts with the literal escape sequences
+        # In shfmt-py, escaped sequences in double quotes become
+        # Lit parts with the literal escape sequences
         assert cmd.args[1].parts[0].parts[0].type == "Lit"
         assert cmd.args[1].parts[0].parts[0].value == "\\n\\t\\r"
 
@@ -905,7 +911,7 @@ class TestArithmExpNodes:
         assert ArithmExp is not None
 
     def test_binaryarithm_imported_in_module(self) -> None:
-        """Verify that BinaryArithm is imported in the lovely_bash_permissions module."""
+        """Verify that BinaryArithm is imported in the module."""
         assert BinaryArithm is not None
 
 
@@ -952,7 +958,8 @@ class TestProcSubstNodes:
         assert cmd.args[2].parts[0].stmts[0].cmd.args[0].parts[0].value == "echo"
 
     def test_process_substitution_in_double_quotes(self) -> None:
-        """Parse echo \"<(cmd)\" - process substitution in double quotes is literal text."""
+        """Parse echo \"<(cmd)\" - process substitution
+        in double quotes is literal text."""
         # Note: bash does NOT expand <() inside double quotes
         tree = parse_ast('echo "<(echo hi)"')
         cmd = tree.stmts[0].cmd
@@ -1418,7 +1425,8 @@ class TestFuncDeclNodes:
         # The body of the if should be a BinaryCmd (pipe chain)
         then_stmt = inner.then_stmts[0]
         assert then_stmt.cmd.type == "BinaryCmd"
-        # The structure is: BinaryCmd(op="|", x=BinaryCmd(cat|sort), y=CallExpr(uniq > file))
+        # The structure is: BinaryCmd(op="|", x=BinaryCmd(cat|sort),
+        #                     y=CallExpr(uniq > file))
         # Nested BinaryCmd: cat "$1" | sort
         left = then_stmt.cmd.left
         assert left.type == "BinaryCmd"

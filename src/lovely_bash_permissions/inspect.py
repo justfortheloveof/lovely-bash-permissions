@@ -48,7 +48,8 @@ from .ast import (
 
 
 class RedirectionInfo(TypedDict):
-    """Typed dictionary for redirection information returned by :func:`get_redirections`."""
+    """Typed dictionary for redirection information
+    returned by :func:`get_redirections`."""
 
     op: str
     target: str

@@ -31,7 +31,8 @@ def generate_hook_response(
 
     Args:
         event: Hook event dict with hook_event_name.
-        decision: dict with "action" ("allow" | "ask" | "block" | "skip") and optional "reason".
+        decision: dict with "action" ("allow" | "ask" | "block" |
+             "skip") and optional "reason".
 
     Returns:
         JSON-serializable dict for the agent, or None to skip.

@@ -189,9 +189,11 @@ def _convert_dbl_quoted(data: dict) -> DblQuoted:
     if parts:
         vals: list[str] = []
         for p in parts:
-            if isinstance(p, (Lit, SglQuoted)):  # noqa: SIM114
-                vals.append(p.value)
-            elif isinstance(p, DblQuoted) and p.value is not None:
+            if (
+                isinstance(p, (Lit, SglQuoted))
+                or isinstance(p, DblQuoted)
+                and p.value is not None
+            ):
                 vals.append(p.value)
             else:
                 vals.append("")

@@ -127,7 +127,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict:
                 # Multiple segments: use reconstructed text
                 full_command = cmd_name
                 if args:
-                    full_command = " ".join([cmd_name] + args)
+                    full_command = " ".join([cmd_name, *args])
             for pattern in allowed_patterns:
                 if re.match(pattern, full_command):
                     matched_patterns.append(pattern)
@@ -139,7 +139,8 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict:
                     )
                 else:
                     reasons.append(
-                        f"command matches allowed patterns {', '.join(matched_patterns)}"
+                        f"command matches allowed patterns "
+                        f"{', '.join(matched_patterns)}"
                     )
             else:
                 segment_result["allowed"] = False
@@ -154,7 +155,9 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict:
                 segment_result["blocked"] = True
                 overall_status = "deny"
                 reasons.append(
-                    f'Blocked by bash permissions: "{cmd_name}" matches blocked patterns. The tool has not been run.'
+                    f"Blocked by bash permissions: "
+                    f'"{cmd_name}" matches blocked patterns. '
+                    "The tool has not been run."
                 )
             else:
                 segment_result["blocked"] = False

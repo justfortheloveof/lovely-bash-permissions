@@ -45,7 +45,8 @@ def parse(command: str, dialect: str = "bash") -> dict[str, Any]:
     """
     if dialect not in _VALID_DIALECTS:
         raise ValueError(
-            f"Unknown dialect {dialect!r}. Must be one of: {', '.join(sorted(_VALID_DIALECTS))}"
+            f"Unknown dialect {dialect!r}. "
+            f"Must be one of: {', '.join(sorted(_VALID_DIALECTS))}"
         )
 
     shfmt_path = find_shfmt()
@@ -63,6 +64,7 @@ def parse(command: str, dialect: str = "bash") -> dict[str, Any]:
         capture_output=True,
         text=True,
         timeout=30,
+        check=False,
     )
 
     if result.returncode != 0:
@@ -94,7 +96,8 @@ def find_shfmt() -> str:
     Searches the following locations in order:
         1. ``$VIRTUAL_ENV/bin/shfmt`` (if the env var is set)
         2. ``shfmt`` next to the running Python interpreter
-        3. ``sys.prefix/bin/shfmt`` (covers virtualenvs where sys.executable resolves elsewhere)
+        3. ``sys.prefix/bin/shfmt`` (covers virtualenvs
+           where sys.executable resolves elsewhere)
         4. ``shfmt`` on the system PATH
 
     Returns:

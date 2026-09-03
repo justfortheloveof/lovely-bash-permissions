@@ -185,9 +185,11 @@ class DblQuoted(Node):
         if self.value is None and self.parts:
             vals: list[str] = []
             for p in self.parts:
-                if isinstance(p, (Lit, SglQuoted)):  # noqa: SIM114
-                    vals.append(p.value)
-                elif isinstance(p, DblQuoted) and p.value is not None:
+                if (
+                    isinstance(p, (Lit, SglQuoted))
+                    or isinstance(p, DblQuoted)
+                    and p.value is not None
+                ):
                     vals.append(p.value)
                 else:
                     vals.append("")

@@ -86,10 +86,6 @@ from .parser import ParseError, parse
 __version__ = _metadata_version("lovely-bash-permissions")
 
 __all__ = [
-    # Parser
-    "parse",
-    "ParseError",
-    "parse_ast",
     # AST nodes
     "AndCmd",
     "ArithmCmd",
@@ -102,6 +98,7 @@ __all__ = [
     "BinaryTest",
     "Block",
     "BraceExp",
+    "CStyleLoop",
     "CallExpr",
     "CaseBranch",
     "CaseClause",
@@ -109,7 +106,6 @@ __all__ = [
     "CmdSubst",
     "Comment",
     "CoprocClause",
-    "CStyleLoop",
     "DblQuoted",
     "DeclClause",
     "ElifBranch",
@@ -126,6 +122,7 @@ __all__ = [
     "ParamExp",
     "ParenArithm",
     "ParenTest",
+    "ParseError",
     "Position",
     "ProcSubst",
     "Redir",
@@ -141,7 +138,6 @@ __all__ = [
     "WhileClause",
     "Word",
     "WordIter",
-    "structurally_equal",
     # Inspection
     "find_arguments",
     "find_commands",
@@ -152,4 +148,8 @@ __all__ = [
     "has_pipe",
     "has_variable",
     "iter_children",
+    # Parser
+    "parse",
+    "parse_ast",
+    "structurally_equal",
 ]
