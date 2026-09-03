@@ -24,9 +24,9 @@ def _deny_item_to_regex(item: str) -> str:
     """
     # Trim quotes
     item = item.strip()
-    if item.startswith("'") or item.startswith('"'):
+    if item.startswith(("'", '"')):
         item = item[1:-1]
-    if item.endswith("'") or item.endswith('"'):
+    if item.endswith(("'", '"')):
         item = item[:-1]
 
     # If it contains spaces, it's a command pattern
