@@ -22,6 +22,88 @@ def handle_load_error(err: Exception) -> dict[str, Any]:
     return {"action": "block", "reason": str(err)}
 
 
+def generate_hook_response(
+    event: dict[str, Any], decision: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Generate hook response JSON for agent tool permission events.
+
+    Args:
+        event: Hook event dict with hook_event_name.
+        decision: dict with "action" ("allow" | "ask" | "block" | "skip") and optional "reason".
+
+    Returns:
+        JSON-serializable dict for the agent, or None to skip.
+    """
+    action = decision.get("action", "skip")
+    reason = decision.get("reason", "")
+    event_name = event.get("hook_event_name", "")
+    tool_name = event.get("tool_name", "")
+    tool_input = event.get("tool_input", {})
+    command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
+
+    if action == "skip":
+        return None
+
+    if event_name == "PreToolUse":
+        if tool_name != "exec" or not command:
+            return None
+        if action == "allow":
+            label = (
+                f"[♡ perms: 💚 auto-approved] {reason}"
+                if reason
+                else "[♡ perms: 💚 auto-approved]"
+            )
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "updatedInput": {"command": f": '{label}' ; {command}"},
+                }
+            }
+        elif action == "block":
+            label = (
+                f"[♡ perms: ❤️ auto-rejected] {reason}"
+                if reason
+                else "[♡ perms: ❤️ auto-rejected]"
+            )
+            return {
+                "decision": "block",
+                "reason": label,
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "updatedInput": {"command": f": '{label}' ; {command}"},
+                },
+            }
+        elif action == "ask":
+            label = (
+                f"[♡ perms: 💛 REQUIRES-USER-APPROVAL] {reason}"
+                if reason
+                else "[♡ perms: 💛 REQUIRES-USER-APPROVAL]"
+            )
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "updatedInput": {"command": f": '{label}' ; {command}"},
+                }
+            }
+
+    if event_name == "PermissionRequest":
+        if tool_name != "exec" or not command:
+            return None
+        if action == "allow":
+            return {"decision": "approve"}
+        elif action == "block":
+            label = (
+                f"[♡ perms: ❤️ auto-rejected] {reason}"
+                if reason
+                else "[♡ perms: ❤️ auto-rejected]"
+            )
+            return {"decision": "block", "reason": label}
+        elif action == "ask":
+            return None
+
+    return None
+
+
 def process_hook_event(event: dict[str, Any]) -> dict[str, Any]:
     """Process a hook event and decide allow/ask/block/skip.
 
