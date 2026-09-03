@@ -8,6 +8,7 @@ against bash command segments.
 from __future__ import annotations
 
 import re
+from typing import Any
 
 
 def check_allowed_patterns(command_name: str, allowed_patterns: list[str]) -> bool:
@@ -40,3 +41,64 @@ def check_blocked_patterns(args: list[str], blocked_patterns: list[str]) -> bool
         False if none match or patterns list is empty.
     """
     return any(re.search(pattern, arg) for arg in args for pattern in blocked_patterns)
+
+
+def check_output_redirection(tree: dict[str, Any], rules: dict) -> dict:
+    """Evaluate output redirections against rules.
+
+    Extracts output redirections (> or >>) from the AST and applies
+    the configured allow/ask/deny policy.
+
+    Args:
+        tree: The shfmt JSON AST representation of the bash command.
+        rules: Policy dict with "output_redirection" key set to
+            "allow", "ask", or "deny" (or object form with per-type policies).
+
+    Returns:
+        dict with "status" ("allow"/"ask"/"deny") and "reason" string.
+        If no output redirection is found, returns {"status": "allow", "reason": "no output redirection"}.
+    """
+    policy = rules.get("output_redirection", "allow")
+
+    # If policy is an object, use the wildcard level for now
+    # (per-type policies handled in the evaluator layer)
+    if isinstance(policy, dict):
+        level = policy.get("*", policy.get("allow", "allow"))
+    else:
+        level = policy
+
+    redirections = []
+    for stmt in tree.get("Stmts", []):
+        for redir in stmt.get("Redirs", []):
+            op = redir.get("Op", "")
+            if op in (">", ">>"):
+                target = ""
+                word = redir.get("Word", {})
+                parts = word.get("Parts", [])
+                if parts:
+                    target = parts[0].get("Value", "")
+                redirections.append({"op": op, "target": target})
+
+    if not redirections:
+        return {
+            "status": "allow",
+            "reason": "no output redirection",
+        }
+
+    targets = [r["target"] for r in redirections]
+
+    if level == "allow":
+        return {
+            "status": "allow",
+            "reason": f"output redirection allowed to {', '.join(targets)}",
+        }
+    elif level == "ask":
+        return {
+            "status": "ask",
+            "reason": "output redirection requires approval",
+        }
+    else:  # deny
+        return {
+            "status": "deny",
+            "reason": f"output redirection denied to {', '.join(targets)}",
+        }

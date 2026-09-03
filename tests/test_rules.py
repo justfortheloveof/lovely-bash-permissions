@@ -1,6 +1,11 @@
 """Tests for permission rules engine."""
 
-from lovely_bash_permissions.rules import check_allowed_patterns, check_blocked_patterns
+from lovely_bash_permissions.parser import parse
+from lovely_bash_permissions.rules import (
+    check_allowed_patterns,
+    check_blocked_patterns,
+    check_output_redirection,
+)
 
 
 def test_matches_first_pattern() -> None:
@@ -40,6 +45,7 @@ def test_wildcard_pattern() -> None:
 
 # Tests for check_blocked_patterns
 
+
 def test_blocked_single_arg_matches() -> None:
     """Single argument matches a blocked pattern."""
     assert check_blocked_patterns(["/etc/passwd"], ["/etc/passwd"]) is True
@@ -72,3 +78,100 @@ def test_blocked_empty_patterns() -> None:
 def test_blocked_pattern_matches_part_of_path() -> None:
     """Pattern matches part of path (not anchored)."""
     assert check_blocked_patterns(["/etc/passwd.backup"], ["/etc/passwd"]) is True
+
+
+# Tests for check_output_redirection
+
+
+def test_no_redirection_allowed() -> None:
+    """Command with no output redirection is allowed regardless of rules."""
+    tree = parse("ls -la")
+    result = check_output_redirection(tree, {"output_redirection": "deny"})
+    assert result["status"] == "allow"
+    assert result["reason"] == "no output redirection"
+
+
+def test_allowed_redirection_simple() -> None:
+    """Simple output redirection is allowed when policy is allow."""
+    tree = parse("echo hello > /tmp/out.txt")
+    result = check_output_redirection(tree, {"output_redirection": "allow"})
+    assert result["status"] == "allow"
+    assert "/tmp/out.txt" in result["reason"]
+
+
+def test_denied_redirection_simple() -> None:
+    """Simple output redirection is denied when policy is deny."""
+    tree = parse("echo hello > /tmp/out.txt")
+    result = check_output_redirection(tree, {"output_redirection": "deny"})
+    assert result["status"] == "deny"
+    assert "/tmp/out.txt" in result["reason"]
+
+
+def test_ask_redirection() -> None:
+    """Output redirection triggers ask when policy is ask."""
+    tree = parse("echo hello > /tmp/out.txt")
+    result = check_output_redirection(tree, {"output_redirection": "ask"})
+    assert result["status"] == "ask"
+    assert result["reason"] == "output redirection requires approval"
+
+
+def test_append_redirection_allowed() -> None:
+    """Append redirection (>>) is allowed when policy is allow."""
+    tree = parse("echo hello >> /tmp/out.txt")
+    result = check_output_redirection(tree, {"output_redirection": "allow"})
+    assert result["status"] == "allow"
+    assert "/tmp/out.txt" in result["reason"]
+
+
+def test_append_redirection_denied() -> None:
+    """Append redirection (>>) is denied when policy is deny."""
+    tree = parse("echo hello >> /tmp/out.txt")
+    result = check_output_redirection(tree, {"output_redirection": "deny"})
+    assert result["status"] == "deny"
+    assert "/tmp/out.txt" in result["reason"]
+
+
+def test_mixed_rules_some_allow_some_deny() -> None:
+    """Mixed redirections: allow policy lets all through, deny blocks all."""
+    # With allow policy
+    tree = parse("echo hello > /tmp/out.txt")
+    result_allow = check_output_redirection(tree, {"output_redirection": "allow"})
+    assert result_allow["status"] == "allow"
+
+    # With deny policy
+    tree2 = parse("echo hello >> /tmp/log.txt")
+    result_deny = check_output_redirection(tree2, {"output_redirection": "deny"})
+    assert result_deny["status"] == "deny"
+
+
+def test_multiple_redirections_allowed() -> None:
+    """Multiple output redirections are allowed when policy is allow."""
+    tree = parse("echo hello > /tmp/out.txt 2> /tmp/err.txt")
+    result = check_output_redirection(tree, {"output_redirection": "allow"})
+    assert result["status"] == "allow"
+    assert "/tmp/out.txt" in result["reason"]
+    assert "/tmp/err.txt" in result["reason"]
+
+
+def test_multiple_redirections_denied() -> None:
+    """Multiple output redirections are denied when policy is deny."""
+    tree = parse("echo hello > /tmp/out.txt 2> /tmp/err.txt")
+    result = check_output_redirection(tree, {"output_redirection": "deny"})
+    assert result["status"] == "deny"
+    assert "/tmp/out.txt" in result["reason"]
+    assert "/tmp/err.txt" in result["reason"]
+
+
+def test_default_policy_is_allow() -> None:
+    """When rules dict has no output_redirection key, default is allow."""
+    tree = parse("echo hello > /tmp/out.txt")
+    result = check_output_redirection(tree, {})
+    assert result["status"] == "allow"
+
+
+def test_object_form_policy_wildcard() -> None:
+    """Object form policy uses wildcard level for basic redirections."""
+    tree = parse("echo hello > /tmp/out.txt")
+    rules = {"output_redirection": {"*": "deny"}}
+    result = check_output_redirection(tree, rules)
+    assert result["status"] == "deny"
