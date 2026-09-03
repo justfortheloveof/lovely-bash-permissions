@@ -1,7 +1,5 @@
 """PermissionsManager: loads and manages lovely-devin-permissions and Devin config."""
 
-import sys
-
 from .devin import load_devin_exec_regexes
 from .loader import load_permissions_config
 
@@ -31,7 +29,6 @@ class PermissionsManager:
         except Exception as e:  # noqa: BLE001
             self._lovely_config = {}
             self._lovely_error = str(e)
-            print(f"error: {e}", file=sys.stderr)
 
         # Load Devin exec regexes
         try:
@@ -40,16 +37,20 @@ class PermissionsManager:
         except Exception as e:  # noqa: BLE001
             self._devin_regexes = []
             self._devin_error = str(e)
-            print(f"error: {e}", file=sys.stderr)
 
     def get_lovely_config(self) -> dict:
-        """Return the merged lovely-permissions config (may be empty dict)."""
+        """Return the merged lovely-permissions config.
+
+        Raises ValueError if config failed to load.
+        """
+        if self._lovely_error:
+            raise ValueError(self._lovely_error)
         return self._lovely_config
 
     def get_devin_exec_regexes(self) -> list:
         """Return deduplicated list of Devin Exec permission regex strings.
 
-        Raises ValueError if any malformed Exec entries found.
+        Raises ValueError if config failed to load or malformed entries found.
         """
         if self._devin_error:
             raise ValueError(self._devin_error)

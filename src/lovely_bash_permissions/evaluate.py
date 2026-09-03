@@ -9,6 +9,7 @@ allow, ask for approval, or deny the command.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .parser import ParseError, parse
@@ -118,7 +119,6 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict:
         # Check allowed patterns against the full command line
         if allowed_patterns:
             matched_patterns = []
-            import re
 
             if len(segments) == 1:
                 # Single command: use raw command text (preserves quotes)

@@ -46,18 +46,26 @@ def load_permissions_config(project_dir: str) -> dict:
     """Load and merge lovely-devin-permissions config.
 
     Returns:
-        Merged config dict. Missing files contribute {} (empty dict).
+        Merged config dict.
+
+    Raises:
+        FileNotFoundError: if none of the config files exist or all are invalid.
     """
     paths = get_permissions_config_file_paths(project_dir)
 
     # Load each file, missing/invalid -> {}
     configs = []
+    loaded_any = False
     for path in paths:
         data = read_jsonc_file(path)
         if is_record(data):
             configs.append(data)
+            loaded_any = True
         else:
             configs.append({})
+
+    if not loaded_any:
+        raise FileNotFoundError(f"no valid lovely-permissions config found (checked: {', '.join(paths)})")
 
     # Merge in order: global < project < local
     merged = {}

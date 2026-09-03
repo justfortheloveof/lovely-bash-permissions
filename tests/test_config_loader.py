@@ -127,16 +127,14 @@ class TestLoadPermissionsConfig:
         """Write data as JSONC to path."""
         path.write_text(json.dumps(data))
 
-    def test_all_files_missing_returns_empty(
-        self, monkeypatch: pytest.MonkeyPatch, temp_global: tuple[Path, Path]
-    ) -> None:
-        """No config files exist -> empty dict."""
+    def test_all_files_missing_raises(self, monkeypatch: pytest.MonkeyPatch, temp_global: tuple[Path, Path]) -> None:
+        """No config files exist anywhere -> raises meaningful error."""
         monkeypatch.setattr(
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
             lambda: temp_global[1],
         )
-        result = load_permissions_config(str(temp_global[0]))
-        assert result == {}
+        with pytest.raises(FileNotFoundError, match="no valid lovely-permissions config found"):
+            load_permissions_config(str(temp_global[0]))
 
     def test_global_only(self, monkeypatch: pytest.MonkeyPatch, temp_global: tuple[Path, Path]) -> None:
         """Only global config exists."""
@@ -307,10 +305,10 @@ class TestLoadPermissionsConfig:
         result = load_permissions_config(project_dir)
         assert result["bash"]["allowed_cmds_regex"] == ["^ls", "^cat", "^mkdir"]
 
-    def test_invalid_json_treated_as_missing(
+    def test_invalid_json_all_files_raises(
         self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
     ) -> None:
-        """Invalid JSON files are treated as missing (empty)."""
+        """All files invalid JSON -> raises meaningful error."""
         tmpdir = tempfile.mkdtemp()
         config_dir = Path(tmpdir) / ".config" / "devin"
         config_dir.mkdir(parents=True)
@@ -320,8 +318,8 @@ class TestLoadPermissionsConfig:
         )
         project_file = temp_project[1] / "lovely-permissions.jsonc"
         project_file.write_text("{invalid json}")
-        result = load_permissions_config(str(temp_project[0]))
-        assert result == {}
+        with pytest.raises(FileNotFoundError, match="no valid lovely-permissions config found"):
+            load_permissions_config(str(temp_project[0]))
 
     def test_json_with_comments_works(self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]) -> None:
         """JSONC files with comments parse correctly."""

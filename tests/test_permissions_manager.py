@@ -47,7 +47,10 @@ class TestPermissionsManagerConstruction:
         manager = PermissionsManager(str(mock_project))
 
         assert not manager.is_valid()
-        assert manager.get_lovely_config() == {}
+        with pytest.raises(ValueError, match="bad config"):
+            manager.get_lovely_config()
+        with pytest.raises(ValueError, match="bad devin config"):
+            manager.get_devin_exec_regexes()
         assert manager.get_error() == "bad config"
 
     @patch("lovely_bash_permissions.config.manager.load_permissions_config")
@@ -129,7 +132,8 @@ class TestPermissionsManagerReload:
 
         assert not manager.is_valid()
         assert manager.get_error() == "new error"
-        assert manager.get_lovely_config() == {}
+        with pytest.raises(ValueError, match="new error"):
+            manager.get_lovely_config()
 
     @patch("lovely_bash_permissions.config.manager.load_permissions_config")
     @patch("lovely_bash_permissions.config.manager.load_devin_exec_regexes")
@@ -216,14 +220,19 @@ class TestPermissionsManagerEndToEnd:
     """End-to-end tests with real config files."""
 
     def test_empty_project(self, mock_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Empty project (no config files) should be valid with empty config."""
+        """Empty project (no config files) raises when all loaders fail."""
         devin_global = tempfile.mkdtemp()
         monkeypatch.setenv("DEVIN_GLOBAL_CONFIG_DIR", devin_global)
-        manager = PermissionsManager(str(mock_project))
 
-        assert manager.is_valid()
-        assert manager.get_lovely_config() == {}
-        assert manager.get_devin_exec_regexes() == []
+        with patch(
+            "lovely_bash_permissions.config.manager.load_devin_exec_regexes",
+            return_value=[],
+        ):
+            manager = PermissionsManager(str(mock_project))
+
+        assert not manager.is_valid()
+        with pytest.raises(ValueError, match="no valid lovely-permissions config found"):
+            manager.get_lovely_config()
 
     def test_with_lovely_permissions_config(self, mock_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test with a lovely-permissions config file."""

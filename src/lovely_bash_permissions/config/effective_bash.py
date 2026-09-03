@@ -35,14 +35,10 @@ def _deny_item_to_regex(item: str) -> str:
         parts = item.split(" ", 1)
         cmd = parts[0]
         # Escape regex special chars in the command name
-        import re
-
         cmd_pattern = re.escape(cmd)
         return f"^{cmd_pattern}(\\s.*)?$"
     else:
         # Bare command name
-        import re
-
         return f"^{re.escape(item)}$"
 
 

@@ -19,27 +19,21 @@ from collections.abc import Iterator
 from typing import NoReturn
 
 from .ast import (
-    ArithmExp,
     Assign,
     BinaryCmd,
-    BraceExp,
     CallExpr,
     CmdSubst,
-    DblQuoted,
     DeclClause,
-    ExtGlob,
     File,
     Lit,
     Node,
-    ParamExp,
     ProcSubst,
     Redir,
-    SglQuoted,
     Stmt,
     Word,
 )
 from .converter import parse_ast
-from .inspect import has_pipe, has_variable, iter_children
+from .inspect import _word_value, has_pipe, has_variable, iter_children
 from .parser import ParseError
 
 PROG = "lovely-bash-inspection"
@@ -102,31 +96,6 @@ def _die(message: str) -> NoReturn:
 # ---------------------------------------------------------------------------
 # Node-to-string helpers
 # ---------------------------------------------------------------------------
-
-
-def _word_value(word: Word) -> str:
-    """Reconstruct a best-effort string value for a Word node."""
-    parts: list[str] = []
-    for part in word.parts:
-        if isinstance(part, (Lit, SglQuoted)):
-            parts.append(part.value)
-        elif isinstance(part, DblQuoted):
-            if part.value is not None:
-                parts.append(part.value)
-        elif isinstance(part, ParamExp):
-            parts.append(f"${part.param}")
-        elif isinstance(part, CmdSubst):
-            parts.append("$(...)")
-        elif isinstance(part, ArithmExp):
-            parts.append("$(( ... ))")
-        elif isinstance(part, ExtGlob):
-            pattern = part.pattern.value if part.pattern else ""
-            parts.append(f"{part.op}{pattern})")
-        elif isinstance(part, BraceExp):
-            parts.append("{...}")
-        elif isinstance(part, ProcSubst):
-            parts.append(f"{part.op}...)")
-    return "".join(parts)
 
 
 def _redir_text(redir: Redir) -> str:

@@ -79,8 +79,8 @@ class TestPreToolUseResponseFormat:
         """Allow response should have the exact label format."""
         # Create minimal config
         with tempfile.TemporaryDirectory() as devin_dir:
-            with open(f"{devin_dir}/config.json", "w") as f:
-                json.dump({"permissions": {"allow": ["Exec(git)"]}}, f)
+            with open(f"{devin_dir}/lovely-permissions.jsonc", "w") as f:
+                json.dump({"bash": {"allowed_cmds_regex": ["^git"]}}, f)
 
             with patch.dict(os.environ, {"DEVIN_GLOBAL_CONFIG_DIR": devin_dir}):
                 event = self._create_event("git status")
@@ -137,8 +137,8 @@ class TestPreToolUseResponseFormat:
     def test_ask_label_format(self) -> None:
         """Ask response should have the exact label format."""
         with tempfile.TemporaryDirectory() as devin_dir:
-            with open(f"{devin_dir}/config.json", "w") as f:
-                json.dump({"permissions": {"allow": ["Exec(git)"]}}, f)
+            with open(f"{devin_dir}/lovely-permissions.jsonc", "w") as f:
+                json.dump({"bash": {"*": "ask", "allowed_cmds_regex": ["^git"]}}, f)
 
             with patch.dict(os.environ, {"DEVIN_GLOBAL_CONFIG_DIR": devin_dir}):
                 event = self._create_event("ls")
@@ -202,8 +202,8 @@ class TestEvaluateReasonFormats:
     def test_ask_reason_format(self) -> None:
         """Ask reason should match TypeScript format."""
         with tempfile.TemporaryDirectory() as devin_dir:
-            with open(f"{devin_dir}/config.json", "w") as f:
-                json.dump({"permissions": {"allow": ["Exec(git)"]}}, f)
+            with open(f"{devin_dir}/lovely-permissions.jsonc", "w") as f:
+                json.dump({"bash": {"*": "ask", "allowed_cmds_regex": ["^git"]}}, f)
 
             from lovely_bash_permissions.config.effective_bash import (
                 get_effective_bash_config,
@@ -223,8 +223,8 @@ class TestPermissionRequestResponse:
     def test_permission_request_allow(self) -> None:
         """PermissionRequest allow should return approve."""
         with tempfile.TemporaryDirectory() as devin_dir:
-            with open(f"{devin_dir}/config.json", "w") as f:
-                json.dump({"permissions": {"allow": ["Exec(git)"]}}, f)
+            with open(f"{devin_dir}/lovely-permissions.jsonc", "w") as f:
+                json.dump({"bash": {"allowed_cmds_regex": ["^git"]}}, f)
 
             from lovely_bash_permissions.hook import (
                 generate_hook_response,
