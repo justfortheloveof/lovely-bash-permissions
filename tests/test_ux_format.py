@@ -7,6 +7,7 @@ These tests verify exact output formats match the TypeScript reference.
 import json
 import os
 import tempfile
+from typing import Any
 from unittest.mock import patch
 
 
@@ -69,7 +70,7 @@ class TestSetupOutputFormat:
 class TestPreToolUseResponseFormat:
     """Test PreToolUse hook responses match TypeScript reference."""
 
-    def _create_event(self, command):
+    def _create_event(self, command: str) -> dict[str, Any]:
         return {
             "hook_event_name": "PreToolUse",
             "tool_name": "exec",
@@ -95,9 +96,8 @@ class TestPreToolUseResponseFormat:
                 response = generate_hook_response(event, result)
 
                 # TypeScript format: "[♡ perms: 💚 auto-approved] command matches allowed pattern ^git"
-                assert response["hookSpecificOutput"]["updatedInput"][
-                    "command"
-                ].startswith(
+                cmd = response["hookSpecificOutput"]["updatedInput"]["command"]
+                assert cmd.startswith(
                     ": '[♡ perms: 💚 auto-approved] command matches allowed pattern"
                 )
                 assert (
@@ -310,4 +310,4 @@ class TestJsonOutputFormat:
             parsed = json.loads(output)
             assert "hookSpecificOutput" in parsed or "decision" in parsed
             # Check formatting
-            assert output.startswith("{\n") or output.startswith("  ")
+            assert output.startswith(("{\n", "  "))

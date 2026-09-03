@@ -8,13 +8,13 @@ from lovely_bash_permissions.evaluate import evaluate_bash_command
 
 
 def make_config(
-    allowed=None,
-    blocked=None,
-    output="allow",
-    input_redir="allow",
-    background="allow",
-    wildcard="ask",
-):
+    allowed: list[str] | None = None,
+    blocked: list[str] | None = None,
+    output: str = "allow",
+    input_redir: str = "allow",
+    background: str = "allow",
+    wildcard: str = "ask",
+) -> dict[str, list[str] | str]:
     """Helper to create test configuration."""
     config = {"*": wildcard}
     if allowed is not None:

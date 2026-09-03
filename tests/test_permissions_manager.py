@@ -2,7 +2,8 @@
 
 import json
 import tempfile
-from unittest.mock import patch
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -11,7 +12,7 @@ from lovely_bash_permissions.config.manager import PermissionsManager
 
 
 @pytest.fixture
-def mock_project(tmp_path):
+def mock_project(tmp_path: Path) -> Path:
     """Create a temporary project directory with .devin subdirectory."""
     devin_dir = tmp_path / ".devin"
     devin_dir.mkdir()
@@ -24,7 +25,7 @@ class TestPermissionsManagerConstruction:
     @patch("lovely_bash_permissions.config.manager.load_permissions_config")
     @patch("lovely_bash_permissions.config.manager.load_devin_exec_regexes")
     def test_loads_during_construction(
-        self, mock_devin, mock_lovely, mock_project
+        self, mock_devin: MagicMock, mock_lovely: MagicMock, mock_project: Path
     ) -> None:
         """Manager should load config during construction."""
         mock_lovely.return_value = {"read": {"permission": "ask"}}
@@ -39,7 +40,7 @@ class TestPermissionsManagerConstruction:
     @patch("lovely_bash_permissions.config.manager.load_permissions_config")
     @patch("lovely_bash_permissions.config.manager.load_devin_exec_regexes")
     def test_defaults_when_loader_throws(
-        self, mock_devin, mock_lovely, mock_project
+        self, mock_devin: MagicMock, mock_lovely: MagicMock, mock_project: Path
     ) -> None:
         """When loader throws, config should be empty and manager invalid."""
         mock_lovely.side_effect = Exception("bad config")
@@ -54,7 +55,7 @@ class TestPermissionsManagerConstruction:
     @patch("lovely_bash_permissions.config.manager.load_permissions_config")
     @patch("lovely_bash_permissions.config.manager.load_devin_exec_regexes")
     def test_handles_non_exception_throws(
-        self, mock_devin, mock_lovely, mock_project
+        self, mock_devin: MagicMock, mock_lovely: MagicMock, mock_project: Path
     ) -> None:
         """Manager should handle non-Exception throws gracefully."""
         # Python doesn't have "throw 'string'" like JS, use Exception with string
@@ -73,7 +74,7 @@ class TestPermissionsManagerReload:
     @patch("lovely_bash_permissions.config.manager.load_permissions_config")
     @patch("lovely_bash_permissions.config.manager.load_devin_exec_regexes")
     def test_reload_loads_fresh_config(
-        self, mock_devin, mock_lovely, mock_project
+        self, mock_devin: MagicMock, mock_lovely: MagicMock, mock_project: Path
     ) -> None:
         """reload() should load fresh config from disk."""
         mock_lovely.return_value = {"read": {"permission": "ask"}}
@@ -93,7 +94,9 @@ class TestPermissionsManagerReload:
 
     @patch("lovely_bash_permissions.config.manager.load_permissions_config")
     @patch("lovely_bash_permissions.config.manager.load_devin_exec_regexes")
-    def test_reload_clears_errors(self, mock_devin, mock_lovely, mock_project) -> None:
+    def test_reload_clears_errors(
+        self, mock_devin: MagicMock, mock_lovely: MagicMock, mock_project: Path
+    ) -> None:
         """reload() should clear previous errors if config loads successfully."""
         mock_lovely.side_effect = Exception("initial error")
         mock_devin.return_value = []
@@ -115,7 +118,7 @@ class TestPermissionsManagerReload:
     @patch("lovely_bash_permissions.config.manager.load_permissions_config")
     @patch("lovely_bash_permissions.config.manager.load_devin_exec_regexes")
     def test_reload_captures_new_errors(
-        self, mock_devin, mock_lovely, mock_project
+        self, mock_devin: MagicMock, mock_lovely: MagicMock, mock_project: Path
     ) -> None:
         """reload() should capture new errors."""
         mock_lovely.return_value = {"read": {"permission": "ask"}}
@@ -137,7 +140,7 @@ class TestPermissionsManagerReload:
     @patch("lovely_bash_permissions.config.manager.load_permissions_config")
     @patch("lovely_bash_permissions.config.manager.load_devin_exec_regexes")
     def test_reload_passes_project_dir(
-        self, mock_devin, mock_lovely, mock_project
+        self, mock_devin: MagicMock, mock_lovely: MagicMock, mock_project: Path
     ) -> None:
         """reload() should pass project_dir to loaders."""
         mock_lovely.return_value = {}
@@ -156,7 +159,7 @@ class TestPermissionsManagerGetMethods:
     @patch("lovely_bash_permissions.config.manager.load_permissions_config")
     @patch("lovely_bash_permissions.config.manager.load_devin_exec_regexes")
     def test_get_lovely_config_returns_dict(
-        self, mock_devin, mock_lovely, mock_project
+        self, mock_devin: MagicMock, mock_lovely: MagicMock, mock_project: Path
     ) -> None:
         """get_lovely_config() should always return a dict."""
         mock_lovely.return_value = {"bash": {"permission": "allow"}}
@@ -171,7 +174,7 @@ class TestPermissionsManagerGetMethods:
     @patch("lovely_bash_permissions.config.manager.load_permissions_config")
     @patch("lovely_bash_permissions.config.manager.load_devin_exec_regexes")
     def test_get_devin_exec_regexes_raises_on_error(
-        self, mock_devin, mock_lovely, mock_project
+        self, mock_devin: MagicMock, mock_lovely: MagicMock, mock_project: Path
     ) -> None:
         """get_devin_exec_regexes() should raise ValueError when devin loader fails."""
         mock_lovely.return_value = {}
@@ -186,7 +189,7 @@ class TestPermissionsManagerGetMethods:
     @patch("lovely_bash_permissions.config.manager.load_permissions_config")
     @patch("lovely_bash_permissions.config.manager.load_devin_exec_regexes")
     def test_get_devin_exec_regexes_returns_list(
-        self, mock_devin, mock_lovely, mock_project
+        self, mock_devin: MagicMock, mock_lovely: MagicMock, mock_project: Path
     ) -> None:
         """get_devin_exec_regexes() should return a list."""
         mock_lovely.return_value = {}
@@ -201,7 +204,7 @@ class TestPermissionsManagerGetMethods:
     @patch("lovely_bash_permissions.config.manager.load_permissions_config")
     @patch("lovely_bash_permissions.config.manager.load_devin_exec_regexes")
     def test_is_valid_and_get_error(
-        self, mock_devin, mock_lovely, mock_project
+        self, mock_devin: MagicMock, mock_lovely: MagicMock, mock_project: Path
     ) -> None:
         """is_valid() and get_error() should be consistent."""
         mock_lovely.return_value = {"read": {"permission": "ask"}}
@@ -222,7 +225,9 @@ class TestPermissionsManagerGetMethods:
 class TestPermissionsManagerEndToEnd:
     """End-to-end tests with real config files."""
 
-    def test_empty_project(self, mock_project, monkeypatch) -> None:
+    def test_empty_project(
+        self, mock_project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Empty project (no config files) should be valid with empty config."""
         devin_global = tempfile.mkdtemp()
         monkeypatch.setenv("DEVIN_GLOBAL_CONFIG_DIR", devin_global)
@@ -232,7 +237,9 @@ class TestPermissionsManagerEndToEnd:
         assert manager.get_lovely_config() == {}
         assert manager.get_devin_exec_regexes() == []
 
-    def test_with_lovely_permissions_config(self, mock_project, monkeypatch) -> None:
+    def test_with_lovely_permissions_config(
+        self, mock_project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Test with a lovely-permissions config file."""
         devin_global = tempfile.mkdtemp()
         monkeypatch.setenv("DEVIN_GLOBAL_CONFIG_DIR", devin_global)
@@ -250,7 +257,7 @@ class TestPermissionsManagerEndToEnd:
         assert bash_cfg["permission"] == "allow"
         assert bash_cfg["allowed_cmds_regex"] == ["^git"]
 
-    def test_config_file_paths_generated_correctly(self, mock_project) -> None:
+    def test_config_file_paths_generated_correctly(self, mock_project: Path) -> None:
         """Test that config file paths are generated correctly."""
         paths = get_permissions_config_file_paths(str(mock_project))
         assert len(paths) == 3

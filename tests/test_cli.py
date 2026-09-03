@@ -7,15 +7,17 @@ segment's redirection renders immediately after the command that owns it.
 Per-side AST data coverage lives in tests/test_binary_redirs.py.
 """
 
+import pytest
+
 from lovely_bash_permissions.cli import main
 
 
-def _lines(capsys):
+def _lines(capsys: pytest.CaptureFixture[str]) -> list[str]:
     """Return captured stdout split into non-empty lines."""
     return [line for line in capsys.readouterr().out.splitlines() if line.strip()]
 
 
-def _find_line(lines, substr):
+def _find_line(lines: list[str], substr: str) -> int:
     """Return the index of the first line containing *substr*."""
     for i, line in enumerate(lines):
         if substr in line:
@@ -25,7 +27,7 @@ def _find_line(lines, substr):
     )
 
 
-def _assert_adjacent(lines, cmd_substr, redir_substr) -> None:
+def _assert_adjacent(lines: list[str], cmd_substr: str, redir_substr: str) -> None:
     """Assert the redir line directly follows its owning command line."""
     cmd_idx = _find_line(lines, cmd_substr)
     redir_idx = _find_line(lines, redir_substr)
@@ -39,7 +41,7 @@ def _assert_adjacent(lines, cmd_substr, redir_substr) -> None:
 class TestCliRedirections:
     """CLI renderer must place each redirection adjacent to its owning command."""
 
-    def test_repro_multisegment_pipe(self, capsys) -> None:
+    def test_repro_multisegment_pipe(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Exact reported repro: all three redirections present and ordered."""
         main(["--string", "echo $PATH | cmd2 > 2 | cmd3 >3 | cmd4 > $(ls) | cmd5"])
         lines = _lines(capsys)
@@ -62,7 +64,9 @@ class TestCliRedirections:
             f"> 3 at {idx_3}, > $(...) at {idx_cmdsub}"
         )
 
-    def test_two_segment_both_redirected(self, capsys) -> None:
+    def test_two_segment_both_redirected(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """2-segment pipe with both segments redirected."""
         main(["--string", "cmd2 > 2 | cmd3 > 3"])
         lines = _lines(capsys)
@@ -74,7 +78,9 @@ class TestCliRedirections:
         idx_r3 = _find_line(lines, "redirection: > 3")
         assert idx_r2 < idx_r3
 
-    def test_three_segment_left_nested_all_redirected(self, capsys) -> None:
+    def test_three_segment_left_nested_all_redirected(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """3-segment left-nested pipe with all segments redirected."""
         main(["--string", "a > 1 | b > 2 | c > 3"])
         lines = _lines(capsys)
@@ -88,7 +94,9 @@ class TestCliRedirections:
         idx_3 = _find_line(lines, "redirection: > 3")
         assert idx_1 < idx_2 < idx_3
 
-    def test_middle_segment_redirection(self, capsys) -> None:
+    def test_middle_segment_redirection(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """Middle-segment redirection renders next to its command."""
         main(["--string", "cmd1 | cmd2 > f | cmd3"])
         lines = _lines(capsys)
@@ -104,7 +112,9 @@ class TestCliRedirections:
             f"cmd3 should have no redirection, but found one at line {i}: {lines[i]}"
         )
 
-    def test_adjacency_helper_contract(self, capsys) -> None:
+    def test_adjacency_helper_contract(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """Verify the adjacency helper catches misplacement (self-test)."""
         main(["--string", "x > xout | y > yout"])
         lines = _lines(capsys)

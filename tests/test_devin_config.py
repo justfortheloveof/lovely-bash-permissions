@@ -29,7 +29,10 @@ def _clean_temp_file(path: str) -> None:
 
 
 def _create_project_with_configs(
-    project_dir, global_config=None, project_config=None, local_config=None
+    project_dir: str,
+    global_config: object = None,
+    project_config: object = None,
+    local_config: object = None,
 ) -> None:
     """Create a project directory with optional config files."""
     # Create project .devin directory
