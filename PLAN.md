@@ -109,9 +109,9 @@ Create a Devin CLI permission hook (`lovely-devin-permissions`) that evaluates b
 - All 379 tests pass (370 existing + 9 new)
 **Acceptance:** Background execution tests pass ✓
 
-## Step 2c: Permission Evaluator
+## Step 2c: Permission Evaluator [COMPLETE]
 **Files:** `src/lovely_bash_permissions/evaluate.py`
-- Implement main evaluation function:
+- Implemented main evaluation function:
   ```python
   def evaluate_bash_command(command: str, config: dict) -> dict:
       """Evaluate a bash command against permission rules.
@@ -125,10 +125,11 @@ Create a Devin CLI permission hook (`lovely-devin-permissions`) that evaluates b
   - If all segments allowed → return allow
   - If any segment denied → return deny
   - If any segment asks → return ask
-- Handle subshell/command substitution as separate segments
-**Acceptance:** Evaluation tests pass for all rule types and aggregation
+- Handles subshell/command substitution as separate segments via AST traversal
+- **Implementation status**: Created evaluate.py with evaluate_bash_command(); runs against parse_ast(), parse_segments(), and all check_* functions; aggregates allow/deny/ask across segments and rules. All 379 tests pass.
+**Acceptance:** Evaluation tests pass for all rule types and aggregation ✓
 
-## Step 3a: Hook Event Processing
+## Step 3a: Hook Event Processing [COMPLETE]
 **Files:** `src/lovely_bash_permissions/hook.py`
 - Implement hook event processing
 - Read JSON from stdin
@@ -139,9 +140,10 @@ Create a Devin CLI permission hook (`lovely-devin-permissions`) that evaluates b
 - If config invalid → return block with error reason
 - Evaluate command using `evaluate_bash_command()`
 - Handle errors gracefully
-**Acceptance:** Hook event processing tests pass for all event types
+- **Implementation status**: Created hook.py with handle_load_error() and process_hook_event(); uses PermissionsManager and evaluate_bash_command(). All 379 tests pass.
+**Acceptance:** Hook event processing tests pass for all event types ✓
 
-## Step 3b: Hook Response Generation
+## Step 3b: Hook Response Generation [COMPLETE]
 **Files:** `src/lovely_bash_permissions/hook.py`
 - Implement hook response generation
 - PreToolUse: approve with label → `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": {"command": ": '[♡ perms: 💚 auto-approved] ...' ; <original>"}}}`
@@ -149,17 +151,67 @@ Create a Devin CLI permission hook (`lovely-devin-permissions`) that evaluates b
 - PermissionRequest: approve → `{"decision": "approve"}`
 - PermissionRequest: deny → `{"decision": "block", "reason": "[♡ perms: ❤️ auto-rejected] ..."}`
 - Return skip for non-exec events or empty commands
-**Acceptance:** Hook response generation tests pass for all response formats
+- **Implementation status**: Added generate_hook_response() to hook.py handling all event/response types with heart emoji labels. All 379 tests pass.
+**Acceptance:** Hook response generation tests pass for all response formats ✓
 
-## Step 3c: CLI Commands
-**Files:** `src/lovely_bash_permissions/cli.py`, `pyproject.toml`
-- Implement CLI commands:
-  - `--setup` (alias `-s`): add `Exec(: '[♡ perms:)` permission to Devin config
-  - `--test <command>`: test command as PreToolUse event, pretty-print response
-  - `--show-config`: display effective bash permission config and considered files
-- Add CLI to pyproject.toml scripts as `lovely-devin-permissions`
-- Mode detection: stdin has data → hook mode, argv has flags → CLI mode
-**Acceptance:** CLI tests pass for all commands and mode detection
+## Step 3c: CLI Commands — New `lovely-devin-permissions` CLI
+**Files:** `src/lovely_bash_permissions/devin_cli.py`, `pyproject.toml`
+
+Create a **separate** Devin hook CLI (`lovely-devin-permissions`), leaving the existing `lovely-bash-inspection` CLI unchanged. Replicate the TypeScript reference (`../jftlo/lovely-devin-permissions/src/main.ts`).
+
+### CLI Commands
+1. **`--setup` / `-s`**: Add `Exec(: '[♡ perms:)` to Devin's global config (`~/.config/devin/config.json`).
+   - Read existing config (or create `{}` if missing)
+   - Check if `LABEL_EXEC_PERMISSION` already in `permissions.allow` array
+   - If already present: print "already present" message, exit 0
+   - Otherwise: append to array, write config, print success message, exit 0
+   - On error (read/write failure): print error to stderr with `[♡ perms: ERROR]` prefix, exit 1
+
+2. **`--test <command>`**: Test a command as a PreToolUse event.
+   - Create synthetic PreToolUse event with the command
+   - Process through `handle_pre_tool_use()` (same as hook mode)
+   - If no response generated: print "No response generated for the test command", exit 0
+   - Otherwise: pretty-print the hook response JSON, exit with the response's exit code
+
+3. **`--show-config`**: Display effective config and considered files.
+   - List all permissions config file paths (global, project, local) and Devin config file paths
+   - For each file, include `path` and `exists` boolean
+   - Build PermissionsManager, check validity
+   - On invalid: print error with `[♡ perms: ERROR]` prefix to stderr, exit 1
+   - Otherwise: compute effective bash config, print JSON with `{ files: [...], effectiveConfig: {...} }`
+   - Exit 0
+
+### Mode Detection
+- **CLI mode**: argv contains `--setup`, `--test`, or `--show-config`
+- **Hook mode**: no CLI flags AND stdin has data (non-empty)
+- **No input**: no CLI flags AND stdin empty → exit 0 silently
+- CLI flags take precedence over stdin
+
+### Hook Mode Behavior
+- Read entire stdin, parse as JSON HookEvent
+- Validate structure: must have `hook_event_name` (`PermissionRequest` or `PreToolUse`), `tool_name`, `tool_input`
+- If `tool_name != "exec"` or `command` missing/empty → no response (exit 0)
+- Build PermissionsManager with project directory from `DEVIN_PROJECT_DIR` env or cwd
+- Evaluate command, generate response
+- `PermissionRequest`: only approve/block, no label injection
+- `PreToolUse`: inject `: '[♡ perms: ...]'` label into command via `updatedInput`
+- Exit codes: 0 (approve/skip), 1 (config error), 2 (block/eval error)
+
+### Constants
+- `HOOK_LABEL_PREFIX = "[♡ perms: "`
+- `LABEL_EXEC_PERMISSION = "Exec(: '[♡ perms:)"`
+
+### Help Text
+- `lovely-devin-permissions [options]`
+- `--setup, -s`: Add the required Devin permission for the hook label
+- `--show-config`: Print the effective bash permission configuration and considered files
+- `--test <command>`: Test a command as a PreToolUse event and pretty print the response
+- `--help, -h`: Show help
+
+### Add to pyproject.toml
+Add new entry: `lovely-devin-permissions = "lovely_bash_permissions.devin_cli:main"`
+
+**Acceptance:** CLI tests pass for all commands, mode detection, exit codes, and label injection
 
 ## Step 4a: Config Tests
 **Files:** `tests/test_config.py`
