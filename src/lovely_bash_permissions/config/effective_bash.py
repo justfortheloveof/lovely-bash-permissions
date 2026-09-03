@@ -46,7 +46,7 @@ def _deny_item_to_regex(item: str) -> str:
         return f"^{re.escape(item)}$"
 
 
-def get_effective_bash_config(raw_bash, project_dir: str) -> dict:
+def get_effective_bash_config(raw_bash: object, project_dir: str) -> dict:
     """Combine raw lovely config with devin permissions.
 
     Args:

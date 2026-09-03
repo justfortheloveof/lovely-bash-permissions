@@ -8,6 +8,8 @@ We must also ensure that we do not break or change any behavior by confirming th
 
 Once and only once the above is clean, all tests, including ruff, should also pass: `uv run pytest`
 
+You MUST NOT change pyproject.toml nor test_ruff.py
+
 ### Workflow
 
 You are the orchestrator and you MUST spawn agents to investigate the issues and make the appropriate changes.

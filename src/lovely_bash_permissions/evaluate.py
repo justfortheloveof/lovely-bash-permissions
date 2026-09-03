@@ -28,7 +28,7 @@ def _has_cmd_subst(tree: dict[str, Any]) -> bool:
     a CmdSubst or ProcSubst part.
     """
 
-    def visit(node) -> bool:
+    def visit(node: object) -> bool:
         if not isinstance(node, dict):
             return False
         node_type = node.get("Type", "")

@@ -36,7 +36,7 @@ from .parser import ParseError, parse
 DEFAULT_DIALECT = "bash"
 
 
-def _extract_segments(node) -> list[dict]:
+def _extract_segments(node: object) -> list[dict]:
     """
     Recursively extract command segments from an AST node.
 

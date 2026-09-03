@@ -33,7 +33,7 @@ def get_devin_global_config_dir() -> str:
     return Path(os.path.expanduser("~/.config/devin"))
 
 
-def with_error_prefix(message) -> str:
+def with_error_prefix(message: str) -> str:
     return f"{HOOK_LABEL_PREFIX} ERROR] {message}"
 
 
@@ -93,7 +93,7 @@ def handle_setup() -> None:
         sys.exit(1)
 
 
-def handle_test(command) -> None:
+def handle_test(command: str) -> None:
     """Test a command as a PreToolUse event."""
     project_dir = get_project_dir()
     event = {
@@ -143,7 +143,7 @@ def handle_show_config() -> None:
     sys.exit(0)
 
 
-def handle_hook_event(event) -> None:
+def handle_hook_event(event: dict) -> None:
     """Process a hook event and write response to stdout."""
     result = process_hook_event(event)
     if result.get("action") == "skip":
