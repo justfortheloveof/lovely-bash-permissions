@@ -61,14 +61,10 @@ def generate_hook_response(
                 }
             }
         elif action == "block":
-            label = (
-                f"[♡ perms: ❤️ auto-rejected] {reason}"
-                if reason
-                else "[♡ perms: ❤️ auto-rejected]"
-            )
+            label = "[♡ perms: ❤️ auto-rejected]"
             return {
                 "decision": "block",
-                "reason": label,
+                "reason": reason,
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
                     "updatedInput": {"command": f": '{label}' ; {command}"},
