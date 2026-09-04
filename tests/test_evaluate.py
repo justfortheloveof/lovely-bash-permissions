@@ -294,14 +294,14 @@ class TestEdgeCases:
     """Tests for edge cases."""
 
     def test_empty_command(self) -> None:
-        """Empty command."""
+        """Empty command goes through approval flow (default wildcard=ask)."""
         result = evaluate_bash_command("", make_config())
-        assert result["status"] == "allow"
+        assert result["status"] == "ask"
 
     def test_whitespace_only(self) -> None:
-        """Whitespace only command."""
+        """Whitespace-only command goes through approval flow (default wildcard=ask)."""
         result = evaluate_bash_command("   ", make_config())
-        assert result["status"] == "allow"
+        assert result["status"] == "ask"
 
     def test_single_command(self) -> None:
         """Single command."""
@@ -462,4 +462,46 @@ class TestResultStructure:
             assert "command" in seg
             assert "args" in seg
             assert "allowed" in seg
-            assert "blocked" in seg
+
+    def test_heredoc_input_redirection_ask(self) -> None:
+        """Complete heredoc input redirection goes through approval flow."""
+        result = evaluate_bash_command("cat << EOF\nhello\nEOF", make_config())
+        assert result["status"] == "ask"
+        assert "input redirection requires approval" in result["reason"]
+
+    def test_incomplete_heredoc_ask(self) -> None:
+        """Incomplete heredoc (unclosed) goes through approval flow."""
+        result = evaluate_bash_command("cat << EOF", make_config())
+        assert result["status"] == "ask"
+
+    def test_input_redirect_to_blocked_path_denied(self) -> None:
+        """Input redirect to blocked path is denied."""
+        result = evaluate_bash_command(
+            "cat < /etc/passwd",
+            make_config(blocked=["^/etc/"]),
+        )
+        assert result["status"] == "deny"
+
+    def test_input_redirect_allowed_when_policy_allow(self) -> None:
+        """Input redirection allowed when input_redirection=allow."""
+        result = evaluate_bash_command(
+            "cat < /tmp/in.txt",
+            {"*": "ask", "input_redirection": "allow"},
+        )
+        assert result["status"] == "allow"
+
+    def test_input_redirect_ask_when_policy_ask(self) -> None:
+        """Input redirection asks when input_redirection=ask."""
+        result = evaluate_bash_command(
+            "cat < /tmp/in.txt",
+            {"*": "ask", "input_redirection": "ask"},
+        )
+        assert result["status"] == "ask"
+
+    def test_input_redirect_deny_when_policy_deny(self) -> None:
+        """Input redirection denied when input_redirection=deny."""
+        result = evaluate_bash_command(
+            "cat < /tmp/in.txt",
+            {"*": "ask", "input_redirection": "deny"},
+        )
+        assert result["status"] == "deny"

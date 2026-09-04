@@ -143,8 +143,8 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     blocked_patterns = config.get("blocked_paths_regex", [])
 
     rules = {
-        "output_redirection": config.get("output_redirection", "allow"),
-        "input_redirection": config.get("input_redirection", "allow"),
+        "output_redirection": config.get("output_redirection", "ask"),
+        "input_redirection": config.get("input_redirection", "ask"),
         "background_execution": config.get("background_execution", "ask"),
         "blocked_paths_regex": blocked_patterns,
     }
@@ -153,10 +153,11 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     try:
         raw_tree = parse(command)
     except ParseError:
-        # Empty or whitespace-only command
+        # Empty or whitespace-only command — apply wildcard policy (default "ask")
+        _wildcard = config.get("*", "ask")
         return {
-            "status": "allow",
-            "reason": "empty command",
+            "status": _wildcard,
+            "reason": f"bash permission is set to {_wildcard}",
             "segments": [],
         }
 
