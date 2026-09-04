@@ -15,13 +15,44 @@ COMBINED_OPS: frozenset[str] = frozenset({">&", "&>", "&>>"})
 DEV_NULL: str = "/dev/null"
 
 
+def deny_item_to_pattern(item: str) -> str:
+    """Convert a deny-list item to an anchored regex pattern.
+
+    Items can be bare command names ("curl") or command patterns
+    ("rm -rf /"). Escapes regex-special chars and anchors with ``^...$``.
+
+    Args:
+        item: A deny-list entry, optionally quoted.
+
+    Returns:
+        An anchored regex pattern string.
+    """
+    item = item.strip()
+    if item.startswith(("'", '"')):
+        item = item[1:-1]
+    if item.endswith(("'", '"')):
+        item = item[:-1]
+
+    # If it contains spaces, it's a command pattern — escape only the command name
+    if " " in item:
+        cmd = item.split(" ", 1)[0]
+        return f"^{re.escape(cmd)}(\\s.*)?$"
+    else:
+        return f"^{re.escape(item)}$"
+
+
+def _match_pattern(value: str, pattern: str) -> bool:
+    """Check a single value against one pattern (unanchored search)."""
+    return bool(re.search(pattern, value))
+
+
 def _find_blocked_path(value: str, blocked_patterns: list[str]) -> tuple[bool, str]:
     """Check if a value matches any blocked path pattern.
 
     Returns (True, matching_pattern) if found, (False, "") otherwise.
     """
     for pattern in blocked_patterns:
-        if re.search(pattern, value):
+        if _match_pattern(value, pattern):
             return True, pattern
     return False, ""
 
@@ -136,11 +167,11 @@ def check_blocked_patterns(
     if not blocked_patterns:
         return False, None, None
     for pattern in blocked_patterns:
-        if re.search(pattern, command_name):
+        if _match_pattern(command_name, pattern):
             return True, pattern, command_name
     for arg in args:
         for pat in blocked_patterns:
-            if re.search(pat, arg):
+            if _match_pattern(arg, pat):
                 return True, pat, arg
     return False, None, None
 

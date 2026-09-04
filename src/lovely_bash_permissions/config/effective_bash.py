@@ -8,36 +8,11 @@ the hook label pass through the allowed pattern check.
 import re
 from typing import Any
 
+from ..rules import deny_item_to_pattern
 from .devin import exec_permission_to_regex, load_devin_exec_regexes
 
 HOOK_COMMAND_PREFIX = ": '[♡ perms:"
 HOOK_LABEL_REGEX = exec_permission_to_regex(HOOK_COMMAND_PREFIX)
-
-
-def _deny_item_to_regex(item: str) -> str:
-    """Convert a deny list item to a regex pattern.
-
-    Items can be bare command names ("curl") or command patterns
-    ("rm -rf /"). Convert to regex that matches the command name.
-    """
-    # Trim quotes
-    item = item.strip()
-    if item.startswith(("'", '"')):
-        item = item[1:-1]
-    if item.endswith(("'", '"')):
-        item = item[:-1]
-
-    # If it contains spaces, it's a command pattern
-    if " " in item:
-        # Pattern is "rm -rf /" — match command "rm" with specific args
-        parts = item.split(" ", 1)
-        cmd = parts[0]
-        # Escape regex special chars in the command name
-        cmd_pattern = re.escape(cmd)
-        return f"^{cmd_pattern}(\\s.*)?$"
-    else:
-        # Bare command name
-        return f"^{re.escape(item)}$"
 
 
 def get_effective_bash_config(raw_bash: object, project_dir: str) -> dict[str, Any]:
@@ -75,7 +50,7 @@ def get_effective_bash_config(raw_bash: object, project_dir: str) -> dict[str, A
         for p in bash.get("blocked_paths_regex", []):
             blocked_patterns.append(p.rstrip("."))
         deny_items = bash.get("deny", [])
-        blocked_patterns.extend(_deny_item_to_regex(d) for d in deny_items)
+        blocked_patterns.extend(deny_item_to_pattern(d) for d in deny_items)
 
         return {
             "*": bash.get("*", "ask"),

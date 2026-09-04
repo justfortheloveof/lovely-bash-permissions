@@ -8,6 +8,43 @@ from lovely_bash_permissions.config.effective_bash import (
     HOOK_LABEL_REGEX,
     get_effective_bash_config,
 )
+from lovely_bash_permissions.rules import deny_item_to_pattern
+
+
+class TestDenyItemToPattern:
+    """Tests for deny_item_to_pattern — the shared conversion function (issue #3)."""
+
+    def test_bare_command(self) -> None:
+        assert deny_item_to_pattern("curl") == "^curl$"
+
+    def test_command_with_spaces(self) -> None:
+        assert deny_item_to_pattern("rm -rf /") == "^rm(\\s.*)?$"
+
+    def test_quoted_single(self) -> None:
+        assert deny_item_to_pattern("'curl'") == "^curl$"
+
+    def test_quoted_double(self) -> None:
+        assert deny_item_to_pattern('"curl"') == "^curl$"
+
+    def test_escaped_chars(self) -> None:
+        assert deny_item_to_pattern("rm -rf /") == "^rm(\\s.*)?$"
+        # Space-containing items split on first space, escaping only command name
+        assert deny_item_to_pattern("cmd [arg]") == "^cmd(\\s.*)?$"
+
+    def test_stripped(self) -> None:
+        assert deny_item_to_pattern("  git  ") == "^git$"
+
+
+class TestDenyItemEquivalence:
+    """Verify deny list items and raw blocked_paths_regex behave identically (issue #3)."""
+
+    def test_deny_and_raw_match_same(self) -> None:
+        deny_pattern = deny_item_to_pattern("curl")
+        assert deny_pattern == "^curl$"
+
+    def test_deny_and_raw_match_same_path(self) -> None:
+        deny_pattern = deny_item_to_pattern("/etc/passwd")
+        assert deny_pattern == "^/etc/passwd$"
 
 
 class TestGetEffectiveBashConfig:

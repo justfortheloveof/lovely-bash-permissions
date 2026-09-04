@@ -67,3 +67,11 @@ node /home/alx/repos/jftlo/lovely-devin-permissions/dist/hook.js --test 'cmd'
 **Impact**: Cosmetic/minor — both handle it, but Python approves while TS asks.
 **Desired Behaviour**: This is unexpected, all cmds must pass through the approval same flow.
 **Status**: Completed — empty/whitespace commands now apply wildcard policy (default "ask") instead of auto-approving.
+
+### 8. Empty redirections in `segments.py` (issue #2) [x]
+**Problem**: `_extract_segments()` hardcoded `"redirections": []` — all segments lost redirection info.
+**Root cause**: The function never extracted redirections from typed AST nodes (Stmt.redirs, BinaryCmd.left/right_redirs).
+**Impact**: parse_segments() returned segments without any redirection data, defeating the module's documented purpose.
+**Fix**: Added `_extract_redirs()` helper that extracts Redir from Stmt and BinaryCmd; threaded redirs through recursive calls so each CallExpr segment carries its inherited redirections. Fixed IfClause/WhileClause to use cond_stmts (not "cond"). Added Block handler for FuncDecl bodies.
+**Tests**: 18 new tests covering simple/redir, pipe left/right/both, and-chain/or-chain, sequential, background-on-pipe, complex pipes, if/while/body, func-body.
+**Bonus**: Steps into issue #3 — replaced evaluate.py's raw-JSON redirection checks with segment-based `_check_segments_output_redirs()` and `_check_segments_input_redirs()`, making segments the single source of truth for redirection policy evaluation.
