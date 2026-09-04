@@ -45,7 +45,7 @@ def run_test_with_config(command: str, config: dict[str, Any]) -> dict[str, Any]
 
 
 # ── helper ───────────────────────────────────────────────
-def summary(r: dict) -> str:
+def summary(r: dict[str, Any]) -> str:
     d = r.get("decision", "??")
     hook = r.get("hookSpecificOutput", {})
     inp = hook.get("updatedInput", {}).get("command", "")
