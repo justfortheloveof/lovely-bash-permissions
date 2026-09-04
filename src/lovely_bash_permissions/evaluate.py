@@ -225,6 +225,6 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
 
     return {
         "status": overall_status,
-        "reason": "; ".join(reasons) if reasons else "command is allowed",
+        "reason": ". ".join(reasons) if reasons else "command is allowed",
         "segments": segment_results,
     }
