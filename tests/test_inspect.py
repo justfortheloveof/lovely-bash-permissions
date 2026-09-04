@@ -1,6 +1,7 @@
 """Comprehensive tests for AST inspection and helper methods."""
 
 from lovely_bash_permissions import (
+    Lit,
     find_arguments,
     find_commands,
     get_arguments,
@@ -36,8 +37,14 @@ class TestFindCommands:
         commands = find_commands(parse_ast("$(ls | grep x) arg"))
         assert len(commands) == 3
         assert commands[0].args[0].parts[0].type == "CmdSubst"
-        assert commands[1].args[0].parts[0].value == "ls"
-        assert commands[2].args[0].parts[0].value == "grep"
+        node1 = commands[1].args[0].parts[0]
+        assert node1 is not None
+        assert isinstance(node1, Lit)
+        assert node1.value == "ls"
+        node2 = commands[2].args[0].parts[0]
+        assert node2 is not None
+        assert isinstance(node2, Lit)
+        assert node2.value == "grep"
 
 
 class TestIterChildren:
