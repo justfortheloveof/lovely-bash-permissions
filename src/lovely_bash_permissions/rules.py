@@ -165,12 +165,13 @@ def classify_output_redirection(redir: dict[str, Any]) -> list[str]:
     word = redir.get("Word", {})
     parts = word.get("Parts", [])
 
-    fd: str | None = None
     target: str = ""
 
     # For >&/&>/& >> ops, shfmt puts fd in N.Value when present
     n = redir.get("N", {})
-    fd: str | None = n.get("Value") if isinstance(n, dict) else None
+    fd: str | None = None
+    if isinstance(n, dict):
+        fd = n.get("Value")
 
     # Determine target value from first part's Value (filename)
     if parts:
