@@ -7,14 +7,16 @@
 
 **Fix:** Removed the redundant `node.get("Redirs", [])` extraction from BinaryCmd handling. In raw shfmt JSON, `BinaryCmd` has no merged `Redirs` field — redirects live only on X/Y wrapper nodes. Now `_find_redirs()` extracts solely from wrapper-level RedDirs, eliminating the duplication. Added regression test `test_pipe_no_double_counting` verifying pipe redirections are extracted exactly once.
 
-## 2. Empty redirections in `segments.py` (high)
+## 2. Empty redirections in `segments.py` (high) [fixed]
 **File:** `src/lovely_bash_permissions/segments.py`, `_extract_segments()` (~line 48)
 
 ```python
-"redirections": [],   # ← always empty!
+"redirections": [],   # ← was always empty!
 ```
 
-The CallExpr branch never extracts redirections — it hardcodes an empty list. The module docstring claims segments contain "redirections" but this function never populates them. This means `parse_segments()` loses all redirection information, which is probably why the permission rules engine has a separate code path for redirection checks.
+The CallExpr branch never extracted redirections — it hardcoded an empty list. The module docstring claimed segments contain "redirections" but this function never populated them, so `parse_segments()` lost all redirection info (the rules engine had a separate raw-JSON code path for redirection checks).
+
+**Fix:** Added `_extract_redirs()` helper that extracts `Redir` objects from typed AST nodes (`Stmt.redirs`, `BinaryCmd.left/right_redirs`). Threaded redirs through recursive calls so each CallExpr segment inherits its redirections. Also fixed two pre-existing bugs: IfClause/WhileClause checked nonexistent `"cond"` instead of `cond_stmts`, and Block nodes (FuncDecl bodies) weren't handled. Added 18 regression tests covering simple/redir, pipe left/right/both-sides, and/or chains, sequential, background-on-pipe, complex pipes, if/while/body, func-body. Bonus: replaced `evaluate.py`'s raw-tree redirection checks with segment-based `_check_segments_output_redirs()` and `_check_segments_input_redirs()`, making segments the single source of truth (addresses issue #5's raw-JSON traversal concern for redirections).
 
 ## 3. Duplicate blocked-pattern logic (medium)
 **Files:** `effective_bash.py` (`_deny_item_to_regex`) and `rules.py` (`check_blocked_patterns`)
@@ -59,7 +61,8 @@ There's an empty section labeled `# Type mapping from shfmt's JSON to our datacl
 ---
 
 **Summary by severity:**
-- **High impact (2):** segments.py loses redirection info (#2), duplicate aggregation logic (#4)
+- **High impact (1):** duplicate aggregation logic (#4)
 - **Medium impact (3):** redundant redir collection (#1), duplicate blocked-pattern logic (#3), raw-JSON traversal (#5)
 - **Low–medium (1):** bare excepts with noqa (#6)
 - **Low / documentation (4):** confusing docstring (#8), stale cache (#9), duplicated helper awareness (#7), unused section header (#10)
+- **Fixed (2):** redundant redir collection (#1), empty redirections in segments.py (#2)
