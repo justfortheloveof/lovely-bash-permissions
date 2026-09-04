@@ -15,27 +15,6 @@ COMBINED_OPS: frozenset[str] = frozenset({">&", "&>", "&>>"})
 DEV_NULL: str = "/dev/null"
 
 
-def _display_pattern(pattern: str) -> str:
-    """Strip anchors and wrap pattern in slashes, matching TS format.
-
-    Strips ^/$ from pattern source, escapes leading slash (prepend \\),
-    then wraps in slashes. e.g. pattern '^/etc/' displays as '/\\/etc/'
-    """
-    clean = pattern.removeprefix("^").removesuffix("$")
-    return "/\\" + clean
-
-
-def _display_pattern_for_reason(pattern: str) -> str:
-    """Strip anchors and wrap pattern in slashes, matching TS output.
-
-    Escapes '/' characters so the displayed pattern matches TS format exactly.
-    (e.g. pattern '^/etc/' displays as '/\\/etc/')
-    """
-    clean = pattern.removeprefix("^").removesuffix("$")
-    escaped = "/".join("\\" + p for p in clean.split("/"))
-    return f"/{escaped}/"
-
-
 def _find_blocked_path(value: str, blocked_patterns: list[str]) -> tuple[bool, str]:
     """Check if a value matches any blocked path pattern.
 
@@ -381,7 +360,7 @@ def check_input_redirection(tree: dict[str, Any], rules: dict[str, Any] | None =
             if matched:
                 return {
                     "status": "deny",
-                    "reason": f'Redirect target \\"{target}\\" matches blocked path pattern {_display_pattern(pattern)}',
+                    "reason": f'Redirect target "{target}" matches blocked path pattern {pattern}',
                 }
 
     if level == "allow":
