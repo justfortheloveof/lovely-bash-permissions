@@ -19,5 +19,5 @@ All TS/Python parity issues resolved, linting clean (461 tests passing).
 
 ## Next steps
 
-17. [ ] Add tests for config error reporting (invalid JSONC file detection)
+17. [x] Add tests for config error reporting (invalid JSONC file detection)
 18. [ ] Review remaining TODO items and any edge cases
