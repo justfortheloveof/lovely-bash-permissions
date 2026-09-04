@@ -36,7 +36,7 @@ All TS/Python parity issues resolved, linting and type-checking clean (461 tests
 10. [x] **`PermissionsManager.reload()` never called from source** — only used by tests; verified no source callers missing it, kept as public API.
 
 ### Fixed (pass 7)
-13. [ ] **TODO** — discover remaining issues in next pass (if any)
+13. [x] **TODO** — discovered remaining issues in pass 7: none found (ruff clean, mypy --strict clean, all 461 tests passing)
 
 ### Fixed (pass 6)
 11. [x] **Output redirection not asking for approval in pipes** — fixed `check_output/input/background` functions to recursively walk AST (BinaryCmd.X/Y operands); added 11 regression tests.
