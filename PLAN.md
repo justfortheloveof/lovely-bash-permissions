@@ -30,7 +30,7 @@ All TS/Python parity issues resolved, linting clean (461 tests passing).
 1. Run `ruff` + `mypy --strict` — done, both clean (fixed PYI041 untyped dict return)
 2. Check README and docs match current code — reviewed, no changes needed
 3. Remove leftover TODOs/dead code/test-only functions — none found
-4. Confirm git diff clean except docs/config files — confirmed, committed (2590e4d)
+4. Confirm git diff clean except docs/config files — confirmed
 5. Mark project complete and stop loop — done; no further passes needed
 
 ## ISSUES
