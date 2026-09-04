@@ -319,6 +319,98 @@ class TestEdgeCases:
         assert result["status"] == "allow"
 
 
+class TestPerKindOutputRedirection:
+    """Tests for per-kind output redirection policy resolution (bug fix)."""
+
+    def test_stderr_to_dev_null_allow_with_ask_wildcard(self) -> None:
+        """Bug fix: echo hi 2> /dev/null auto-approves when stderr_to_dev_null=allow."""
+        result = evaluate_bash_command(
+            "echo hi 2> /dev/null",
+            {
+                "*": "ask",
+                "output_redirection": {"*": "ask", "stderr_to_dev_null": "allow"},
+            },
+        )
+        assert result["status"] == "allow"
+
+    def test_stderr_to_stdout_allow_with_ask_wildcard(self) -> None:
+        """2>&1 auto-approves when stderr_to_stdout=allow."""
+        result = evaluate_bash_command(
+            "echo hi 2>&1",
+            {
+                "*": "ask",
+                "output_redirection": {"*": "ask", "stderr_to_stdout": "allow"},
+            },
+        )
+        assert result["status"] == "allow"
+
+    def test_combined_op_deny_overrides(self) -> None:
+        """Combined op >& /dev/null: deny kind overrides ask."""
+        result = evaluate_bash_command(
+            "echo hi >& /dev/null",
+            {
+                "*": "ask",
+                "output_redirection": {"*": "allow", "stdout_to_dev_null": "allow", "stderr_to_dev_null": "deny"},
+            },
+        )
+        assert result["status"] == "deny"
+
+    def test_stdout_to_dev_null_allow(self) -> None:
+        "> /dev/null uses stdout_to_dev_null kind."
+        result = evaluate_bash_command(
+            "echo hi > /dev/null",
+            {
+                "*": "ask",
+                "output_redirection": {"*": "ask", "stdout_to_dev_null": "allow"},
+            },
+        )
+        assert result["status"] == "allow"
+
+    def test_other_redir_falls_back_to_wildcard(self) -> None:
+        """> /tmp/out.txt uses 'other' kind, falls back to wildcard."""
+        result = evaluate_bash_command(
+            "echo hi > /tmp/out.txt",
+            {
+                "*": "ask",
+                "output_redirection": {"*": "ask", "stdout_to_dev_null": "allow"},
+            },
+        )
+        assert result["status"] == "ask"
+
+    def test_multiple_redirs_all_allow(self) -> None:
+        """Both kinds allow -> auto-approve."""
+        result = evaluate_bash_command(
+            "echo hi > /tmp/out.txt 2> /dev/null",
+            {
+                "*": "ask",
+                "output_redirection": {"*": "ask", "stdout_to_dev_null": "allow", "stderr_to_dev_null": "allow"},
+            },
+        )
+        assert result["status"] == "allow"
+
+    def test_mixed_allow_deny_resolves_to_deny(self) -> None:
+        """Deny kind overrides ask/wildcard."""
+        result = evaluate_bash_command(
+            "echo hi 2> /dev/null",
+            {
+                "*": "allow",
+                "output_redirection": {"*": "allow", "stderr_to_dev_null": "deny"},
+            },
+        )
+        assert result["status"] == "deny"
+
+    def test_input_redirection_uses_wildcard(self) -> None:
+        """Input redirection with object policy uses wildcard key."""
+        result = evaluate_bash_command(
+            "cat < /tmp/in.txt",
+            {
+                "*": "ask",
+                "input_redirection": {"*": "allow"},
+            },
+        )
+        assert result["status"] == "allow"
+
+
 class TestResultStructure:
     """Tests for result dictionary structure."""
 

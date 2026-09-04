@@ -10,6 +10,10 @@ from __future__ import annotations
 import re
 from typing import Any
 
+WRITE_REDIRECT_OPS: frozenset[str] = frozenset({">", ">>", "&>", ">&", "&>>"})
+COMBINED_OPS: frozenset[str] = frozenset({">&", "&>", "&>>"})
+DEV_NULL: str = "/dev/null"
+
 
 def _find_redirs(node: dict[str, Any]) -> list[dict[str, Any]]:
     """Recursively collect all redirection dicts from an AST node.
@@ -129,11 +133,62 @@ def check_blocked_patterns(
     return False, None, None
 
 
+def classify_output_redirection(redir: dict[str, Any]) -> list[str]:
+    """Classify a single write redirection into policy-kind keys.
+
+    Returns one of: 'other', 'stdout_to_dev_null', 'stderr_to_dev_null',
+    'stderr_to_stdout'.  Combined operators (>&, &>, & >>) that target
+    /dev/null yield both stdout+stderr kinds.
+
+    Args:
+        redir: A redirection dict from shfmt with keys 'Op' and 'Word'.
+
+    Returns:
+        List of kind strings this redirection triggers.
+    """
+    op = redir.get("Op", "")
+    if op not in WRITE_REDIRECT_OPS:
+        return []
+
+    # Extract fd number (e.g. "2" from 2>&1) and target
+    word = redir.get("Word", {})
+    parts = word.get("Parts", [])
+
+    fd: str | None = None
+    target: str = ""
+
+    # For >&/&>/& >> ops, shfmt puts fd in N.Value when present
+    n = redir.get("N", {})
+    fd: str | None = n.get("Value") if isinstance(n, dict) else None
+
+    # Determine target value from first part's Value (filename)
+    if parts:
+        target = parts[0].get("Value", "")
+
+    # fd duplication: 2>&1 means stderr -> stdout
+    if op == ">&" and fd == "2" and target == "1":
+        return ["stderr_to_stdout"]
+
+    # Redirection to /dev/null
+    if target == DEV_NULL:
+        if op in COMBINED_OPS:
+            return ["stdout_to_dev_null", "stderr_to_dev_null"]
+        if fd == "2":
+            return ["stderr_to_dev_null"]
+        return ["stdout_to_dev_null"]  # fd=1 or default
+
+    return ["other"]
+
+
 def check_output_redirection(tree: dict[str, Any], rules: dict[str, Any]) -> dict[str, Any]:
     """Evaluate output redirections against rules.
 
     Extracts output redirections (> or >>) from the AST and applies
     the configured allow/ask/deny policy.
+
+    When rules["output_redirection"] is a dict, kind-specific keys
+    (stderr_to_dev_null, stderr_to_stdout, stdout_to_dev_null) are
+    checked first, falling back to "*".
 
     Args:
         tree: The shfmt JSON AST representation of the bash command.
@@ -148,10 +203,6 @@ def check_output_redirection(tree: dict[str, Any], rules: dict[str, Any]) -> dic
     """
     policy = rules.get("output_redirection", "allow")
 
-    # If policy is an object, use the wildcard level for now
-    # (per-type policies handled in the evaluator layer)
-    level = policy.get("*", policy.get("allow", "allow")) if isinstance(policy, dict) else policy
-
     redirs = []
     for stmt in tree.get("Stmts", []):
         # Redirs on the statement node itself (simple statements)
@@ -163,13 +214,8 @@ def check_output_redirection(tree: dict[str, Any], rules: dict[str, Any]) -> dic
     redirections = []
     for redir in redirs:
         op = redir.get("Op", "")
-        if op in (">", ">>"):
-            target = ""
-            word = redir.get("Word", {})
-            parts = word.get("Parts", [])
-            if parts:
-                target = parts[0].get("Value", "")
-            redirections.append({"op": op, "target": target})
+        if op in (">", ">>", "&>", ">&", "&>>"):
+            redirections.append(redir)
 
     if not redirections:
         return {
@@ -177,7 +223,16 @@ def check_output_redirection(tree: dict[str, Any], rules: dict[str, Any]) -> dic
             "reason": "no output redirection",
         }
 
-    targets = [r["target"] for r in redirections]
+    targets = []
+    kinds: list[str] = []
+    for redir in redirections:
+        target_word = redir.get("Word", {})
+        parts = target_word.get("Parts", [])
+        if parts:
+            targets.append(parts[0].get("Value", ""))
+        kinds.extend(classify_output_redirection(redir))
+
+    level = _resolve_output_level(kinds, policy) if isinstance(policy, dict) else policy
 
     if level == "allow":
         return {
@@ -196,11 +251,55 @@ def check_output_redirection(tree: dict[str, Any], rules: dict[str, Any]) -> dic
         }
 
 
+def _resolve_output_level(kinds: list[str], policy: dict[str, Any]) -> str:
+    """Resolve output redirection level using per-kind policy keys.
+
+    Deny overrides, ask triggers.  Kind-specific keys are checked first
+    (stderr_to_dev_null, stderr_to_stdout, stdout_to_dev_null),
+    falling back to wildcard "*".  Non-special kinds ("other") also
+    fall back to the wildcard level.
+
+    Args:
+        kinds: List of redirection kind strings from classify_output_redirection.
+        policy: Dict-form output_redirection policy.
+
+    Returns:
+        The resolved level string (allow/ask/deny).
+    """
+    wildcard_level = policy.get("*", "allow")
+
+    # Start with the wildcard level; kind-specific keys override it.
+    level = wildcard_level
+
+    for kind in kinds:
+        if kind == "other":
+            # Non-special redirections use wildcard level
+            continue
+        kind_level = policy.get(kind)
+        if kind_level is not None:
+            level = kind_level
+
+    # Deny overrides ask (any deny kind wins)
+    for kind in kinds:
+        if kind == "other":
+            continue
+        if policy.get(kind) == "deny":
+            return "deny"
+
+    if level == "deny":
+        return "deny"
+    if level == "ask":
+        return "ask"
+    return "allow"
+
+
 def check_input_redirection(tree: dict[str, Any], rules: dict[str, Any]) -> dict[str, Any]:
     """Evaluate input redirections against rules.
 
     Extracts input redirections (< or <<) from the AST and applies
     the configured allow/ask/deny policy.
+
+    When rules["input_redirection"] is a dict, uses wildcard "*" level.
 
     Args:
         tree: The shfmt JSON AST representation of the bash command.
@@ -215,8 +314,8 @@ def check_input_redirection(tree: dict[str, Any], rules: dict[str, Any]) -> dict
     """
     policy = rules.get("input_redirection", "allow")
 
-    # If policy is an object, use the wildcard level for now
-    # (per-type policies handled in the evaluator layer)
+    # If policy is an object, use the wildcard level.
+    # (TS version only uses wildcard for input redirection)
     level = policy.get("*", policy.get("allow", "allow")) if isinstance(policy, dict) else policy
 
     redirs = []

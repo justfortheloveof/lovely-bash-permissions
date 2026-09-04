@@ -116,10 +116,8 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     def _display_pattern(p: str) -> str:
         """Strip anchors and wrap in slashes, matching TS format."""
         clean = p
-        if clean.startswith("^"):
-            clean = clean[1:]
-        if clean.endswith("$"):
-            clean = clean[:-1]
+        clean = clean.removeprefix("^")
+        clean = clean.removesuffix("$")
         return f"/{clean}/"
 
     all_matched_patterns: list[str] = []
@@ -177,6 +175,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
 
     # Check redirection rules
     output_result = check_output_redirection(raw_tree, rules)
+    _output_rules_triggered = output_result["status"] != "allow"
     if output_result["status"] == "deny":
         overall_status = "deny"
         reasons.append(f"output redirection denied: {output_result['reason']}")
@@ -185,17 +184,26 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         reasons.append(output_result["reason"])
 
     input_result = check_input_redirection(raw_tree, rules)
-    if input_result["status"] == "deny":
+    _input_rules_triggered = input_result["status"] != "allow"
+
+    bg_result = check_background_execution(raw_tree, rules)
+    _bg_rules_triggered = bg_result["status"] != "allow"
+
+    # Deny overrides ask in aggregation (deny anywhere → deny overall)
+    if output_result["status"] == "deny" or input_result["status"] == "deny" or bg_result["status"] == "deny":
         overall_status = "deny"
-        reasons.append(f"input redirection denied: {input_result['reason']}")
+        if output_result["status"] == "deny":
+            reasons.append(f"output redirection denied: {output_result['reason']}")
+        if input_result["status"] == "deny":
+            reasons.append(f"input redirection denied: {input_result['reason']}")
+        if bg_result["status"] == "deny":
+            reasons.append(f"background execution denied: {bg_result['reason']}")
+    elif output_result["status"] == "ask" and overall_status == "allow":
+        overall_status = "ask"
+        reasons.append(output_result["reason"])
     elif input_result["status"] == "ask" and overall_status == "allow":
         overall_status = "ask"
         reasons.append(input_result["reason"])
-
-    bg_result = check_background_execution(raw_tree, rules)
-    if bg_result["status"] == "deny":
-        overall_status = "deny"
-        reasons.append(f"background execution denied: {bg_result['reason']}")
     elif bg_result["status"] == "ask" and overall_status == "allow":
         overall_status = "ask"
         reasons.append(bg_result["reason"])
@@ -218,10 +226,16 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
             overall_status = wildcard
         reasons.append("command substitution detected")
 
-    # If no specific rules matched, apply wildcard policy
+    # If no specific rules matched and nothing else triggered ask/deny, apply wildcard policy
+    _redir_matched = output_result["reason"] != "no output redirection"
+    _input_matched = input_result["reason"] != "no input redirection"
+    _bg_matched = bg_result["reason"] != "no background execution"
     if not allowed_patterns and not blocked_patterns and overall_status == "allow" and wildcard != "allow":
-        overall_status = wildcard
-        reasons.append(f"wildcard policy is {wildcard}")
+        if _redir_matched or _input_matched or _bg_matched:
+            pass  # specific rules matched; don't override with wildcard
+        else:
+            overall_status = wildcard
+            reasons.append(f"wildcard policy is {wildcard}")
 
     if reasons:
         reason_str = "; ".join(r.rstrip(".!? ") for r in reasons)
