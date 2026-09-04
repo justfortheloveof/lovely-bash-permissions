@@ -1,9 +1,11 @@
 # Top 10 Code Quality Issues
 
-## 1. Redundant redirection collection in `rules.py` (medium)
+## 1. Redundant redirection collection in `rules.py` (medium) [fixed]
 **File:** `src/lovely_bash_permissions/rules.py`, `_find_redirs()` (~line 38)
 
-`_find_redirs()` re-collects `X.Redirs`, `Y.Redirs`, and node-level `Redirs` — but the converter already splits these into per-side fields (`left_redirs`, `right_redirs`) and a merged `redirs`. Since `BinaryCmd.redirs` already holds the merged list, re-extracting from X/Y wrappers duplicates work and risks double-counting if the merge ever changes. The docstring in `ast.py` even says consumers should use per-side fields instead of the merged one.
+`_find_redirs()` re-collected `X.Redirs`, `Y.RedDirs`, and node-level `Redirs` — but the converter already splits these into per-side fields (`left_redirs`, `right_redirs`) and a merged `redirs`. Since `BinaryCmd.redirs` already holds the merged list, re-extracting from X/Y wrappers duplicated work and risked double-counting if the merge ever changes. The docstring in `ast.py` even says consumers should use per-side fields instead of the merged one.
+
+**Fix:** Removed the redundant `node.get("Redirs", [])` extraction from BinaryCmd handling. In raw shfmt JSON, `BinaryCmd` has no merged `Redirs` field — redirects live only on X/Y wrapper nodes. Now `_find_redirs()` extracts solely from wrapper-level RedDirs, eliminating the duplication. Added regression test `test_pipe_no_double_counting` verifying pipe redirections are extracted exactly once.
 
 ## 2. Empty redirections in `segments.py` (high)
 **File:** `src/lovely_bash_permissions/segments.py`, `_extract_segments()` (~line 48)
