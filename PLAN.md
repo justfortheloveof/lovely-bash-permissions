@@ -44,9 +44,10 @@ All TS/Python parity issues resolved, linting clean (450 tests passing).
 ### Fixed (pass 8)
 14. [x] **mypy --strict errors in tests** — all 73 resolved; test_parser.py ~21 fixed (Node|None/Lit|None narrowing)
 
+### Fixed (pass 9 — test fixes)
+15. [x] **10 failing tests in test_parser.py** — fixed: `test_adjacent_param_expansions` (pq0 reassigned from dq_parts[1], check USER), arithmetic tests (operands wrapped in Word, unwrap with .parts[0]), block/func_decl tests (quoted strings parse as SglQuoted not Lit). Also fixed ruff lint errors (I001 import sorting, 3 fixes).
+
 ### Fixed (pass 6)
 11. [x] **Output redirection not asking for approval in pipes** — fixed `check_output/input/background` functions to recursively walk AST (BinaryCmd.X/Y operands); added 11 regression tests.
 
 12. [x] **Bug between TS and Python — list matching regexes joined** — fixed: allow now produces one "command matches allowed patterns" string; added `decision` field to response for approve/block cases (matching TS).
-
-13. [ ] Fix tests
