@@ -79,9 +79,7 @@ BASIC_PATTERNS = [
 print("=" * 72)
 print("STEP 3: Output redirection validation")
 print("=" * 72)
-print(
-    "\nDefault config (from global): output_redirection = {'*':'ask', 'stderr_to_dev_null':'allow', 'stderr_to_stdout':'allow'}"
-)
+print("\nDefault config: output_redirection = {'*':'ask', 'stderr_to_dev_null':'allow', 'stderr_to_stdout':'allow'}")
 print("Expected: non-special redirs → ask;  stderr-to-stdout / stderr-to-null → auto-allow\n")
 
 results = []
@@ -179,5 +177,5 @@ else:
 print("\n" + "=" * 72)
 print("FULL RESULTS TABLE")
 print("=" * 72)
-for desc, cmd, status in results:
+for desc, _cmd, status in results:
     print(f"  {desc:48s} → {status}")
