@@ -4,7 +4,9 @@ not covered by test_parser.py.
 """
 
 from lovely_bash_permissions import (
+    ArithmExp,
     BraceExp,
+    CallExpr,
     DeclClause,
     Word,
     parse_ast,
@@ -74,7 +76,13 @@ class TestConsistentNaming:
 
     def test_binary_arithm_left_right(self) -> None:
         tree = parse_ast("echo $((2 + 3))")
-        arithm = tree.stmts[0].cmd.args[1].parts[0].x
+        cmd = tree.stmts[0].cmd
+        assert cmd is not None
+        assert isinstance(cmd, CallExpr)
+        node = cmd.args[1].parts[0]
+        assert node is not None
+        assert isinstance(node, ArithmExp)
+        arithm = node.x
         assert hasattr(arithm, "left")
         assert hasattr(arithm, "right")
 
