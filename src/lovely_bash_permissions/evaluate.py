@@ -14,10 +14,10 @@ from typing import Any
 
 from .parser import ParseError, parse
 from .rules import (
+    _check_segments_input_redirs,
+    _check_segments_output_redirs,
     check_background_execution,
     check_blocked_patterns,
-    check_input_redirection,
-    check_output_redirection,
 )
 from .segments import parse_segments
 
@@ -230,8 +230,8 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     else:
         approval_reason = None
 
-    # Check redirection rules
-    output_result = check_output_redirection(raw_tree, rules)
+    # Check redirection rules (from segments — single source of truth, issue #2/#3)
+    output_result = _check_segments_output_redirs(segments, rules)
     if output_result["status"] == "deny":
         overall_status = "deny"
         reasons.append(f"output redirection denied: {output_result['reason']}")
@@ -239,7 +239,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         overall_status = "ask"
         reasons.append(output_result["reason"])
 
-    input_result = check_input_redirection(raw_tree, rules)
+    input_result = _check_segments_input_redirs(segments, rules)
 
     bg_result = check_background_execution(raw_tree, rules)
 

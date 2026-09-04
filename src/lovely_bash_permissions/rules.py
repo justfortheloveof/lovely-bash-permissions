@@ -382,6 +382,100 @@ def check_input_redirection(tree: dict[str, Any], rules: dict[str, Any] | None =
         }
 
 
+def _check_segments_output_redirs(segments: list[dict[str, Any]], rules: dict[str, Any]) -> dict[str, Any]:
+    """Evaluate output redirections collected from segments.
+
+    Works on segment dicts produced by ``parse_segments`` — each segment's
+    ``"redirections"`` list contains dicts with ``Op``, ``N``, and ``Word``.
+    Applies the same policy logic as :func:`check_output_redirection` but
+    operates on segment-level data (single source of truth, issue #2/#3).
+
+    Args:
+        segments: List of segment dicts from parse_segments.
+        rules: Policy dict with ``output_redirection`` key.
+
+    Returns:
+        dict with ``status`` and ``reason``.
+    """
+    policy = rules.get("output_redirection", "allow")
+
+    redirections: list[dict[str, Any]] = []
+    for seg in segments:
+        for r in seg.get("redirections", []):
+            if r.get("Op") in WRITE_REDIRECT_OPS:
+                redirections.append(r)
+
+    if not redirections:
+        return {"status": "allow", "reason": "no output redirection"}
+
+    targets: list[str] = []
+    kinds: list[str] = []
+    for redir in redirections:
+        word = redir.get("Word", {})
+        parts = word.get("Parts", [])
+        if parts:
+            targets.append(parts[0].get("Value", ""))
+        kinds.extend(classify_output_redirection(redir))
+
+    level = _resolve_output_level(kinds, policy) if isinstance(policy, dict) else policy
+
+    if level == "allow":
+        return {"status": "allow", "reason": f"output redirection allowed to {', '.join(targets)}"}
+    elif level == "ask":
+        return {"status": "ask", "reason": "output redirection requires approval"}
+    else:
+        return {"status": "deny", "reason": f"output redirection denied to {', '.join(targets)}"}
+
+
+def _check_segments_input_redirs(segments: list[dict[str, Any]], rules: dict[str, Any]) -> dict[str, Any]:
+    """Evaluate input redirections collected from segments.
+
+    Segment-level counterpart to :func:`check_input_redirection`.
+
+    Args:
+        segments: List of segment dicts from parse_segments.
+        rules: Policy dict with ``input_redirection`` key.
+
+    Returns:
+        dict with ``status`` and ``reason``.
+    """
+    rules = rules or {}
+    policy = rules.get("input_redirection", "allow")
+    level = policy.get("*", "allow") if isinstance(policy, dict) else policy
+
+    input_redirs: list[dict[str, Any]] = []
+    for seg in segments:
+        for r in seg.get("redirections", []):
+            if r.get("Op") in ("<", "<<"):
+                word = r.get("Word", {})
+                target = ""
+                parts = word.get("Parts", [])
+                if parts:
+                    target = parts[0].get("Value", "")
+                input_redirs.append({"op": r["Op"], "target": target})
+
+    if not input_redirs:
+        return {"status": "allow", "reason": "no input redirection"}
+
+    targets = [r["target"] for r in input_redirs]
+    blocked_patterns = rules.get("blocked_paths_regex", [])
+    if blocked_patterns:
+        for target in targets:
+            matched, pattern = _find_blocked_path(target, blocked_patterns)
+            if matched:
+                return {
+                    "status": "deny",
+                    "reason": f'Redirect target "{target}" matches blocked path pattern {pattern}',
+                }
+
+    if level == "allow":
+        return {"status": "allow", "reason": f"input redirection allowed from {', '.join(targets)}"}
+    elif level == "ask":
+        return {"status": "ask", "reason": "input redirection requires approval"}
+    else:
+        return {"status": "deny", "reason": f"input redirection denied from {', '.join(targets)}"}
+
+
 def check_background_execution(tree: dict[str, Any], rules: dict[str, Any]) -> dict[str, Any]:
     """Evaluate background execution against rules.
 
