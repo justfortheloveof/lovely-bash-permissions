@@ -100,9 +100,13 @@ def check_allowed_patterns(command_name: str, allowed_patterns: list[str]) -> bo
     return any(re.search(pattern, command_name) for pattern in allowed_patterns)
 
 
-def check_blocked_patterns(command_name: str, args: list[str], blocked_patterns: list[str]) -> bool:
+def check_blocked_patterns(
+    command_name: str, args: list[str], blocked_patterns: list[str]
+) -> tuple[bool, str | None, str | None]:
     """Test command name and arguments against blocked_paths_regex patterns.
-    Returns True if any match a blocked pattern, False otherwise.
+
+    Returns a tuple of (matched: bool, pattern: str | None, value: str | None)
+    where pattern is the matching regex and value is which arg/command matched.
 
     Args:
         command_name: The name of the command to check.
@@ -110,14 +114,19 @@ def check_blocked_patterns(command_name: str, args: list[str], blocked_patterns:
         blocked_patterns: List of regex patterns to test against.
 
     Returns:
-        True if ANY argument matches ANY blocked pattern,
-        False if none match or patterns list is empty.
+        (True, pattern, value) if any match,
+        (False, None, None) otherwise.
     """
     if not blocked_patterns:
-        return False
-    return any(re.search(pattern, command_name) for pattern in blocked_patterns) or any(
-        re.search(pattern, arg) for arg in args for pattern in blocked_patterns
-    )
+        return False, None, None
+    for pattern in blocked_patterns:
+        if re.search(pattern, command_name):
+            return True, pattern, command_name
+    for arg in args:
+        for pat in blocked_patterns:
+            if re.search(pat, arg):
+                return True, pat, arg
+    return False, None, None
 
 
 def check_output_redirection(tree: dict[str, Any], rules: dict[str, Any]) -> dict[str, Any]:

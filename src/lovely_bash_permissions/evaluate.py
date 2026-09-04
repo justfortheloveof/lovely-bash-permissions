@@ -112,6 +112,16 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     any_segment_not_allowed = False
 
     # Collect all matched patterns across ALL segments (joined into one reason, like TS)
+
+    def _display_pattern(p: str) -> str:
+        """Strip anchors and wrap in slashes, matching TS format."""
+        clean = p
+        if clean.startswith("^"):
+            clean = clean[1:]
+        if clean.endswith("$"):
+            clean = clean[:-1]
+        return f"/{clean}/"
+
     all_matched_patterns: list[str] = []
 
     for i, segment in enumerate(segments):
@@ -145,11 +155,13 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
 
         # Check blocked patterns
         if blocked_patterns:
-            if check_blocked_patterns(cmd_name, args, blocked_patterns):
+            matched, pattern, value = check_blocked_patterns(cmd_name, args, blocked_patterns)
+            if matched:
                 segment_result["blocked"] = True
                 overall_status = "deny"
                 reasons.append(
-                    f'Blocked by bash permissions: "{cmd_name}" matches blocked patterns. The tool has not been run.'
+                    f'Blocked by bash permissions: Argument "{value}" matches blocked path pattern '
+                    f"{_display_pattern(pattern)}. The tool has not been run."
                 )
             else:
                 segment_result["blocked"] = False
@@ -159,7 +171,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         segment_results.append(segment_result)
 
     # Produce one joined reason from all matched patterns (like TS summarizeCommandMatches)
-    if all_matched_patterns:
+    if all_matched_patterns and overall_status == "allow":
         noun = "pattern" if len(all_matched_patterns) == 1 else "patterns"
         reasons.append(f"command matches allowed {noun} {', '.join(all_matched_patterns)}")
 

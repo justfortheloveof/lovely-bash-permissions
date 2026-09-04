@@ -50,36 +50,45 @@ def test_wildcard_pattern() -> None:
 
 def test_blocked_single_arg_matches() -> None:
     """Single argument matches a blocked pattern."""
-    assert check_blocked_patterns("cmd", ["/etc/passwd"], ["/etc/passwd"]) is True
+    matched, _, value = check_blocked_patterns("cmd", ["/etc/passwd"], ["/etc/passwd"])
+    assert matched is True
+    assert value == "/etc/passwd"
 
 
 def test_blocked_multiple_args_one_matches() -> None:
     """Multiple arguments, one matches a blocked pattern."""
     args = ["/var/log", "/etc/passwd", "/tmp"]
     patterns = ["/etc/passwd"]
-    assert check_blocked_patterns("cmd", args, patterns) is True
+    matched, _, value = check_blocked_patterns("cmd", args, patterns)
+    assert matched is True
+    assert value == "/etc/passwd"
 
 
 def test_blocked_multiple_args_none_match() -> None:
     """Multiple arguments, none match any blocked pattern."""
     args = ["/var/log", "/tmp", "/usr/bin"]
     patterns = ["/etc/passwd", "/root"]
-    assert check_blocked_patterns("cmd", args, patterns) is False
+    matched, _, _ = check_blocked_patterns("cmd", args, patterns)
+    assert matched is False
 
 
 def test_blocked_empty_args() -> None:
     """Empty args list returns False."""
-    assert check_blocked_patterns("cmd", [], ["/etc/passwd"]) is False
+    matched, _, _ = check_blocked_patterns("cmd", [], ["/etc/passwd"])
+    assert matched is False
 
 
 def test_blocked_empty_patterns() -> None:
     """Empty blocked_patterns list returns False."""
-    assert check_blocked_patterns("cmd", ["/etc/passwd"], []) is False
+    matched, _, _ = check_blocked_patterns("cmd", ["/etc/passwd"], [])
+    assert matched is False
 
 
 def test_blocked_pattern_matches_part_of_path() -> None:
     """Pattern matches part of path (not anchored)."""
-    assert check_blocked_patterns("cmd", ["/etc/passwd.backup"], ["/etc/passwd"]) is True
+    matched, _, value = check_blocked_patterns("cmd", ["/etc/passwd.backup"], ["/etc/passwd"])
+    assert matched is True
+    assert value == "/etc/passwd.backup"
 
 
 # Tests for check_output_redirection
