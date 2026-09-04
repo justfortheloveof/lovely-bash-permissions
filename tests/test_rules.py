@@ -482,6 +482,21 @@ def test_pipe_input_redirection_no_redir() -> None:
     assert result["reason"] == "no input redirection"
 
 
+def test_pipe_no_double_counting() -> None:
+    """BinaryCmd redirects are extracted once, not merged+wrappers twice.
+
+    Regression test for issue #1: _find_redirs() must not double-count
+    redirections from a BinaryCmd — the original code collected both the
+    (empty) merged Redirs list and X/Y wrapper-level RedDirs.
+    """
+    from lovely_bash_permissions.rules import _find_redirs
+
+    tree = parse("a > 1 | b > 2")
+    binary_cmd = tree["Stmts"][0]["Cmd"]  # BinaryCmd node
+    redirs = _find_redirs(binary_cmd)
+    assert len(redirs) == 2, f"Expected 2 redirs, got {len(redirs)}: {redirs}"
+
+
 def test_mixed_pipe_input_output_redirection() -> None:
     """Pipe with both input and output redirection."""
     tree = parse("cat < /tmp/in.txt | grep pattern > /tmp/out.txt")

@@ -44,13 +44,14 @@ def _find_redirs(node: dict[str, Any]) -> list[dict[str, Any]]:
     if node.get("Type") == "CallExpr":
         redirs.extend(node.get("Redirs", []))
 
-    # BinaryCmd has Redirs on X/Y wrapper nodes (also merged at node level)
+    # BinaryCmd: redirects live on X/Y wrapper nodes (left/right operands).
+    # The converter merges these into a single ``redirs`` field for the
+    # typed AST, but in raw JSON there is no merged list — only X/Y.
     if node.get("Type") == "BinaryCmd":
-        redirs.extend(node.get("Redirs", []))
         x = node.get("X", {})
-        redirs.extend(x.get("Redirs", []))  # wrapper-level RedDirs
+        redirs.extend(x.get("Redirs", []))
         y = node.get("Y", {})
-        redirs.extend(y.get("Redirs", []))  # wrapper-level RedDirs
+        redirs.extend(y.get("Redirs", []))
 
     # AndCmd / OrCmd operands may also carry redirections
     if node.get("Type") in ("AndCmd", "OrCmd"):
