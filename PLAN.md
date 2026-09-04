@@ -4,11 +4,15 @@
 
 Identify the top 10 issues to fix in our code — start with the most obvious mistakes or errors or inconsistencies. Then spawn agents to fix them. The list of issues should not grow larger than 100.
 
-## Status: Pass 3 — Complete. Project fully implemented.
+## Status: Pass 4 — Complete. Project fully implemented.
 
 All TS/Python parity issues resolved, linting and type-checking clean (461 tests passing).
 
-### Pass 3: Final review and cleanup
+### Pass 7: Final verification
+1. Run `ruff` + `mypy --strict` — verify clean (was done in pass 3, confirm no regressions)
+2. Run full test suite — verify 461 tests passing
+3. Confirm git diff clean except docs/config files
+4. Mark project complete and stop loop
 1. Run `ruff` + `mypy --strict` — done, both clean (fixed PYI041 untyped dict return)
 2. Check README and docs match current code — reviewed, no changes needed
 3. Remove leftover TODOs/dead code/test-only functions — none found
@@ -30,6 +34,9 @@ All TS/Python parity issues resolved, linting and type-checking clean (461 tests
 8. [x] **`handle_load_error()` in hook.py is redundant** — only called twice within same file; inlined.
 9. [x] **Duplicate `get_devin_global_config_dir()`** — exists in both config/devin.py (returns Path) and devin_cli.py (returned str); consolidated into config.devins version, removed duplicate from devin_cli.py.
 10. [x] **`PermissionsManager.reload()` never called from source** — only used by tests; verified no source callers missing it, kept as public API.
+
+### Fixed (pass 7)
+13. [ ] **TODO** — discover remaining issues in next pass (if any)
 
 ### Fixed (pass 6)
 11. [x] **Output redirection not asking for approval in pipes** — fixed `check_output/input/background` functions to recursively walk AST (BinaryCmd.X/Y operands); added 11 regression tests.
