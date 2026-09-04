@@ -19,8 +19,8 @@ from lovely_bash_permissions import (
     ParamExp,
     ProcSubst,
     SglQuoted,
-    Word,
     Subshell,
+    Word,
     get_arguments,
     get_commands,
     get_redirections,
@@ -787,10 +787,9 @@ class TestParamExpNodes:
         assert dq_parts[0].param == "HOME"
         assert dq_parts[1].type == "ParamExp"
         assert isinstance(dq_parts[0], ParamExp)
-        pq0 = dq_parts[0]
-        assert isinstance(pq0, ParamExp)
-        assert isinstance(dq_parts[0], ParamExp)
-        assert pq0.param == "USER"
+        pq1 = dq_parts[1]
+        assert isinstance(pq1, ParamExp)
+        assert pq1.param == "USER"
 
     def test_length_param_expansion(self) -> None:
         """Parse echo ${#HOME} and verify Length field."""
@@ -1228,11 +1227,15 @@ class TestArithmExpNodes:
         assert isinstance(inner, BinaryArithm)
         assert inner.op == "+"
         left = inner.left
-        assert isinstance(left, Lit)
-        assert left.value == "2"
+        assert isinstance(left, Word)
+        lit_left = left.parts[0]
+        assert isinstance(lit_left, Lit)
+        assert lit_left.value == "2"
         right = inner.right
-        assert isinstance(right, Lit)
-        assert right.value == "2"
+        assert isinstance(right, Word)
+        lit_right = right.parts[0]
+        assert isinstance(lit_right, Lit)
+        assert lit_right.value == "2"
 
     def test_arithmetic_with_variables(self) -> None:
         """Parse echo $((x + y)) and verify ArithmExp with variables."""
@@ -1247,11 +1250,15 @@ class TestArithmExpNodes:
         assert isinstance(inner, BinaryArithm)
         assert inner.op == "+"
         left = inner.left
-        assert isinstance(left, Lit)
-        assert left.value == "x"
+        assert isinstance(left, Word)
+        lit_left = left.parts[0]
+        assert isinstance(lit_left, Lit)
+        assert lit_left.value == "x"
         right = inner.right
-        assert isinstance(right, Lit)
-        assert right.value == "y"
+        assert isinstance(right, Word)
+        lit_right = right.parts[0]
+        assert isinstance(lit_right, Lit)
+        assert lit_right.value == "y"
 
     def test_single_value_arithmetic(self) -> None:
         """Parse echo $((50)) and verify ArithmExp with just a value."""
@@ -1303,15 +1310,19 @@ class TestArithmExpNodes:
         left = inner.left
         assert isinstance(left, BinaryArithm)
         lit_left = left.left
-        assert isinstance(lit_left, Lit)
-        assert lit_left.value == "2"
+        assert isinstance(lit_left, Word)
+        ll_part = lit_left.parts[0]
+        assert isinstance(ll_part, Lit)
+        assert ll_part.value == "2"
         lit_mid = left.right
-        assert isinstance(lit_mid, Lit)
-        assert lit_mid.value == "3"
+        assert isinstance(lit_mid, Word)
+        lm_part = lit_mid.parts[0]
+        assert isinstance(lm_part, Lit)
+        assert lm_part.value == "3"
         # Right side should be the number 4
         right = inner.right
-        assert isinstance(right, CallExpr)
-        lit_right = right.args[0]
+        assert isinstance(right, Word)
+        lit_right = right.parts[0]
         assert isinstance(lit_right, Lit)
         assert lit_right.value == "4"
 
@@ -1722,7 +1733,7 @@ class TestBlockNodes:
         i1b = inner_cmd.args[1]
         assert isinstance(i1b, Word)
         q1 = i1b.parts[0]
-        assert isinstance(q1, Lit)
+        assert isinstance(q1, SglQuoted)
         assert q1.value == "inner"
 
     def test_block_with_subshell(self) -> None:
@@ -1942,7 +1953,7 @@ class TestBlockNodes:
         i1b = inner_cmd.args[1]
         assert isinstance(i1b, Word)
         q1 = i1b.parts[0]
-        assert isinstance(q1, Lit)
+        assert isinstance(q1, SglQuoted)
         assert q1.value == "deep"
 
     def test_block_imported_in_module(self) -> None:
@@ -1988,7 +1999,7 @@ class TestFuncDeclNodes:
         bsa2 = body_stmt.args[1]
         assert isinstance(bsa2, Word)
         bq0 = bsa2.parts[0]
-        assert isinstance(bq0, Lit)
+        assert isinstance(bq0, SglQuoted)
         assert bq0 is not None
         v_bq0 = bq0
         assert v_bq0.value == "hi"
@@ -2022,7 +2033,7 @@ class TestFuncDeclNodes:
         bsa2 = body_stmt.args[1]
         assert isinstance(bsa2, Word)
         bq0 = bsa2.parts[0]
-        assert isinstance(bq0, Lit)
+        assert isinstance(bq0, SglQuoted)
         assert bq0 is not None
         v_bq0 = bq0
         assert v_bq0.value == "hi"
@@ -2056,7 +2067,7 @@ class TestFuncDeclNodes:
         bsa2 = body_stmt.args[1]
         assert isinstance(bsa2, Word)
         bq0 = bsa2.parts[0]
-        assert isinstance(bq0, Lit)
+        assert isinstance(bq0, SglQuoted)
         assert bq0 is not None
         v_bq0 = bq0
         assert v_bq0.value == "hi"
@@ -2085,7 +2096,7 @@ class TestFuncDeclNodes:
         fa2 = first.args[1]
         assert isinstance(fa2, Word)
         fq2 = fa2.parts[0]
-        assert isinstance(fq2, Lit)
+        assert isinstance(fq2, SglQuoted)
         v_fq2 = fq2
         assert v_fq2.value == "hello"
         second = body.stmts[1].cmd
@@ -2099,7 +2110,7 @@ class TestFuncDeclNodes:
         sa2 = second.args[1]
         assert isinstance(sa2, Word)
         sq2 = sa2.parts[0]
-        assert isinstance(sq2, Lit)
+        assert isinstance(sq2, SglQuoted)
         v_sq2 = sq2
         assert v_sq2.value == "world"
 

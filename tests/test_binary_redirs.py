@@ -8,7 +8,7 @@ rendering fix so each pipeline segment's redirection can be attributed to the
 command that owns it.
 """
 
-from lovely_bash_permissions import Lit, BinaryCmd, parse_ast
+from lovely_bash_permissions import BinaryCmd, Lit, parse_ast
 
 
 class TestBinaryPerSideRedirs:

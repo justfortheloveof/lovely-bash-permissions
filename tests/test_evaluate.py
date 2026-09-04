@@ -16,7 +16,7 @@ def make_config(
     wildcard: str = "ask",
 ) -> dict[str, list[str] | str]:
     """Helper to create test configuration."""
-    config = {"*": wildcard}
+    config: dict[str, list[str] | str] = {"*": wildcard}
     if allowed is not None:
         config["allowed_cmds_regex"] = allowed
     if blocked is not None:

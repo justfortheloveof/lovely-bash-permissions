@@ -174,10 +174,7 @@ class TestPreToolUseResponseFormat:
                 assert updated_input3 is not None
                 cmd3 = updated_input3["command"]
                 assert cmd3 is not None
-                assert (
-                    ": '[♡ perms: 💛 REQUIRES-USER-APPROVAL]"
-                    in cmd3
-                )
+                assert ": '[♡ perms: 💛 REQUIRES-USER-APPROVAL]" in cmd3
                 assert "ls" in cmd3
 
 

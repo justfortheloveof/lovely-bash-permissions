@@ -48,3 +48,5 @@ All TS/Python parity issues resolved, linting clean (450 tests passing).
 11. [x] **Output redirection not asking for approval in pipes** — fixed `check_output/input/background` functions to recursively walk AST (BinaryCmd.X/Y operands); added 11 regression tests.
 
 12. [x] **Bug between TS and Python — list matching regexes joined** — fixed: allow now produces one "command matches allowed patterns" string; added `decision` field to response for approve/block cases (matching TS).
+
+13. [ ] Fix tests
