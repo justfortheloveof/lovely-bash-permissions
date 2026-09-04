@@ -10,7 +10,7 @@ from typing import Any
 
 from .devin import exec_permission_to_regex, load_devin_exec_regexes
 
-HOOK_COMMAND_PREFIX = ": [♡ perms:"
+HOOK_COMMAND_PREFIX = ": '[♡ perms:"
 HOOK_LABEL_REGEX = exec_permission_to_regex(HOOK_COMMAND_PREFIX)
 
 

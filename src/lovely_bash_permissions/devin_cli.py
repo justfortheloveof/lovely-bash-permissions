@@ -128,7 +128,7 @@ def handle_show_config() -> None:
         sys.exit(1)
 
     result = {"files": files, "effectiveConfig": bash}
-    print(json.dumps(result, indent=2))
+    print(json.dumps(result, indent=2, ensure_ascii=False))
     sys.exit(0)
 
 
