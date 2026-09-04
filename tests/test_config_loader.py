@@ -5,6 +5,7 @@ Tests deep merge behavior, file loading, and merge precedence.
 
 import json
 import tempfile
+from typing import Any
 from pathlib import Path
 
 import pytest
@@ -123,7 +124,7 @@ class TestLoadPermissionsConfig:
         config_dir.mkdir(parents=True)
         return Path(tmpdir), config_dir
 
-    def _write_jsonc(self, path: Path, data: dict) -> None:
+    def _write_jsonc(self, path: Path, data: dict[str, Any]) -> None:
         """Write data as JSONC to path."""
         path.write_text(json.dumps(data))
 
