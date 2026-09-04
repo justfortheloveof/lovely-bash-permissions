@@ -418,11 +418,11 @@ def test_multiple_background_execution_denied() -> None:
     assert "bg_task" in result["reason"]
 
 
-def test_default_background_policy_is_allow() -> None:
-    """When rules dict has no background_execution key, default is allow."""
+def test_default_background_policy_is_ask() -> None:
+    """When rules dict has no background_execution key, default is ask."""
     tree = parse("sleep 5 &")
     result = check_background_execution(tree, {})
-    assert result["status"] == "allow"
+    assert result["status"] == "ask"
 
 
 def test_object_form_background_policy_wildcard() -> None:

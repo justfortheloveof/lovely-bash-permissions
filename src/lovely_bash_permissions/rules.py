@@ -369,7 +369,7 @@ def check_background_execution(tree: dict[str, Any], rules: dict[str, Any]) -> d
         If no background execution is found, returns
         {"status": "allow", "reason": "no background execution"}.
     """
-    policy = rules.get("background_execution", "allow")
+    policy = rules.get("background_execution", "ask")
 
     # If policy is an object, use the wildcard level for now
     # (per-type policies handled in the evaluator layer)

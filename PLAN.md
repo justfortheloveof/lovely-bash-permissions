@@ -27,12 +27,13 @@ node /home/alx/repos/jftlo/lovely-devin-permissions/dist/hook.js --test 'cmd'
 **Impact**: Cosmetic — Python shows which segments matched, TS only shows denial.
 **Desired Behaviour**: only include denial reasons when asking, approval reasons should only be shown on auto-approve
 
-### 3. Background execution (`&`) default policy
+### 3. Background execution (`&`) default policy [x]
 **Python**: Approves — `background_execution` defaults to "allow" (no project config overrides it)
 **TS**: Asks — `background_execution` defaults to "ask" (per effective-bash.ts: `'*': 'ask'`, no explicit background_execution)
 **Root cause**: Python's rules.py line 372 defaults `background_execution` to "allow"; TS schema has no default for background_execution, falling back to `'*': 'ask'`.
 **Impact**: Behavioral — Python is more permissive for background commands. May need alignment if TS behavior was intentional.
 **Desired Behaviour**: Everything should default to ask. This is paramount.
+**Status**: Completed — changed `background_execution` default from "allow" to "ask" in both rules.py and evaluate.py. Updated test_default_background_policy_is_allow → test_default_background_policy_is_ask. All 498 tests pass.
 
 ### 4. Subshells `(cmd)` handling
 **Python**: Approves — `"command is allowed"` (subshell itself passes)

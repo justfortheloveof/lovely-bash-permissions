@@ -83,7 +83,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     rules = {
         "output_redirection": config.get("output_redirection", "allow"),
         "input_redirection": config.get("input_redirection", "allow"),
-        "background_execution": config.get("background_execution", "allow"),
+        "background_execution": config.get("background_execution", "ask"),
     }
 
     # Parse the command to check for command substitution
