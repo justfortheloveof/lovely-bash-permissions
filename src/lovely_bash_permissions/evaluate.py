@@ -175,13 +175,6 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
 
     # Collect all matched patterns across ALL segments (joined into one reason, like TS)
 
-    def _display_pattern(p: str) -> str:
-        """Strip anchors and wrap in slashes, matching TS format."""
-        clean = p
-        clean = clean.removeprefix("^")
-        clean = clean.removesuffix("$")
-        return f"/{clean}/"
-
     all_matched_patterns: list[str] = []
 
     for i, segment in enumerate(segments):
@@ -221,7 +214,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                 overall_status = "deny"
                 reasons.append(
                     f'Blocked by bash permissions: Argument "{value}" matches blocked path pattern '
-                    f"{_display_pattern(pattern)}. The tool has not been run."
+                    f"{pattern}. The tool has not been run."
                 )
             else:
                 segment_result["blocked"] = False
@@ -295,7 +288,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                     overall_status = "deny"
                     reasons.append(
                         f'Blocked by bash permissions: Argument "{value}" matches blocked path pattern '
-                        f"{_display_pattern(pattern)}. The tool has not been run."
+                        f"{pattern}. The tool has not been run."
                     )
         if overall_status == "allow":
             overall_status = "ask"
