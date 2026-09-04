@@ -254,10 +254,10 @@ def check_output_redirection(tree: dict[str, Any], rules: dict[str, Any]) -> dic
 def _resolve_output_level(kinds: list[str], policy: dict[str, Any]) -> str:
     """Resolve output redirection level using per-kind policy keys.
 
-    Deny overrides, ask triggers.  Kind-specific keys are checked first
-    (stderr_to_dev_null, stderr_to_stdout, stdout_to_dev_null),
-    falling back to wildcard "*".  Non-special kinds ("other") also
-    fall back to the wildcard level.
+    Any-asks semantics: if ANY redirect resolves to deny, return deny;
+    if any resolve to ask (and none deny), return ask; else allow.
+    Kind-specific keys are checked first, falling back to wildcard "*".
+    Non-special kinds ("other") fall back to the wildcard level.
 
     Args:
         kinds: List of redirection kind strings from classify_output_redirection.
@@ -268,27 +268,17 @@ def _resolve_output_level(kinds: list[str], policy: dict[str, Any]) -> str:
     """
     wildcard_level = policy.get("*", "allow")
 
-    # Start with the wildcard level; kind-specific keys override it.
-    level = wildcard_level
-
+    has_deny = False
+    has_ask = False
     for kind in kinds:
-        if kind == "other":
-            # Non-special redirections use wildcard level
-            continue
-        kind_level = policy.get(kind)
-        if kind_level is not None:
-            level = kind_level
-
-    # Deny overrides ask (any deny kind wins)
-    for kind in kinds:
-        if kind == "other":
-            continue
-        if policy.get(kind) == "deny":
-            return "deny"
-
-    if level == "deny":
+        level = wildcard_level if kind == "other" else policy.get(kind, wildcard_level)
+        if level == "deny":
+            has_deny = True
+        elif level == "ask":
+            has_ask = True
+    if has_deny:
         return "deny"
-    if level == "ask":
+    if has_ask:
         return "ask"
     return "allow"
 

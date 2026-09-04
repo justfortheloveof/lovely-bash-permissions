@@ -79,3 +79,13 @@ lovely-bash-permissions devin-cli  ❯ node /home/alx/repos/jftlo/lovely-devi
   **Per-kind deny tests**: All stderr variants auto-approve regardless of deny policies (since those kinds aren't denied). stdout_to_dev_null denies correctly.
 
   **TS comparison**: Both versions agree - stderr variants auto-approve, others ask. Earlier mismatches were config differences (allowed_cmds_regex matching), not logic bugs.
+
+- Step 4: Fix output redirection level resolution bug (last-wins → any-asks semantics) [DONE]
+
+  Root cause: `_resolve_output_level()` in rules.py used "last-wins" semantics (took last kind-specific override as result), causing `echo hi 2>&1 > /tmp/delete` to auto-approve when it should ask.
+
+  Fix: Rewrote `_resolve_output_level()` to match TS `resolveRedirectionLevel` logic — "any-asks" semantics: iterate all kinds, collect has_deny/has_ask booleans (kind not in policy falls back to wildcard), return deny if any deny, ask if any asks, else allow.
+
+  Updated 2 tests that expected old last-wins behavior (test_per_kind_multiple_redirs_mixed, test_multiple_redirs_all_allow).
+
+  Verified: `echo hi 2>&1 > /tmp/delete` now shows "REQUIRES-USER-APPROVAL". All 498 tests pass.

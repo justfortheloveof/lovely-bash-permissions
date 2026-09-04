@@ -237,11 +237,11 @@ def test_per_kind_other_falls_back_to_wildcard() -> None:
 
 
 def test_per_kind_multiple_redirs_mixed() -> None:
-    """Multiple redirections: one kind allow, another ask."""
+    """Multiple redirections: wildcard ask, specific kinds allow -> any-asks returns ask."""
     tree = parse("echo hi > /tmp/out.txt 2> /dev/null")
     rules = {"output_redirection": {"*": "ask", "stdout_to_dev_null": "allow", "stderr_to_dev_null": "allow"}}
     result = check_output_redirection(tree, rules)
-    assert result["status"] == "allow"
+    assert result["status"] == "ask"
 
 
 def test_per_kind_input_redirection_wildcard() -> None:

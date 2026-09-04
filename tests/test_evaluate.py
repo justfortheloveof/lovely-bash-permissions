@@ -378,7 +378,7 @@ class TestPerKindOutputRedirection:
         assert result["status"] == "ask"
 
     def test_multiple_redirs_all_allow(self) -> None:
-        """Both kinds allow -> auto-approve."""
+        """Wildcard ask, specific kinds allow -> any-asks returns ask."""
         result = evaluate_bash_command(
             "echo hi > /tmp/out.txt 2> /dev/null",
             {
@@ -386,7 +386,7 @@ class TestPerKindOutputRedirection:
                 "output_redirection": {"*": "ask", "stdout_to_dev_null": "allow", "stderr_to_dev_null": "allow"},
             },
         )
-        assert result["status"] == "allow"
+        assert result["status"] == "ask"
 
     def test_mixed_allow_deny_resolves_to_deny(self) -> None:
         """Deny kind overrides ask/wildcard."""
