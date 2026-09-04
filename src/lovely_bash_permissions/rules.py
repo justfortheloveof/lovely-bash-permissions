@@ -15,6 +15,38 @@ COMBINED_OPS: frozenset[str] = frozenset({">&", "&>", "&>>"})
 DEV_NULL: str = "/dev/null"
 
 
+def _display_pattern(pattern: str) -> str:
+    """Strip anchors and wrap pattern in slashes, matching TS format.
+
+    Strips ^/$ from pattern source, escapes leading slash (prepend \\),
+    then wraps in slashes. e.g. pattern '^/etc/' displays as '/\\/etc/'
+    """
+    clean = pattern.removeprefix("^").removesuffix("$")
+    return "/\\" + clean
+
+
+def _display_pattern_for_reason(pattern: str) -> str:
+    """Strip anchors and wrap pattern in slashes, matching TS output.
+
+    Escapes '/' characters so the displayed pattern matches TS format exactly.
+    (e.g. pattern '^/etc/' displays as '/\\/etc/')
+    """
+    clean = pattern.removeprefix("^").removesuffix("$")
+    escaped = "/".join("\\" + p for p in clean.split("/"))
+    return f"/{escaped}/"
+
+
+def _find_blocked_path(value: str, blocked_patterns: list[str]) -> tuple[bool, str]:
+    """Check if a value matches any blocked path pattern.
+
+    Returns (True, matching_pattern) if found, (False, "") otherwise.
+    """
+    for pattern in blocked_patterns:
+        if re.search(pattern, value):
+            return True, pattern
+    return False, ""
+
+
 def _find_redirs(node: dict[str, Any]) -> list[dict[str, Any]]:
     """Recursively collect all redirection dicts from an AST node.
 
@@ -283,7 +315,7 @@ def _resolve_output_level(kinds: list[str], policy: dict[str, Any]) -> str:
     return "allow"
 
 
-def check_input_redirection(tree: dict[str, Any], rules: dict[str, Any]) -> dict[str, Any]:
+def check_input_redirection(tree: dict[str, Any], rules: dict[str, Any] | None = None) -> dict[str, Any]:
     """Evaluate input redirections against rules.
 
     Extracts input redirections (< or <<) from the AST and applies
@@ -291,10 +323,15 @@ def check_input_redirection(tree: dict[str, Any], rules: dict[str, Any]) -> dict
 
     When rules["input_redirection"] is a dict, uses wildcard "*" level.
 
+    When input redirection policy is "ask", redirect targets are also checked
+    against blocked_paths_regex from rules. If any target matches a blocked
+    path pattern, the status is escalated to "deny" (overrides ask).
+
     Args:
         tree: The shfmt JSON AST representation of the bash command.
         rules: Policy dict with "input_redirection" key set to
             "allow", "ask", or "deny" (or object form with per-type policies).
+            May also contain "blocked_paths_regex" for target validation.
 
     Returns:
         dict with "status" ("allow"/"ask"/"deny") and
@@ -302,11 +339,12 @@ def check_input_redirection(tree: dict[str, Any], rules: dict[str, Any]) -> dict
         If no input redirection is found, returns
         {"status": "allow", "reason": "no input redirection"}.
     """
+    rules = rules or {}
     policy = rules.get("input_redirection", "allow")
 
     # If policy is an object, use the wildcard level.
     # (TS version only uses wildcard for input redirection)
-    level = policy.get("*", policy.get("allow", "allow")) if isinstance(policy, dict) else policy
+    level = policy.get("*", "allow") if isinstance(policy, dict) else policy
 
     redirs = []
     for stmt in tree.get("Stmts", []):
@@ -334,6 +372,17 @@ def check_input_redirection(tree: dict[str, Any], rules: dict[str, Any]) -> dict
         }
 
     targets = [r["target"] for r in redirections]
+
+    # Check redirect targets against blocked_paths (security check, applies to all policies).
+    blocked_patterns = rules.get("blocked_paths_regex", [])
+    if blocked_patterns:
+        for target in targets:
+            matched, pattern = _find_blocked_path(target, blocked_patterns)
+            if matched:
+                return {
+                    "status": "deny",
+                    "reason": f'Redirect target \\"{target}\\" matches blocked path pattern {_display_pattern(pattern)}',
+                }
 
     if level == "allow":
         return {

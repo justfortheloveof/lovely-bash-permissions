@@ -146,6 +146,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         "output_redirection": config.get("output_redirection", "allow"),
         "input_redirection": config.get("input_redirection", "allow"),
         "background_execution": config.get("background_execution", "ask"),
+        "blocked_paths_regex": blocked_patterns,
     }
 
     # Parse the command to check for command substitution
