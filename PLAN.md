@@ -1,30 +1,15 @@
-# Plan: [x] Fix unicode escaping in JSON output (ensure_ascii=False)
+# Plan
 
 ## Objective
 
-Fix lovely-bash-permissions' block path regex detection, it should behave the same as lovely-devin-permissions
+Fix lovely-bash-permissions' so that the reason has our branding like TS has ([♡ perms: ❤️ auto-rejected])
 
-```
-lovely-bash-permissions devin-cli  ❯ node /home/alx/repos/jftlo/lovely-devin-permissions/dist/hook.js --test 'ls /etc/'
-{
-  "decision": "block",
-  "reason": "[♡ perms: ❤️ auto-rejected] Blocked by bash permissions: Argument \"/etc/\" matches blocked path pattern /\\/etc/. The tool has not been run.",
-  "hookSpecificOutput": {
-    "hookEventName": "PreToolUse",
-    "updatedInput": {
-      "command": ": '[♡ perms: ❤️ auto-rejected]' ; ls /etc/"
-    }
-  }
-}
+Also remove the semi-colon in our python version, the reason field should have a period there instead.
 
-lovely-bash-permissions devin-cli  ✗ uv run lovely-devin-permissions --test 'ls /etc/'
-{
-  "decision": "approve",
-  "hookSpecificOutput": {
-    "hookEventName": "PreToolUse",
-    "updatedInput": {
-      "command": ": '[♡ perms: 💚 auto-approved] command matches allowed pattern ^ls(\\s+.*)?$' ; ls /etc/"
-    }
-  }
-}
-```
+## Completed Steps
+
+- [x] Step 1: Add branding prefix to block reason and change reason joiner from semicolon to period
+
+## Remaining Steps
+
+- [ ] ... (add future steps here)
