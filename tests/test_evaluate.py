@@ -242,30 +242,52 @@ class TestSubshellHandling:
     """Tests for subshell/command substitution handling."""
 
     def test_subshell_detected(self) -> None:
-        """Subshell should be detected in command substitution."""
+        """Subshell should be detected and require approval."""
         result = evaluate_bash_command(
             "cat $(ls)",
             make_config(allowed=["^cat", "^ls"]),
         )
-        # Subshell adds complexity but commands are allowed
-        assert result["status"] in ["allow", "ask"]
+        assert result["status"] == "ask"
 
     def test_nested_subshell(self) -> None:
-        """Nested command substitution."""
+        """Nested command substitution requires approval."""
         result = evaluate_bash_command(
             "echo $(cat $(ls))",
             make_config(allowed=["^echo", "^cat", "^ls"]),
         )
-        assert result["status"] in ["allow", "ask"]
+        assert result["status"] == "ask"
 
     def test_cmdsubst_without_allowed(self) -> None:
-        """Command substitution without allowed patterns."""
+        """Command substitution without allowed patterns requires approval."""
         result = evaluate_bash_command(
             "cat $(ls)",
             make_config(),
         )
-        # No restrictions, but subshell detected
-        assert result["status"] in ["allow", "ask"]
+        assert result["status"] == "ask"
+
+    def test_subshell_reason(self) -> None:
+        """Subshell reason matches TS format."""
+        result = evaluate_bash_command(
+            "cat $(ls)",
+            make_config(),
+        )
+        assert result["reason"] == "subshell or command substitution requires approval."
+
+    def test_subshell_blocked_path(self) -> None:
+        """Dangerous commands inside subshells are blocked."""
+        result = evaluate_bash_command(
+            "echo $(cat /etc/passwd)",
+            make_config(blocked=["^/etc/passwd$"]),
+        )
+        assert result["status"] == "deny"
+
+    def test_subshell_no_block(self) -> None:
+        """Subshell with no blocked paths asks."""
+        result = evaluate_bash_command(
+            "echo $(cat /etc/passwd)",
+            make_config(),
+        )
+        assert result["status"] == "ask"
 
 
 class TestEdgeCases:

@@ -22,6 +22,65 @@ from .rules import (
 from .segments import parse_segments
 
 
+def _extract_subshell_contents(tree: dict[str, Any]) -> list[str]:
+    """Extract literal text values from inside CmdSubst/ProcSubst nodes.
+
+    Traverses the raw shfmt AST and collects all Lit.Value strings
+    found inside command substitution nodes ("$(...)" or "`...`").
+    These literal values are then checked against blocked_paths patterns.
+
+    Returns:
+        List of literal text strings found inside subshells.
+    """
+
+    contents: list[str] = []
+
+    def visit(node: object) -> None:
+        if not isinstance(node, dict):
+            return
+        node_type = node.get("Type", "")
+        if node_type == "CmdSubst":
+            # Recurse into CmdSubst to find Lit parts inside
+            for value in node.values():
+                if isinstance(value, dict):
+                    visit(value)
+                elif isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, dict):
+                            visit(item)
+        elif node_type == "ProcSubst":
+            for value in node.values():
+                if isinstance(value, dict):
+                    visit(value)
+                elif isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, dict):
+                            visit(item)
+        elif "Parts" in node:
+            # Word nodes have a Parts list (may not have Type key)
+            for part in node.get("Parts", []):
+                if isinstance(part, dict):
+                    ptype = part.get("Type")
+                    if ptype == "Lit":
+                        val = part.get("Value", "")
+                        if val:
+                            contents.append(val)
+                    elif ptype in ("CmdSubst", "ProcSubst"):
+                        # Recurse into subshell to find Lit parts inside
+                        visit(part)
+        else:
+            for value in node.values():
+                if isinstance(value, dict):
+                    visit(value)
+                elif isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, dict):
+                            visit(item)
+
+    visit(tree)
+    return contents
+
+
 def _has_cmd_subst(tree: dict[str, Any]) -> bool:
     """Check if the AST contains any command substitution.
 
@@ -33,9 +92,12 @@ def _has_cmd_subst(tree: dict[str, Any]) -> bool:
         if not isinstance(node, dict):
             return False
         node_type = node.get("Type", "")
-        if node_type == "Word":
+        if node_type in ("CmdSubst", "ProcSubst"):
+            return True
+        if "Parts" in node:
+            # Word nodes have a Parts list (may not have Type key)
             for part in node.get("Parts", []):
-                if part.get("Type") in ("CmdSubst", "ProcSubst"):
+                if isinstance(part, dict) and part.get("Type") in ("CmdSubst", "ProcSubst"):
                     return True
         for value in node.values():
             if isinstance(value, dict):
@@ -222,11 +284,22 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         if overall_status == "allow":
             overall_status = wildcard
 
-    # Command substitution requires approval
+    # Subshell/command substitution requires approval;
+    # also check inner content against blocked paths
     if has_subshell:
+        subshell_contents = _extract_subshell_contents(raw_tree)
+        if blocked_patterns and subshell_contents:
+            for text in subshell_contents:
+                matched, pattern, value = check_blocked_patterns("", [text], blocked_patterns)
+                if matched:
+                    overall_status = "deny"
+                    reasons.append(
+                        f'Blocked by bash permissions: Argument "{value}" matches blocked path pattern '
+                        f"{_display_pattern(pattern)}. The tool has not been run."
+                    )
         if overall_status == "allow":
-            overall_status = wildcard
-        reasons.append("command substitution detected")
+            overall_status = "ask"
+            reasons.append("subshell or command substitution requires approval")
 
     # If no specific rules matched and nothing else triggered ask/deny, apply wildcard policy
     _redir_matched = output_result["reason"] != "no output redirection"
