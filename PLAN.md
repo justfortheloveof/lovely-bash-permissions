@@ -17,10 +17,10 @@ All TS/Python parity issues resolved, linting clean (461 tests passing).
    - [x] test_ux_format.py (6 errors fixed: add null guards for dict indexing)
    - [x] test_config_loader.py (1 error fixed: dict[str, Any] annotation)
    - [x] test_devin_cli.py (1 error fixed: Path → str conversion)
-   - [ ] test_parser.py (~21 errors remain — see below)
-3. Verify mypy --strict passes clean
-4. Re-run full test suite — confirm 461 tests still passing (verified)
-5. Mark project complete and stop loop
+   - [x] test_parser.py (21 errors fixed: union-attr narrowing)
+3. Verify mypy --strict passes clean — done (clean)
+4. Re-run full test suite — confirm 461 tests still passing (verified, same pre-existing failures)
+5. Mark project complete and stop loop — done
 
 
 1. Run `ruff` + `mypy --strict` — verify clean (done in pass 3, confirmed no regressions)
