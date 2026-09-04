@@ -70,7 +70,6 @@ def get_effective_bash_config(raw_bash: object, project_dir: str) -> dict[str, A
     allowed_patterns = list(dict.fromkeys(allowed_patterns))
 
     if raw_bash:
-        bash: dict[str, Any] = raw_bash  # type: ignore[assignment]
         # Load blocked_paths_regex directly from config, then merge deny list items
         blocked_patterns: list[str] = []
         for p in bash.get("blocked_paths_regex", []):
