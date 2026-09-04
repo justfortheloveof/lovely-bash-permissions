@@ -36,7 +36,7 @@ def run_cli(
 
     cmd = ["uv", "run", "python", "-m", "lovely_bash_permissions.devin_cli"]
     if args:
-        cmd.extend(args)
+        cmd.extend(str(a) for a in args)
 
     try:
         result = subprocess.run(
@@ -84,7 +84,7 @@ def run_cli_in_process(
 
     # Save original sys.argv
     orig_argv = sys.argv
-    sys.argv = ["lovely-devin-permissions"] + list(args)
+    sys.argv = ["lovely-devin-permissions"] + [str(a) for a in args]
 
     # Capture stdin if needed
     if input_data is not None:
@@ -105,15 +105,15 @@ def run_cli_in_process(
 
 
 @pytest.fixture
-def tmp_project(tmp_path: pytest.Path) -> Path:
+def tmp_project(tmp_path: Path) -> Path:
     """Create a temporary project directory."""
     project_dir = tmp_path / "test-project"
     project_dir.mkdir()
-    return project_dir
+    return Path(project_dir)
 
 
 @pytest.fixture
-def project_with_bash_config(tmp_project: pytest.Path) -> Path:
+def project_with_bash_config(tmp_project: Path) -> Path:
     """Create a project directory with a devin config for bash rules."""
     project_dir = tmp_project
     devin_dir = project_dir / ".devin"
@@ -131,7 +131,7 @@ def project_with_bash_config(tmp_project: pytest.Path) -> Path:
     # Also create the lovely-permissions.jsonc file
     with open(devin_dir / "lovely-permissions.jsonc", "w") as f:
         json.dump(config, f)
-    return project_dir
+    return Path(project_dir)
 
 
 class TestCliSetup:
@@ -412,7 +412,7 @@ class TestErrorHandling:
         with open(tmp_project / "lovely-bash-permissions.jsonc", "w") as f:
             f.write("not valid json")
 
-        result = run_cli("--show-config", cwd=tmp_project)
+        result = run_cli("--show-config", cwd=str(tmp_project))
         # Should produce some output (possibly error)
         # The exact exit code depends on config validation
         # at least the CLI should not crash
