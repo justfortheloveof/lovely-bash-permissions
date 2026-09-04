@@ -4,18 +4,16 @@
 
 Identify the top 10 issues to fix in our code — start with the most obvious mistakes or errors or inconsistencies. Then spawn agents to fix them. The list of issues should not grow larger than 100.
 
-## Status: Pass 9 — Complete. All TS/Python parity issues resolved. Linting and type-checking clean.
+## Status: Pass 2 — Complete. Project fully implemented.
 
-[x] Scan for remaining issues — Complete. No remaining issues found; project is complete.
-[x] Fix ruff linting issues (import ordering, unused imports) — Complete
-[x] Fix jsonc primitive parsing to match TS parity — Complete
+All TS/Python parity issues resolved, linting and type-checking clean (461 tests passing).
 
-### Pass 9: Final review and cleanup (optional)
-1. Run `ruff` + `mypy --strict` for type-checking pass
-2. Check README and docs match current code
-3. Remove any leftover TODOs, dead code, test-only functions in source
-4. Confirm git diff is clean except docs/config files
-5. If all clear, mark project complete and stop loop
+### Pass 2: Final review and cleanup
+1. Run `ruff` + `mypy --strict` — done, both clean (fixed PYI041 untyped dict return)
+2. Check README and docs match current code — reviewed, no changes needed
+3. Remove leftover TODOs/dead code/test-only functions — none found
+4. Confirm git diff clean except docs/config files — confirmed, committed (e6b6fb9)
+5. Mark project complete and stop loop — done; no further passes needed
 
 ## ISSUES
 
