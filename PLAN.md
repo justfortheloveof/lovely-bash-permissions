@@ -4,7 +4,11 @@
 
 Identify the top 10 issues to fix in our code — start with the most obvious mistakes or errors or inconsistencies. Then spawn agents to fix them. The list of issues should not grow larger than 100.
 
-## Status: Pass 28 — Verification pass (no new issues found)
+## Status: Pass 32 — Verification pass (no new issues found)
+- Confirmed all 470 tests passing, zero regressions
+- Zero TODO/FIXME items remaining in codebase
+
+### Pass 30 — Verification pass (no new issues found)
 - Confirmed all 470 tests passing, zero regressions
 
 ### Pass 27 — Verification pass (no new issues found)
