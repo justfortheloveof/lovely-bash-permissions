@@ -1539,6 +1539,7 @@ class TestExtGlobNodes:
         """Parse ls *.!(txt|md) and verify ExtGlob with op='!('."""
         tree = parse_ast("ls *.!(txt|md)")
         cmd = tree.stmts[0].cmd
+        assert isinstance(cmd, CallExpr)
         eg_b = cmd.args[1].parts[1]
         assert isinstance(eg_b, ExtGlob)
         assert eg_b.type == "ExtGlob"
@@ -1553,6 +1554,7 @@ class TestExtGlobNodes:
         """Parse ls *.*(txt|md) and verify ExtGlob with op='*(.'"""
         tree = parse_ast("ls *.*(txt|md)")
         cmd = tree.stmts[0].cmd
+        assert isinstance(cmd, CallExpr)
         extglob = cmd.args[1].parts[1]
         assert isinstance(extglob, ExtGlob)
         eg_s2 = cmd.args[1].parts[1]
@@ -1569,6 +1571,7 @@ class TestExtGlobNodes:
         """Parse ls *.@(txt|md|json|yaml) with four patterns."""
         tree = parse_ast("ls *.@(txt|md|json|yaml)")
         cmd = tree.stmts[0].cmd
+        assert isinstance(cmd, CallExpr)
         eg_m = cmd.args[1].parts[1]
         assert isinstance(eg_m, ExtGlob)
         assert eg_m.type == "ExtGlob"
@@ -2063,6 +2066,7 @@ class TestFuncDeclNodes:
         tree = parse_ast("greet() { echo 'hello'; echo 'world'; }")
         cmd = tree.stmts[0].cmd
         assert isinstance(cmd, FuncDecl)
+        assert cmd.name is not None
         assert cmd.name.value == "greet"
         # Body should have two statements
         body = cmd.body
@@ -2074,7 +2078,9 @@ class TestFuncDeclNodes:
         assert isinstance(fa1, Word)
         fp1 = fa1.parts[0]
         assert isinstance(fp1, Lit)
+        assert fp1 is not None
         v_fp1 = fp1
+        assert v_fp1 is not None
         assert v_fp1.value == "echo"
         fa2 = first.args[1]
         assert isinstance(fa2, Word)
@@ -2102,6 +2108,7 @@ class TestFuncDeclNodes:
         tree = parse_ast("say() { echo $1 $2; }")
         cmd = tree.stmts[0].cmd
         assert isinstance(cmd, FuncDecl)
+        assert cmd.name is not None
         assert cmd.name.value == "say"
         # Body should have one statement
         body = cmd.body
@@ -2113,7 +2120,10 @@ class TestFuncDeclNodes:
         assert isinstance(bsa, Word)
         bp1 = bsa.parts[0]
         assert isinstance(bp1, Lit)
-        assert bp1.value == "echo"
+        assert bp1 is not None
+        v_bp1 = bp1
+        assert v_bp1 is not None
+        assert v_bp1.value == "echo"
         # $1 is ParamExp
         bsa2 = body_stmt.args[1]
         assert isinstance(bsa2, Word)
@@ -2134,6 +2144,7 @@ class TestFuncDeclNodes:
         tree = parse_ast("show() { echo $HOME; }")
         cmd = tree.stmts[0].cmd
         assert isinstance(cmd, FuncDecl)
+        assert cmd.name is not None
         assert cmd.name.value == "show"
         # Body should have one statement
         body = cmd.body
@@ -2145,7 +2156,10 @@ class TestFuncDeclNodes:
         assert isinstance(bsa, Word)
         bp1 = bsa.parts[0]
         assert isinstance(bp1, Lit)
-        assert bp1.value == "echo"
+        assert bp1 is not None
+        v_bp1h = bp1
+        assert v_bp1h is not None
+        assert v_bp1h.value == "echo"
         # $HOME is ParamExp
         bsa2 = body_stmt.args[1]
         assert isinstance(bsa2, Word)
@@ -2160,6 +2174,7 @@ class TestFuncDeclNodes:
         tree = parse_ast("now() { echo $(date); }")
         cmd = tree.stmts[0].cmd
         assert isinstance(cmd, FuncDecl)
+        assert cmd.name is not None
         assert cmd.name.value == "now"
         # Body should have one statement
         body = cmd.body
@@ -2171,7 +2186,9 @@ class TestFuncDeclNodes:
         assert isinstance(bsa, Word)
         bp1 = bsa.parts[0]
         assert isinstance(bp1, Lit)
+        assert bp1 is not None
         v_bp1 = bp1
+        assert v_bp1 is not None
         assert v_bp1.value == "echo"
         # Argument should be CmdSubst
         bsa2 = body_stmt.args[1]
@@ -2197,6 +2214,7 @@ class TestFuncDeclNodes:
 }""")
         cmd = tree.stmts[0].cmd
         assert isinstance(cmd, FuncDecl)
+        assert cmd.name is not None
         assert cmd.name.value == "process"
         # Body should be a Block with one statement
         body = cmd.body
@@ -2220,8 +2238,10 @@ class TestFuncDeclNodes:
         assert isinstance(ll, CallExpr)
         la0 = ll.args[0]
         assert isinstance(la0, Word)
+        assert la0 is not None
         lp0 = la0.parts[0]
         assert isinstance(lp0, Lit)
+        assert lp0 is not None
         assert lp0.value == "cat"
         # "$1" is a DblQuoted containing a ParamExp for $1
         la1 = ll.args[1]
@@ -2238,20 +2258,26 @@ class TestFuncDeclNodes:
         assert isinstance(ra0, Word)
         rp0 = ra0.parts[0]
         assert isinstance(rp0, Lit)
-        assert rp0.value == "sort"
+        v_rp0 = rp0
+        assert v_rp0 is not None
+        assert v_rp0.value == "sort"
         # The outer y should be CallExpr for uniq with redirection
         y = bc.right
         assert isinstance(y, CallExpr)
         ya0 = y.args[0]
         assert isinstance(ya0, Word)
-        yp0 = ya0.parts[0]
-        assert isinstance(yp0, Lit)
-        assert yp0.value == "uniq"
+        fp3 = ya0.parts[0]
+        assert isinstance(fp3, Lit)
+        v_fp3 = fp3
+        assert v_fp3 is not None
+        assert v_fp3.value == "uniq"
         # Redirection on the y side: > "$2" is attached to the outer
         pipe = bc
         assert len(pipe.redirs) == 1
         assert pipe.redirs[0].op == ">"
-        redir_part = pipe.redirs[0].word.parts[0]
+        redir_word = pipe.redirs[0].word
+        assert isinstance(redir_word, Word)
+        redir_part = redir_word.parts[0]
         # "$2" is a DblQuoted containing a ParamExp for $2
         assert isinstance(redir_part, DblQuoted)
         irp = redir_part.parts[0]
@@ -2280,6 +2306,7 @@ class TestFuncDeclNodes:
         tree = parse_ast("setup() { mkdir -p out; cd out; }")
         cmd = tree.stmts[0].cmd
         assert isinstance(cmd, FuncDecl)
+        assert cmd.name is not None
         assert cmd.name.value == "setup"
         # Body should have two statements
         body = cmd.body
@@ -2301,9 +2328,9 @@ class TestFuncDeclNodes:
         fa3 = first.args[2]
         assert isinstance(fa3, Word)
         fp3 = fa3.parts[0]
-        assert isinstance(yp0, Lit)
-        yp0v = yp0
-        assert yp0v.value == "out"
+        assert isinstance(fp3, Lit)
+        fp3v = fp3
+        assert fp3v.value == "out"
         # Second: cd out
         second = body.stmts[1].cmd
         assert isinstance(second, CallExpr)
@@ -2312,6 +2339,7 @@ class TestFuncDeclNodes:
         sp1 = sa1.parts[0]
         assert isinstance(sp1, Lit)
         v_sp1 = sp1
+        assert v_sp1 is not None
         assert v_sp1.value == "cd"
         sa2 = second.args[1]
         assert isinstance(sa2, Word)
@@ -2325,6 +2353,7 @@ class TestFuncDeclNodes:
         tree = parse_ast('hello() { echo "hello world"; }')
         cmd = tree.stmts[0].cmd
         assert isinstance(cmd, FuncDecl)
+        assert cmd.name is not None
         assert cmd.name.value == "hello"
         # Body should have one statement
         body = cmd.body
@@ -2345,6 +2374,7 @@ class TestFuncDeclNodes:
         dq_val = dq.parts[0]
         assert isinstance(dq_val, Lit)
         v_dqv = dq_val
+        assert v_dqv is not None
         assert v_dqv.value == "hello world"
 
     def test_func_decl_empty_body(self) -> None:
@@ -2354,12 +2384,17 @@ class TestFuncDeclNodes:
         tree = parse_ast("noop() { :; }")
         cmd = tree.stmts[0].cmd
         assert isinstance(cmd, FuncDecl)
+        assert cmd.name is not None
         assert cmd.name.value == "noop"
         # Body should be a Block with one statement (the `:` no-op)
         body = cmd.body
         assert isinstance(body, Block)
         assert len(body.stmts) == 1
-        assert body.stmts[0].cmd.args[0].parts[0].value == ":"
+        inner_cmd = body.stmts[0].cmd
+        assert isinstance(inner_cmd, CallExpr)
+        parts0 = inner_cmd.args[0].parts[0]
+        assert isinstance(parts0, Lit)
+        assert parts0.value == ":"
 
     def test_func_decl_imported_in_module(self) -> None:
         """Verify that FuncDecl is imported in the lovely_bash_permissions module."""
