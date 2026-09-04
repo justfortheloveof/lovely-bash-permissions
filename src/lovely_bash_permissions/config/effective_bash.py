@@ -67,20 +67,22 @@ def get_effective_bash_config(raw_bash: object, project_dir: str) -> dict[str, A
     # Remove duplicates while preserving order
     allowed_patterns = list(dict.fromkeys(allowed_patterns))
 
-    blocked_patterns: list[str] = []
     if raw_bash:
+        bash: dict[str, Any] = raw_bash  # type: ignore[assignment]
+        # Load blocked_paths_regex directly from config, then merge deny list items
+        blocked_patterns: list[str] = list(bash.get("blocked_paths_regex", []))
         deny_items = bash.get("deny", [])
-        blocked_patterns = [_deny_item_to_regex(d) for d in deny_items]
+        blocked_patterns.extend(_deny_item_to_regex(d) for d in deny_items)
 
-    if not raw_bash:
         return {
-            "*": "ask",
+            "*": bash.get("*", "ask"),
+            **bash,
             "allowed_cmds_regex": allowed_patterns,
             "blocked_paths_regex": blocked_patterns,
         }
+
     return {
-        "*": bash.get("*", "ask"),
-        **bash,
+        "*": "ask",
         "allowed_cmds_regex": allowed_patterns,
-        "blocked_paths_regex": blocked_patterns,
+        "blocked_paths_regex": [],
     }
