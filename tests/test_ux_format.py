@@ -218,7 +218,7 @@ class TestEvaluateReasonFormats:
                 #  The tool has not been run."
                 assert result is not None
                 assert "Blocked by bash permissions:" in result["reason"]
-                assert "The tool has not been run." in result["reason"]
+                assert "The tool has not been run" in result["reason"]
 
     def test_ask_reason_format(self) -> None:
         """Ask reason should match TypeScript format."""

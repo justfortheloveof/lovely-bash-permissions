@@ -223,8 +223,15 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         overall_status = wildcard
         reasons.append(f"wildcard policy is {wildcard}")
 
+    if reasons:
+        reason_str = "; ".join(r.rstrip(".!? ") for r in reasons)
+        if len(reasons) == 1:
+            reason_str += "."
+    else:
+        reason_str = "command is allowed"
+
     return {
         "status": overall_status,
-        "reason": ". ".join(reasons) if reasons else "command is allowed",
+        "reason": reason_str,
         "segments": segment_results,
     }
