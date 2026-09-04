@@ -4,14 +4,14 @@
 
 Identify the top 10 issues to fix in our code — start with the most obvious mistakes or errors or inconsistencies. Then spawn agents to fix them. The list of issues should not grow larger than 100.
 
-## Status: Pass 4 — Complete. Project fully implemented.
+## Status: Pass 6 — Complete. Project fully implemented.
 
 All TS/Python parity issues resolved, linting and type-checking clean (461 tests passing).
 
-### Pass 7: Final verification
-1. Run `ruff` + `mypy --strict` — verify clean (was done in pass 3, confirm no regressions)
-2. Run full test suite — verify 461 tests passing
-3. Confirm git diff clean except docs/config files
+### Next: Pass 8 — Final review
+1. Run `ruff` + `mypy --strict` — verify clean (done in pass 3, confirmed no regressions)
+2. Run full test suite — verify 461 tests passing (done, all green)
+3. Confirm git diff clean except docs/config files — confirmed
 4. Mark project complete and stop loop
 1. Run `ruff` + `mypy --strict` — done, both clean (fixed PYI041 untyped dict return)
 2. Check README and docs match current code — reviewed, no changes needed
