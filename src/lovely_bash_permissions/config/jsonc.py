@@ -3,10 +3,13 @@
 Strips comments and parses JSON. Supports both .json and .jsonc files.
 """
 
+from __future__ import annotations
+
 import json
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 
 def _strip_comments(text: str) -> str:
@@ -26,11 +29,11 @@ def _strip_trailing_commas(text: str) -> str:
     return text
 
 
-def parse_jsonc(text: str) -> dict | list | None:
+def parse_jsonc(text: str) -> dict[str, Any] | list[Any] | str | int | float | bool | None:
     """Parse JSONC text into a Python object.
 
     Returns:
-        dict, list, or None if parsing fails or input is empty
+        Any valid JSON value, or None if parsing fails or input is empty
     """
     if not text or not text.strip():
         return None
@@ -50,7 +53,7 @@ def parse_jsonc(text: str) -> dict | list | None:
         return None
 
 
-def read_jsonc_file(file_path: str) -> dict | None:
+def read_jsonc_file(file_path: str) -> dict[str, Any] | None:
     """Read and parse a JSONC file.
 
     Returns:
@@ -73,6 +76,6 @@ def read_jsonc_file(file_path: str) -> dict | None:
     return value
 
 
-def is_record(value: dict | list | None) -> bool:
+def is_record(value: dict[str, Any] | list[Any] | str | int | float | bool | None) -> bool:
     """Check if value is a dictionary (plain object in JSON terms)."""
     return isinstance(value, dict)

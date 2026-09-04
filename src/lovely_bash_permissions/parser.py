@@ -73,7 +73,8 @@ def parse(command: str, dialect: str = "bash") -> dict[str, Any]:
         )
 
     try:
-        return json.loads(result.stdout)
+        result_dict: dict[str, Any] = json.loads(result.stdout)
+        return result_dict
     except json.JSONDecodeError as e:
         raise ParseError(
             f"Failed to parse JSON from shfmt: {e}",

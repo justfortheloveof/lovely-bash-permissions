@@ -6,6 +6,7 @@ the hook label pass through the allowed pattern check.
 """
 
 import re
+from typing import Any
 
 from .devin import exec_permission_to_regex, load_devin_exec_regexes
 
@@ -39,7 +40,7 @@ def _deny_item_to_regex(item: str) -> str:
         return f"^{re.escape(item)}$"
 
 
-def get_effective_bash_config(raw_bash: object, project_dir: str) -> dict:
+def get_effective_bash_config(raw_bash: object, project_dir: str) -> dict[str, Any]:
     """Combine raw lovely config with devin permissions.
 
     Args:
@@ -52,22 +53,23 @@ def get_effective_bash_config(raw_bash: object, project_dir: str) -> dict:
     """
     devin_regexes = load_devin_exec_regexes(project_dir)
 
-    allowed_patterns = []
+    allowed_patterns: list[str] = []
     if raw_bash:
+        bash: dict[str, Any] = raw_bash  # type: ignore[assignment]
         # Convert allow list to allowed patterns
-        allow_items = raw_bash.get("allow", [])
+        allow_items = bash.get("allow", [])
         for item in allow_items:
             allowed_patterns.append(f"^{re.escape(item)}$")
         # Also include explicit allowed_cmds_regex patterns
-        allowed_patterns.extend(raw_bash.get("allowed_cmds_regex", []))
+        allowed_patterns.extend(bash.get("allowed_cmds_regex", []))
     allowed_patterns.append(HOOK_LABEL_REGEX)
     allowed_patterns.extend(devin_regexes)
     # Remove duplicates while preserving order
     allowed_patterns = list(dict.fromkeys(allowed_patterns))
 
-    blocked_patterns = []
+    blocked_patterns: list[str] = []
     if raw_bash:
-        deny_items = raw_bash.get("deny", [])
+        deny_items = bash.get("deny", [])
         blocked_patterns = [_deny_item_to_regex(d) for d in deny_items]
 
     if not raw_bash:
@@ -77,8 +79,8 @@ def get_effective_bash_config(raw_bash: object, project_dir: str) -> dict:
             "blocked_paths_regex": blocked_patterns,
         }
     return {
-        "*": raw_bash.get("*", "ask"),
-        **raw_bash,
+        "*": bash.get("*", "ask"),
+        **bash,
         "allowed_cmds_regex": allowed_patterns,
         "blocked_paths_regex": blocked_patterns,
     }

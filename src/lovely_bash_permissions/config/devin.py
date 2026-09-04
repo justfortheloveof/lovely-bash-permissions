@@ -11,8 +11,9 @@ anchored regex strings for command matching.
 
 import re
 from pathlib import Path
+from typing import Any
 
-from .jsonc import is_record, read_jsonc_file
+from .jsonc import read_jsonc_file
 
 # Exec pattern: "Exec(git)" or "Exec(npm run)" or "Exec(:)"
 EXEC_PATTERN = re.compile(r"^Exec\(([^()]*)\)$")
@@ -35,7 +36,7 @@ def get_devin_global_config_dir() -> Path:
     return Path.home() / ".config" / "devin"
 
 
-def get_devin_config_file_paths(project_dir: str) -> list:
+def get_devin_config_file_paths(project_dir: str) -> list[str]:
     """Return the three Devin config file paths (global, project, local)."""
     return [
         str(get_devin_global_config_dir() / "config.json"),
@@ -62,7 +63,7 @@ def exec_permission_to_regex(prefix: str) -> str:
     return "^" + escape_regexp(trimmed) + "(\\s|$)"
 
 
-def load_devin_exec_permissions(project_dir: str) -> dict:
+def load_devin_exec_permissions(project_dir: str) -> dict[str, list[Any]]:
     """Load and parse Devin Exec permissions from all config files.
 
     Returns:
@@ -76,14 +77,14 @@ def load_devin_exec_permissions(project_dir: str) -> dict:
 
     for source in sources:
         data = read_jsonc_file(source)
-        if not is_record(data):
+        if data is None or not isinstance(data, dict):
             continue
 
         # Extract permissions.allow (may not exist)
         allow_list = []
-        perms = data.get("permissions")
-        if is_record(perms):
-            allow_list = perms.get("allow", [])
+        perms_data: dict[str, Any] | None = data.get("permissions")
+        if perms_data is not None and isinstance(perms_data, dict):
+            allow_list = perms_data.get("allow", [])
             if not isinstance(allow_list, list):
                 allow_list = []
 
@@ -115,7 +116,7 @@ def load_devin_exec_permissions(project_dir: str) -> dict:
     return {"permissions": permissions, "errors": errors}
 
 
-def load_devin_exec_regexes(project_dir: str) -> list:
+def load_devin_exec_regexes(project_dir: str) -> list[str]:
     """Load and deduplicate Devin Exec permission regexes.
 
     Raises ValueError if any malformed Exec(...) entries are found.

@@ -50,7 +50,7 @@ def _has_cmd_subst(tree: dict[str, Any]) -> bool:
     return visit(tree)
 
 
-def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict:
+def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any]:
     """Evaluate a bash command against a permission configuration.
 
     Parses the command using shfmt, extracts command segments, and

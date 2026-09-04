@@ -9,6 +9,7 @@ Uses deep merge: objects merged recursively, arrays concatenated, scalars overri
 """
 
 from pathlib import Path
+from typing import Any
 
 from .devin import get_devin_global_config_dir
 from .jsonc import is_record, read_jsonc_file
@@ -16,7 +17,7 @@ from .jsonc import is_record, read_jsonc_file
 PROJECT_CONFIG_FILE = "lovely-permissions.jsonc"
 
 
-def get_permissions_config_file_paths(project_dir: str) -> list:
+def get_permissions_config_file_paths(project_dir: str) -> list[str]:
     """Return the three config file paths (global, project, local)."""
     return [
         str(get_devin_global_config_dir() / PROJECT_CONFIG_FILE),
@@ -25,15 +26,15 @@ def get_permissions_config_file_paths(project_dir: str) -> list:
     ]
 
 
-def merge_deep(target: dict, source: dict) -> dict:
+def merge_deep(target: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
     """Deep merge source into target.
 
     Objects are merged recursively, arrays are concatenated, scalars override.
     """
     result = dict(target)
     for key, value in source.items():
-        existing = result.get(key)
-        if is_record(existing) and is_record(value):
+        existing: dict[str, Any] | None = result.get(key)
+        if existing is not None and is_record(existing) and is_record(value):
             result[key] = merge_deep(existing, value)
         elif isinstance(existing, list) and isinstance(value, list):
             result[key] = existing + value
@@ -42,7 +43,7 @@ def merge_deep(target: dict, source: dict) -> dict:
     return result
 
 
-def load_permissions_config(project_dir: str) -> dict:
+def load_permissions_config(project_dir: str) -> dict[str, Any]:
     """Load and merge lovely-devin-permissions config.
 
     Returns:
@@ -54,11 +55,11 @@ def load_permissions_config(project_dir: str) -> dict:
     paths = get_permissions_config_file_paths(project_dir)
 
     # Load each file, missing/invalid -> {}
-    configs = []
+    configs: list[dict[str, Any]] = []
     loaded_any = False
     for path in paths:
         data = read_jsonc_file(path)
-        if is_record(data):
+        if data is not None and isinstance(data, dict):
             configs.append(data)
             loaded_any = True
         else:
@@ -68,7 +69,7 @@ def load_permissions_config(project_dir: str) -> dict:
         raise FileNotFoundError(f"no valid lovely-permissions config found (checked: {', '.join(paths)})")
 
     # Merge in order: global < project < local
-    merged = {}
+    merged: dict[str, Any] = {}
     for cfg in configs:
         merged = merge_deep(merged, cfg)
 

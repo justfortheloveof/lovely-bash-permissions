@@ -77,7 +77,7 @@ _log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _parse_position(data: dict | None) -> Position | None:
+def _parse_position(data: dict[str, Any] | None) -> Position | None:
     """Parse source position data from shfmt JSON.
 
     Returns None when *data* is None (key absent in JSON).
@@ -91,7 +91,7 @@ def _parse_position(data: dict | None) -> Position | None:
     )
 
 
-def _parse_pos_end(data: dict) -> tuple[Position | None, Position | None]:
+def _parse_pos_end(data: dict[str, Any]) -> tuple[Position | None, Position | None]:
     """Extract pos/end from a JSON dict."""
     return _parse_position(data.get("Pos")), _parse_position(data.get("End"))
 
@@ -101,7 +101,7 @@ def _parse_pos_end(data: dict) -> tuple[Position | None, Position | None]:
 # ---------------------------------------------------------------------------
 
 
-def _convert_lit(data: dict) -> Lit:
+def _convert_lit(data: dict[str, Any]) -> Lit:
     """Convert shfmt JSON to a Lit node."""
     pos, end = _parse_pos_end(data)
     return Lit(
@@ -113,12 +113,12 @@ def _convert_lit(data: dict) -> Lit:
     )
 
 
-def _convert_sgl_quoted(data: dict) -> SglQuoted:
+def _convert_sgl_quoted(data: dict[str, Any]) -> SglQuoted:
     pos, end = _parse_pos_end(data)
     return SglQuoted(pos=pos, end=end, value=data.get("Value", ""))
 
 
-def _convert_param_exp(data: dict) -> ParamExp:
+def _convert_param_exp(data: dict[str, Any]) -> ParamExp:
     """Convert shfmt JSON to a ParamExp node."""
     pos, end = _parse_pos_end(data)
     param_data = data.get("Param", {})
@@ -139,7 +139,7 @@ def _convert_param_exp(data: dict) -> ParamExp:
     )
 
 
-def _convert_cmd_subst(data: dict) -> CmdSubst:
+def _convert_cmd_subst(data: dict[str, Any]) -> CmdSubst:
     pos, end = _parse_pos_end(data)
     return CmdSubst(
         pos=pos,
@@ -149,7 +149,7 @@ def _convert_cmd_subst(data: dict) -> CmdSubst:
     )
 
 
-def _convert_proc_subst(data: dict) -> ProcSubst:
+def _convert_proc_subst(data: dict[str, Any]) -> ProcSubst:
     pos, end = _parse_pos_end(data)
     return ProcSubst(
         pos=pos,
@@ -161,7 +161,7 @@ def _convert_proc_subst(data: dict) -> ProcSubst:
     )
 
 
-def _convert_arithm_exp(data: dict) -> ArithmExp:
+def _convert_arithm_exp(data: dict[str, Any]) -> ArithmExp:
     pos, end = _parse_pos_end(data)
     return ArithmExp(
         pos=pos,
@@ -170,7 +170,7 @@ def _convert_arithm_exp(data: dict) -> ArithmExp:
     )
 
 
-def _convert_ext_glob(data: dict) -> ExtGlob:
+def _convert_ext_glob(data: dict[str, Any]) -> ExtGlob:
     """Convert shfmt JSON to an ExtGlob node."""
     pos, end = _parse_pos_end(data)
     pattern_data = data.get("Pattern", {})
@@ -183,13 +183,14 @@ def _convert_ext_glob(data: dict) -> ExtGlob:
     )
 
 
-def _convert_dbl_quoted(data: dict) -> DblQuoted:
+def _convert_dbl_quoted(data: dict[str, Any]) -> DblQuoted:
     parts = [_convert_part(p) for p in data.get("Parts", [])]
-    value = None
+    value: str | None = None
     if parts:
         vals: list[str] = []
         for p in parts:
             if isinstance(p, (Lit, SglQuoted)) or isinstance(p, DblQuoted) and p.value is not None:
+                assert p.value is not None
                 vals.append(p.value)
             else:
                 vals.append("")
@@ -203,7 +204,7 @@ def _convert_dbl_quoted(data: dict) -> DblQuoted:
 # ---------------------------------------------------------------------------
 
 
-def _parse_stmt_list(raw: list | None) -> list[Stmt]:
+def _parse_stmt_list(raw: list[dict[str, Any]] | None) -> list[Stmt]:
     """Convert a list of raw JSON statement dicts to typed Stmt objects.
 
     Entries without a ``Cmd`` key (e.g., comment-only lines) are converted
@@ -221,7 +222,7 @@ def _parse_stmt_list(raw: list | None) -> list[Stmt]:
     return result
 
 
-def _convert_assign(data: dict) -> Assign:
+def _convert_assign(data: dict[str, Any]) -> Assign:
     """Convert shfmt JSON assignment data to a typed Assign object."""
     name_data = data.get("Name", {})
     name_node = _convert_lit(name_data) if isinstance(name_data, dict) else None
@@ -255,7 +256,7 @@ def _convert_assign(data: dict) -> Assign:
     )
 
 
-def _convert_array_elem(data: dict) -> ArrayElem:
+def _convert_array_elem(data: dict[str, Any]) -> ArrayElem:
     """Convert shfmt JSON array element data to a typed ArrayElem object."""
     index_data = data.get("Index")
     index_node = _convert_word(index_data) if isinstance(index_data, dict) else None
@@ -272,7 +273,7 @@ def _convert_array_elem(data: dict) -> ArrayElem:
     )
 
 
-def _convert_redir(data: dict) -> Redir:
+def _convert_redir(data: dict[str, Any]) -> Redir:
     """Convert shfmt JSON redirection data to a typed Redir object."""
     pos, end = _parse_pos_end(data)
     n_raw = data.get("N")
@@ -293,7 +294,7 @@ def _convert_redir(data: dict) -> Redir:
     )
 
 
-def _convert_stmt(data: dict) -> Stmt:
+def _convert_stmt(data: dict[str, Any]) -> Stmt:
     """Convert shfmt JSON statement data to a typed Stmt object.
 
     When the statement has no ``Cmd`` key (e.g., comment-only lines),
@@ -314,7 +315,7 @@ def _convert_stmt(data: dict) -> Stmt:
     )
 
 
-def _convert_word(data: dict | None) -> Word | None:
+def _convert_word(data: dict[str, Any] | None) -> Word | None:
     """Convert shfmt JSON word data to a typed Word object.
 
     Returns None when *data* is None (key absent in JSON).
@@ -330,7 +331,7 @@ def _convert_word(data: dict | None) -> Word | None:
     )
 
 
-def _convert_part(data: dict) -> Node:
+def _convert_part(data: dict[str, Any]) -> Node:
     """Convert shfmt JSON part data to a typed Node object.
 
     Delegates to ``_CONVERTERS`` for all known types. Falls back to a
@@ -353,7 +354,7 @@ def _convert_part(data: dict) -> Node:
 # ---------------------------------------------------------------------------
 
 
-def _convert_if_clause(data: dict) -> IfClause:
+def _convert_if_clause(data: dict[str, Any]) -> IfClause:
     """Parse an IfClause from shfmt JSON, handling nested elif/else structures."""
     cond_stmts = _parse_stmt_list(data.get("Cond", []))
     then_stmts = _parse_stmt_list(data.get("Then", []))
@@ -391,7 +392,7 @@ def _convert_if_clause(data: dict) -> IfClause:
 
 
 def _collect_elif_chain(
-    data: dict,
+    data: dict[str, Any],
     elif_branches: list[ElifBranch],
     else_stmts: list[Stmt],
 ) -> None:
@@ -418,7 +419,7 @@ def _collect_elif_chain(
 # ---------------------------------------------------------------------------
 
 
-def _convert_file(data: dict) -> File:
+def _convert_file(data: dict[str, Any]) -> File:
     pos, end = _parse_pos_end(data)
     return File(
         pos=pos,
@@ -427,7 +428,7 @@ def _convert_file(data: dict) -> File:
     )
 
 
-def _convert_call_expr(data: dict) -> CallExpr:
+def _convert_call_expr(data: dict[str, Any]) -> CallExpr:
     assigns_raw = data.get("Assigns")
     assigns = [_convert_assign(a) for a in assigns_raw] if assigns_raw else None
     pos, end = _parse_pos_end(data)
@@ -439,7 +440,7 @@ def _convert_call_expr(data: dict) -> CallExpr:
     )
 
 
-def _convert_binary_cmd(data: dict) -> BinaryCmd:
+def _convert_binary_cmd(data: dict[str, Any]) -> BinaryCmd:
     """Convert shfmt BinaryCmd JSON to a typed BinaryCmd node.
 
     shfmt attaches redirections to the ``Stmt``-shaped ``X``/``Y``
@@ -470,7 +471,7 @@ def _convert_binary_cmd(data: dict) -> BinaryCmd:
     )
 
 
-def _convert_decl_clause(data: dict) -> DeclClause:
+def _convert_decl_clause(data: dict[str, Any]) -> DeclClause:
     """Convert shfmt DeclClause JSON to a typed DeclClause node.
 
     shfmt represents declaration arguments (e.g., ``export FOO=bar``) as
@@ -505,7 +506,7 @@ def _convert_decl_clause(data: dict) -> DeclClause:
     )
 
 
-def _convert_subshell(data: dict) -> Subshell:
+def _convert_subshell(data: dict[str, Any]) -> Subshell:
     pos, end = _parse_pos_end(data)
     return Subshell(
         pos=pos,
@@ -514,7 +515,7 @@ def _convert_subshell(data: dict) -> Subshell:
     )
 
 
-def _convert_for_clause(data: dict) -> ForClause:
+def _convert_for_clause(data: dict[str, Any]) -> ForClause:
     loop = data.get("Loop", {})
     var_name: str | None = None
     items: list[Word] = []
@@ -541,7 +542,7 @@ def _convert_for_clause(data: dict) -> ForClause:
     )
 
 
-def _convert_while_clause(data: dict) -> WhileClause:
+def _convert_while_clause(data: dict[str, Any]) -> WhileClause:
     pos, end = _parse_pos_end(data)
     return WhileClause(
         pos=pos,
@@ -551,7 +552,7 @@ def _convert_while_clause(data: dict) -> WhileClause:
     )
 
 
-def _convert_and_cmd(data: dict) -> AndCmd:
+def _convert_and_cmd(data: dict[str, Any]) -> AndCmd:
     pos, end = _parse_pos_end(data)
     return AndCmd(
         pos=pos,
@@ -561,7 +562,7 @@ def _convert_and_cmd(data: dict) -> AndCmd:
     )
 
 
-def _convert_or_cmd(data: dict) -> OrCmd:
+def _convert_or_cmd(data: dict[str, Any]) -> OrCmd:
     pos, end = _parse_pos_end(data)
     return OrCmd(
         pos=pos,
@@ -571,7 +572,7 @@ def _convert_or_cmd(data: dict) -> OrCmd:
     )
 
 
-def _convert_case_clause(data: dict) -> CaseClause:
+def _convert_case_clause(data: dict[str, Any]) -> CaseClause:
     pos, end = _parse_pos_end(data)
     return CaseClause(
         pos=pos,
@@ -587,7 +588,7 @@ def _convert_case_clause(data: dict) -> CaseClause:
     )
 
 
-def _convert_binary_arithm(data: dict) -> BinaryArithm:
+def _convert_binary_arithm(data: dict[str, Any]) -> BinaryArithm:
     pos, end = _parse_pos_end(data)
     return BinaryArithm(
         pos=pos,
@@ -599,7 +600,7 @@ def _convert_binary_arithm(data: dict) -> BinaryArithm:
     )
 
 
-def _convert_block(data: dict) -> Block:
+def _convert_block(data: dict[str, Any]) -> Block:
     pos, end = _parse_pos_end(data)
     return Block(
         pos=pos,
@@ -610,7 +611,7 @@ def _convert_block(data: dict) -> Block:
     )
 
 
-def _convert_func_decl(data: dict) -> FuncDecl:
+def _convert_func_decl(data: dict[str, Any]) -> FuncDecl:
     name_data = data.get("Name", {})
     name_node = _convert_lit(name_data) if isinstance(name_data, dict) else None
 
@@ -630,7 +631,7 @@ def _convert_func_decl(data: dict) -> FuncDecl:
     )
 
 
-def _convert_test_clause(data: dict) -> TestClause:
+def _convert_test_clause(data: dict[str, Any]) -> TestClause:
     pos, end = _parse_pos_end(data)
     return TestClause(
         pos=pos,
@@ -641,7 +642,7 @@ def _convert_test_clause(data: dict) -> TestClause:
     )
 
 
-def _convert_unary_test(data: dict) -> UnaryTest:
+def _convert_unary_test(data: dict[str, Any]) -> UnaryTest:
     pos, end = _parse_pos_end(data)
     return UnaryTest(
         pos=pos,
@@ -652,7 +653,7 @@ def _convert_unary_test(data: dict) -> UnaryTest:
     )
 
 
-def _convert_binary_test(data: dict) -> BinaryTest:
+def _convert_binary_test(data: dict[str, Any]) -> BinaryTest:
     pos, end = _parse_pos_end(data)
     return BinaryTest(
         pos=pos,
@@ -664,7 +665,7 @@ def _convert_binary_test(data: dict) -> BinaryTest:
     )
 
 
-def _convert_paren_test(data: dict) -> ParenTest:
+def _convert_paren_test(data: dict[str, Any]) -> ParenTest:
     pos, end = _parse_pos_end(data)
     return ParenTest(
         pos=pos,
@@ -675,7 +676,7 @@ def _convert_paren_test(data: dict) -> ParenTest:
     )
 
 
-def _convert_arithm_cmd(data: dict) -> ArithmCmd:
+def _convert_arithm_cmd(data: dict[str, Any]) -> ArithmCmd:
     pos, end = _parse_pos_end(data)
     return ArithmCmd(
         pos=pos,
@@ -686,7 +687,7 @@ def _convert_arithm_cmd(data: dict) -> ArithmCmd:
     )
 
 
-def _convert_unary_arithm(data: dict) -> UnaryArithm:
+def _convert_unary_arithm(data: dict[str, Any]) -> UnaryArithm:
     pos, end = _parse_pos_end(data)
     return UnaryArithm(
         pos=pos,
@@ -698,7 +699,7 @@ def _convert_unary_arithm(data: dict) -> UnaryArithm:
     )
 
 
-def _convert_paren_arithm(data: dict) -> ParenArithm:
+def _convert_paren_arithm(data: dict[str, Any]) -> ParenArithm:
     pos, end = _parse_pos_end(data)
     return ParenArithm(
         pos=pos,
@@ -709,7 +710,7 @@ def _convert_paren_arithm(data: dict) -> ParenArithm:
     )
 
 
-def _convert_flags_arithm(data: dict) -> FlagsArithm:
+def _convert_flags_arithm(data: dict[str, Any]) -> FlagsArithm:
     pos, end = _parse_pos_end(data)
     return FlagsArithm(
         pos=pos,
@@ -719,7 +720,7 @@ def _convert_flags_arithm(data: dict) -> FlagsArithm:
     )
 
 
-def _convert_let_clause(data: dict) -> LetClause:
+def _convert_let_clause(data: dict[str, Any]) -> LetClause:
     pos, end = _parse_pos_end(data)
     return LetClause(
         pos=pos,
@@ -729,7 +730,7 @@ def _convert_let_clause(data: dict) -> LetClause:
     )
 
 
-def _convert_time_clause(data: dict) -> TimeClause:
+def _convert_time_clause(data: dict[str, Any]) -> TimeClause:
     pos, end = _parse_pos_end(data)
     return TimeClause(
         pos=pos,
@@ -740,7 +741,7 @@ def _convert_time_clause(data: dict) -> TimeClause:
     )
 
 
-def _convert_coproc_clause(data: dict) -> CoprocClause:
+def _convert_coproc_clause(data: dict[str, Any]) -> CoprocClause:
     pos, end = _parse_pos_end(data)
     return CoprocClause(
         pos=pos,
@@ -751,7 +752,7 @@ def _convert_coproc_clause(data: dict) -> CoprocClause:
     )
 
 
-def _convert_test_decl(data: dict) -> TestDecl:
+def _convert_test_decl(data: dict[str, Any]) -> TestDecl:
     pos, end = _parse_pos_end(data)
     return TestDecl(
         pos=pos,
@@ -761,7 +762,7 @@ def _convert_test_decl(data: dict) -> TestDecl:
     )
 
 
-def _convert_comment(data: dict) -> Comment:
+def _convert_comment(data: dict[str, Any]) -> Comment:
     pos, end = _parse_pos_end(data)
     return Comment(
         pos=pos,
@@ -771,7 +772,7 @@ def _convert_comment(data: dict) -> Comment:
     )
 
 
-def _convert_case_item(data: dict) -> CaseItem:
+def _convert_case_item(data: dict[str, Any]) -> CaseItem:
     pos, end = _parse_pos_end(data)
     return CaseItem(
         pos=pos,
@@ -782,7 +783,7 @@ def _convert_case_item(data: dict) -> CaseItem:
     )
 
 
-def _convert_word_iter(data: dict) -> WordIter:
+def _convert_word_iter(data: dict[str, Any]) -> WordIter:
     pos, end = _parse_pos_end(data)
     name_data = data.get("Name")
     name_node = (
@@ -796,7 +797,7 @@ def _convert_word_iter(data: dict) -> WordIter:
     )
 
 
-def _convert_cstyle_loop(data: dict) -> CStyleLoop:
+def _convert_cstyle_loop(data: dict[str, Any]) -> CStyleLoop:
     pos, end = _parse_pos_end(data)
     return CStyleLoop(
         pos=pos,
@@ -807,7 +808,7 @@ def _convert_cstyle_loop(data: dict) -> CStyleLoop:
     )
 
 
-def _convert_array_expr(data: dict) -> ArrayExpr:
+def _convert_array_expr(data: dict[str, Any]) -> ArrayExpr:
     pos, end = _parse_pos_end(data)
     return ArrayExpr(
         pos=pos,
@@ -816,7 +817,7 @@ def _convert_array_expr(data: dict) -> ArrayExpr:
     )
 
 
-def _convert_brace_exp(data: dict) -> BraceExp:
+def _convert_brace_exp(data: dict[str, Any]) -> BraceExp:
     pos, end = _parse_pos_end(data)
     return BraceExp(
         pos=pos,
@@ -878,7 +879,7 @@ _CONVERTERS: dict[str, Callable[[dict[str, Any]], Node | None]] = {
 }
 
 
-def node_from_json(data: dict | None) -> Node | None:
+def node_from_json(data: dict[str, Any] | None) -> Node | None:
     """Convert shfmt JSON node data to a typed AST node.
 
     Returns None when *data* is None (key absent in JSON).

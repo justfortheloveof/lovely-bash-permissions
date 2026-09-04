@@ -11,6 +11,7 @@ import argparse
 import json
 import os
 import sys
+from typing import Any
 
 from .config.devin import (
     get_devin_config_file_paths,
@@ -131,7 +132,7 @@ def handle_show_config() -> None:
     sys.exit(0)
 
 
-def handle_hook_event(event: dict) -> None:
+def handle_hook_event(event: dict[str, Any]) -> dict | None:
     """Process a hook event and write response to stdout."""
     result = process_hook_event(event)
     if result.get("action") == "skip":

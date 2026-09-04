@@ -11,7 +11,7 @@ import re
 from typing import Any
 
 
-def _find_redirs(node: dict) -> list:
+def _find_redirs(node: dict[str, Any]) -> list[dict[str, Any]]:
     """Recursively collect all redirection dicts from an AST node.
 
     Walks CallExpr.Redirs, BinaryCmd.X/Y/Redirs (merged list), and recurses into
@@ -23,7 +23,7 @@ def _find_redirs(node: dict) -> list:
     Returns:
         List of redirection dicts (each with "Op" and "Word").
     """
-    redirs: list = []
+    redirs: list[dict[str, Any]] = []
 
     # CallExpr has Redirs directly on the node itself
     if node.get("Type") == "CallExpr":
@@ -47,7 +47,7 @@ def _find_redirs(node: dict) -> list:
     return redirs
 
 
-def _find_background_flags(node: dict) -> list:
+def _find_background_flags(node: dict[str, Any]) -> list[str]:
     """Recursively collect background flags from an AST node.
 
     Finds statements with ``Background: true`` regardless of whether their Cmd
@@ -59,7 +59,7 @@ def _find_background_flags(node: dict) -> list:
     Returns:
         List of (command_name, background_flag) tuples found in CallExpr args.
     """
-    results: list = []
+    results: list[str] = []
 
     if node.get("Type") == "CallExpr":
         args = node.get("Args", [])
@@ -120,7 +120,7 @@ def check_blocked_patterns(command_name: str, args: list[str], blocked_patterns:
     )
 
 
-def check_output_redirection(tree: dict[str, Any], rules: dict) -> dict:
+def check_output_redirection(tree: dict[str, Any], rules: dict[str, Any]) -> dict[str, Any]:
     """Evaluate output redirections against rules.
 
     Extracts output redirections (> or >>) from the AST and applies
@@ -187,7 +187,7 @@ def check_output_redirection(tree: dict[str, Any], rules: dict) -> dict:
         }
 
 
-def check_input_redirection(tree: dict[str, Any], rules: dict) -> dict:
+def check_input_redirection(tree: dict[str, Any], rules: dict[str, Any]) -> dict[str, Any]:
     """Evaluate input redirections against rules.
 
     Extracts input redirections (< or <<) from the AST and applies
@@ -254,7 +254,7 @@ def check_input_redirection(tree: dict[str, Any], rules: dict) -> dict:
         }
 
 
-def check_background_execution(tree: dict[str, Any], rules: dict) -> dict:
+def check_background_execution(tree: dict[str, Any], rules: dict[str, Any]) -> dict[str, Any]:
     """Evaluate background execution against rules.
 
     Detects background execution (trailing & operator) from the AST and

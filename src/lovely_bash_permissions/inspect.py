@@ -95,7 +95,7 @@ def iter_children(node: Node, *, include_call_args: bool = False) -> Iterator[No
     if not dataclasses.is_dataclass(node):
         return
 
-    for f in dataclasses.fields(node):  # type: ignore[arg-type]
+    for f in dataclasses.fields(node):
         if f.name in _SKIP_FIELDS:
             continue
         val = getattr(node, f.name, None)

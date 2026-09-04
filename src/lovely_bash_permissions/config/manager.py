@@ -1,5 +1,7 @@
 """PermissionsManager: loads and manages lovely-devin-permissions and Devin config."""
 
+from typing import Any
+
 from .devin import load_devin_exec_regexes
 from .loader import load_permissions_config
 
@@ -14,10 +16,10 @@ class PermissionsManager:
     def __init__(self, project_dir: str) -> None:
         """Create PermissionsManager. project_dir is the current working directory."""
         self._project_dir = project_dir
-        self._lovely_config = {}
-        self._lovely_error = None
-        self._devin_regexes = []
-        self._devin_error = None
+        self._lovely_config: dict[str, Any] = {}
+        self._lovely_error: str | None = None
+        self._devin_regexes: list[str] = []
+        self._devin_error: str | None = None
         self._load()
 
     def _load(self) -> None:
@@ -38,7 +40,7 @@ class PermissionsManager:
             self._devin_regexes = []
             self._devin_error = str(e)
 
-    def get_lovely_config(self) -> dict:
+    def get_lovely_config(self) -> dict[str, Any]:
         """Return the merged lovely-permissions config.
 
         Raises ValueError if config failed to load.
@@ -47,7 +49,7 @@ class PermissionsManager:
             raise ValueError(self._lovely_error)
         return self._lovely_config
 
-    def get_devin_exec_regexes(self) -> list:
+    def get_devin_exec_regexes(self) -> list[str]:
         """Return deduplicated list of Devin Exec permission regex strings.
 
         Raises ValueError if config failed to load or malformed entries found.

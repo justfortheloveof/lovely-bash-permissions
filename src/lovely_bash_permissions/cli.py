@@ -81,9 +81,9 @@ def _read_input(args: argparse.Namespace) -> str:
         except OSError as exc:
             _die(f"cannot read {args.file!r}: {exc.strerror or exc}")
     if args.string is not None:
-        return args.string
+        return str(args.string)
     if not sys.stdin.isatty():
-        return sys.stdin.read()
+        return str(sys.stdin.read())
     _die("no input provided: pass --file, --string, or pipe data via stdin")
     raise AssertionError("unreachable")
 
@@ -231,13 +231,14 @@ def _render_statement(command: Node, redirs: list[Redir], report: _Report, inden
 
         # Nested statement: when this group has no direct commands of its
         # own, its trailing redirections apply to the final nested group.
-        nested_redirs = _redirs_of(node)
-        inherited = seg_redirs
-        if last_cmd == -1 and i == len(items) - 1:
-            inherited = inherited + redirs
-        nested_redirs = nested_redirs + inherited
-        if node.cmd is not None:
-            _render_statement(node.cmd, nested_redirs, report, indent)
+        if isinstance(node, Stmt):
+            nested_redirs = _redirs_of(node)
+            inherited = seg_redirs
+            if last_cmd == -1 and i == len(items) - 1:
+                inherited = inherited + redirs
+            nested_redirs = nested_redirs + inherited
+            if node.cmd is not None:
+                _render_statement(node.cmd, nested_redirs, report, indent)
     return True
 
 
@@ -245,7 +246,7 @@ def _render_command_or_decl(node: Node, indent: int, report: _Report) -> None:
     """Render a single command or declaration node."""
     if isinstance(node, DeclClause):
         _render_declared(node, indent, report)
-    else:
+    elif isinstance(node, CallExpr):
         _render_command(node, indent, report)
 
 
@@ -282,9 +283,10 @@ def _render_redirs(redirs: list[Redir], indent: int, report: _Report) -> None:
         if redir.word:
             report.add(indent, f"redirection: {_redir_text(redir)}")
             for subst in _iter_substs(redir.word):
-                for stmt in subst.stmts:
-                    if stmt.cmd is not None:
-                        _render_statement(stmt.cmd, _redirs_of(stmt), report, indent + 1)
+                if isinstance(subst, (CmdSubst, ProcSubst)):
+                    for stmt in subst.stmts:
+                        if stmt.cmd is not None:
+                            _render_statement(stmt.cmd, _redirs_of(stmt), report, indent + 1)
 
 
 def _render_word_subs(words: list[Word], indent: int, report: _Report) -> bool:
@@ -292,10 +294,11 @@ def _render_word_subs(words: list[Word], indent: int, report: _Report) -> bool:
     rendered = False
     for word in words:
         for subst in _iter_substs(word):
-            rendered = True
-            for stmt in subst.stmts:
-                if stmt.cmd is not None:
-                    _render_statement(stmt.cmd, _redirs_of(stmt), report, indent + 1)
+            if isinstance(subst, (CmdSubst, ProcSubst)):
+                rendered = True
+                for stmt in subst.stmts:
+                    if stmt.cmd is not None:
+                        _render_statement(stmt.cmd, _redirs_of(stmt), report, indent + 1)
     return rendered
 
 

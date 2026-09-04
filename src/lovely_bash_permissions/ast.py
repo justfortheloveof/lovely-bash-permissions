@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass, field
+from typing import Any
 
 
 def _node_repr(obj: object, depth: int = 1) -> str:
@@ -139,7 +140,7 @@ class ParamExp(Node):
 
     param: str = ""
     short: bool = False
-    exp: dict | None = None
+    exp: dict[str, Any] | None = None
     index: Word | None = None
     length: bool = False
     dollar_pos: Position | None = None
@@ -183,6 +184,7 @@ class DblQuoted(Node):
             vals: list[str] = []
             for p in self.parts:
                 if isinstance(p, (Lit, SglQuoted)) or isinstance(p, DblQuoted) and p.value is not None:
+                    assert p.value is not None
                     vals.append(p.value)
                 else:
                     vals.append("")
@@ -765,7 +767,7 @@ def structurally_equal(a: object, b: object) -> bool:
         return False
     if not dataclasses.is_dataclass(a):
         return a == b
-    for f in dataclasses.fields(a):  # type: ignore[arg-type]
+    for f in dataclasses.fields(a):
         if f.name in _POSITION_FIELDS:
             continue
         va = getattr(a, f.name)
