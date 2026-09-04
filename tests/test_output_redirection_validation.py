@@ -13,11 +13,12 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def run_test(command: str) -> dict:
+def run_test(command: str) -> dict[str, Any]:
     """Run `lovely-devin-permissions --test` and return parsed JSON."""
     env = os.environ.copy()
     env["DEVIN_PROJECT_DIR"] = str(ROOT)
@@ -32,7 +33,7 @@ def run_test(command: str) -> dict:
     return json.loads(r.stdout) if r.stdout.strip() else {"error": r.stderr}
 
 
-def run_test_with_config(command: str, config: dict) -> dict:
+def run_test_with_config(command: str, config: dict[str, Any]) -> dict[str, Any]:
     """Test a command under an ad-hoc config written to .devin/."""
     d = ROOT / ".devin"
     d.mkdir(exist_ok=True)
