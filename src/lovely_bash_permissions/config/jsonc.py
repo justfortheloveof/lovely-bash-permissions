@@ -66,12 +66,14 @@ def read_jsonc_file(file_path: str) -> dict[str, Any] | None:
 
     try:
         text = path.read_text(encoding="utf-8")
-        value = parse_jsonc(text)
     except Exception as e:  # noqa: BLE001
-        print(f"error: {e}", file=sys.stderr)
+        print(f"error reading {file_path}: {e}", file=sys.stderr)
         return None
-
-    if not isinstance(value, dict):
+    value = parse_jsonc(text)
+    if value is None:
+        print(f"error parsing {file_path}: invalid JSONC", file=sys.stderr)
+    elif not isinstance(value, dict):
+        print(f"error parsing {file_path}: expected object, got {type(value).__name__}", file=sys.stderr)
         return None
     return value
 

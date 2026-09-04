@@ -57,6 +57,7 @@ def load_permissions_config(project_dir: str) -> dict[str, Any]:
     # Load each file, missing/invalid -> {}
     configs: list[dict[str, Any]] = []
     loaded_any = False
+    parse_errors: list[str] = []
     for path in paths:
         data = read_jsonc_file(path)
         if data is not None and isinstance(data, dict):
@@ -64,9 +65,13 @@ def load_permissions_config(project_dir: str) -> dict[str, Any]:
             loaded_any = True
         else:
             configs.append({})
+            parse_errors.append(path)
 
     if not loaded_any:
-        raise FileNotFoundError(f"no valid lovely-permissions config found (checked: {', '.join(paths)})")
+        raise FileNotFoundError(
+            f"no valid lovely-permissions config found (checked: {', '.join(paths)}); "
+            f"parsed with errors: {', '.join(parse_errors)}"
+        )
 
     # Merge in order: global < project < local
     merged: dict[str, Any] = {}
