@@ -348,6 +348,32 @@ class TestLoadPermissionsConfig:
         for path in paths:
             assert path in error_msg
 
+    def test_non_dict_value_all_files_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """All config files contain non-dict values (arrays) → raises with paths in error."""
+        tmpdir = tempfile.mkdtemp()
+        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir.mkdir(parents=True)
+        monkeypatch.setattr(
+            "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+            lambda: config_dir,
+        )
+        project_dir = Path(tmpdir) / "project"
+        project_dir.mkdir()
+        devin_dir = project_dir / ".devin"
+        devin_dir.mkdir()
+        project_file = devin_dir / "lovely-permissions.jsonc"
+        project_file.write_text("[1, 2, 3]")
+        local_file = devin_dir / "lovely-permissions.local.jsonc"
+        local_file.write_text("['a', 'b']")
+
+        with pytest.raises(FileNotFoundError) as exc_info:
+            load_permissions_config(str(project_dir))
+
+        error_msg = str(exc_info.value)
+        paths = get_permissions_config_file_paths(str(project_dir))
+        for path in paths:
+            assert path in error_msg
+
     def test_json_with_comments_works(self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]) -> None:
         """JSONC files with comments parse correctly."""
         tmpdir = tempfile.mkdtemp()

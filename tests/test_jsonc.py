@@ -206,6 +206,61 @@ class TestReadJsoncFile:
         assert "expected object" in outerr.err
         assert path in outerr.err
 
+    def test_non_object_string_prints_error(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Valid JSON string value prints 'expected object, got str' to stderr."""
+        path = _write_temp_file('"hello world"')
+        try:
+            result = read_jsonc_file(path)
+            assert result is None
+        finally:
+            _clean_temp_file(path)
+        outerr = capsys.readouterr()
+        assert "expected object" in outerr.err
+        assert "str" in outerr.err.lower()
+
+    def test_non_object_int_prints_error(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Valid JSON int value prints 'expected object, got int' to stderr."""
+        path = _write_temp_file("42")
+        try:
+            result = read_jsonc_file(path)
+            assert result is None
+        finally:
+            _clean_temp_file(path)
+        outerr = capsys.readouterr()
+        assert "expected object" in outerr.err
+        assert "int" in outerr.err.lower()
+
+    def test_non_object_bool_prints_error(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Valid JSON bool value prints 'expected object, got bool' to stderr."""
+        path = _write_temp_file("true")
+        try:
+            result = read_jsonc_file(path)
+            assert result is None
+        finally:
+            _clean_temp_file(path)
+        outerr = capsys.readouterr()
+        assert "expected object" in outerr.err
+        assert "bool" in outerr.err.lower()
+
+    def test_null_value_treated_as_invalid(self) -> None:
+        """Valid JSON null value is treated as invalid (empty/falsy), same as empty string."""
+        result = parse_jsonc("null")
+        assert result is None
+
+    def test_encoding_error_prints_to_stderr(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """File with invalid UTF-8 bytes prints 'error reading' to stderr."""
+        fd, path = tempfile.mkstemp(suffix=".jsonc")
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(b"{\xff\xfe invalid utf-8}")
+            result = read_jsonc_file(path)
+            assert result is None
+        finally:
+            _clean_temp_file(path)
+        outerr = capsys.readouterr()
+        assert "error reading" in outerr.err
+        assert path in outerr.err
+
 
 class TestIsRecord:
     """Tests for is_record function."""
