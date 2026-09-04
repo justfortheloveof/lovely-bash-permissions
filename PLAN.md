@@ -6,9 +6,14 @@ Identify the top 10 issues to fix in our code — start with the most obvious mi
 
 ## Status: Pass 6 — Complete. Project fully implemented.
 
-All TS/Python parity issues resolved, linting and type-checking clean (461 tests passing).
+All TS/Python parity issues resolved, linting clean (461 tests passing).
 
-### Next: Pass 8 — Final review
+### Next: Pass 9 — Fix mypy --strict errors in tests (628 errors, all test files)
+1. Run `uv run mypy --strict .` to get full error list
+2. Fix type annotations in test files (test_parser.py, test_binary_redirs.py, etc.)
+3. Verify mypy --strict passes clean
+4. Re-run full test suite — confirm 461 tests still passing
+5. Mark project complete and stop loop
 1. Run `ruff` + `mypy --strict` — verify clean (done in pass 3, confirmed no regressions)
 2. Run full test suite — verify 461 tests passing (done, all green)
 3. Confirm git diff clean except docs/config files — confirmed
