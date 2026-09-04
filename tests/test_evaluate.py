@@ -13,6 +13,7 @@ def make_config(
     output: str = "allow",
     input_redir: str = "allow",
     background: str = "allow",
+    subshell: str = "ask",
     wildcard: str = "ask",
 ) -> dict[str, list[str] | str]:
     """Helper to create test configuration."""
@@ -27,6 +28,8 @@ def make_config(
         config["input_redirection"] = input_redir
     if background != "allow":
         config["background_execution"] = background
+    if subshell != "ask":
+        config["subshell"] = subshell
     return config
 
 
@@ -288,6 +291,67 @@ class TestSubshellHandling:
             make_config(),
         )
         assert result["status"] == "ask"
+
+    def test_subshell_nested_in_quotes_blocked(self) -> None:
+        """Blocked paths inside substitutions within quotes must be caught.
+
+        Regression test for issue #5: CmdSubst nodes nested inside
+        DblQuoted/SglQuoted parts were previously missed by the raw-JSON
+        visitor, allowing blocked paths hidden inside quoted substitutions.
+        """
+        result = evaluate_bash_command(
+            'echo "$(cat /etc/passwd)"',
+            make_config(blocked=["^/etc/passwd$"]),
+        )
+        assert result["status"] == "deny"
+
+    def test_subshell_deeply_nested_in_quotes_blocked(self) -> None:
+        """3-deep nested substitutions inside quotes are also checked."""
+        result = evaluate_bash_command(
+            'echo "$(a $(b $(cat /etc/passwd)))"',
+            make_config(blocked=["^/etc/passwd$"]),
+        )
+        assert result["status"] == "deny"
+
+    def test_subshell_process_substitution_blocked(self) -> None:
+        """Process substitution <(...) also checked against blocked paths."""
+        result = evaluate_bash_command(
+            "cat <(/etc/passwd)",
+            make_config(blocked=["^/etc/passwd$"]),
+        )
+        assert result["status"] == "deny"
+
+    def test_subshell_deeply_nested_unquoted_blocked(self) -> None:
+        """Deep nesting outside quotes also catches blocked paths."""
+        result = evaluate_bash_command(
+            "echo $(a $(b $(cat /etc/passwd)))",
+            make_config(blocked=["^/etc/passwd$"]),
+        )
+        assert result["status"] == "deny"
+
+    def test_subshell_policy_allow(self) -> None:
+        """subshell=allow auto-approves command substitutions."""
+        result = evaluate_bash_command(
+            "ls $(ls)",
+            make_config(subshell="allow"),
+        )
+        assert result["status"] == "allow"
+
+    def test_subshell_policy_deny(self) -> None:
+        """subshell=deny forces denial regardless of wildcard."""
+        result = evaluate_bash_command(
+            "ls $(ls)",
+            make_config(wildcard="allow", subshell="deny"),
+        )
+        assert result["status"] == "deny"
+
+    def test_subshell_blocked_path_overrides_allow(self) -> None:
+        """Blocked paths inside subshell still deny even with allow policy."""
+        result = evaluate_bash_command(
+            'echo "$(cat /etc/passwd)"',
+            make_config(subshell="allow", blocked=["^/etc/passwd$"]),
+        )
+        assert result["status"] == "deny"
 
 
 class TestEdgeCases:

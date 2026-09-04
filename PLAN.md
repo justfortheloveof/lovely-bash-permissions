@@ -68,10 +68,24 @@ node /home/alx/repos/jftlo/lovely-devin-permissions/dist/hook.js --test 'cmd'
 **Desired Behaviour**: This is unexpected, all cmds must pass through the approval same flow.
 **Status**: Completed — empty/whitespace commands now apply wildcard policy (default "ask") instead of auto-approving.
 
-### 8. Empty redirections in `segments.py` (issue #2) [x]
+### 8. Duplicate blocked-pattern logic (issue #3) [x]
+**Problem**: Blocked-path matching lived in two places — `effective_bash.py:_deny_item_to_regex()` (converts deny-list items to patterns) and `rules.py:check_blocked_patterns()` + `_find_blocked_path()` (applies them). Conversion and application were separate, with duplicated loop logic.
+**Root cause**: Pattern conversion was a config-loading concern; pattern application was rules-engine code. Callers passed the merged list directly, so there was no actual reuse — just duplicated intent.
+**Impact**: Semantic drift — deny-list items were escaped+anchored (`^/etc/passwd$`) while raw `blocked_paths_regex` entries were unescaped and applied with `re.search()` (unanchored).
+**Fix**: Moved `_deny_item_to_regex` → `rules.py:deny_item_to_pattern()` (public, renamed), and created shared `_match_pattern()` helper. Both call sites now use one internal matcher.
+**Tests**: 8 new tests for `deny_item_to_pattern` (bare, quoted, spaces, escaped chars) plus equivalence tests.
+
+### 9. Empty redirections in `segments.py` (issue #2) [x]
 **Problem**: `_extract_segments()` hardcoded `"redirections": []` — all segments lost redirection info.
 **Root cause**: The function never extracted redirections from typed AST nodes (Stmt.redirs, BinaryCmd.left/right_redirs).
 **Impact**: parse_segments() returned segments without any redirection data, defeating the module's documented purpose.
 **Fix**: Added `_extract_redirs()` helper that extracts Redir from Stmt and BinaryCmd; threaded redirs through recursive calls so each CallExpr segment carries its inherited redirections. Fixed IfClause/WhileClause to use cond_stmts (not "cond"). Added Block handler for FuncDecl bodies.
 **Tests**: 18 new tests covering simple/redir, pipe left/right/both, and-chain/or-chain, sequential, background-on-pipe, complex pipes, if/while/body, func-body.
 **Bonus**: Steps into issue #3 — replaced evaluate.py's raw-JSON redirection checks with segment-based `_check_segments_output_redirs()` and `_check_segments_input_redirs()`, making segments the single source of truth for redirection policy evaluation.
+
+### 10. Raw-JSON traversal instead of typed AST (issue #5) [x]
+**Problem**: `_extract_subshell_contents()` and `_has_cmd_subst()` in `evaluate.py` manually walked shfmt JSON dicts (`node.get("Type")`, `isinstance(node, dict)`) instead of using the typed AST from `converter.py`. This missed CmdSubst/ProcSubst nodes nested inside Word parts — specifically those hidden inside `DblQuoted`/`SglQuoted` nodes (e.g., `echo "$(cat $(ls))"`).
+**Root cause**: The visitor only recursed into `Word.Parts` but not into quoted-string nodes (`DblQuoted`, `SglQuoted`) which also contain nested parts. A CmdSubst inside quotes was invisible to the traversal.
+**Impact**: Blocked paths hidden inside quoted command substitutions were silently skipped — a security gap where `echo "$(cat /etc/passwd)"` was allowed while the unquoted equivalent was denied.
+**Fix**: Rewrote both functions to use typed AST via `node_from_json()` + `_traverse()` from `inspect.py`, with `recurse_call_expr_args=True` so CallExpr argument children are visited. Added `_Found` sentinel exception for early-termination detection (same pattern as `inspect.py`).
+**Tests**: 4 new regression tests — nested-in-quotes blocked, 3-deep-nested-in-quotes blocked, process substitution `<(...)` blocked, deeply nested unquoted blocked. All 539 tests pass including ruff/myPy strict/format lint.

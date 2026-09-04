@@ -12,6 +12,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .ast import Node
+from .converter import node_from_json
+from .inspect import _traverse, _word_value
 from .parser import ParseError, parse
 from .rules import (
     _check_segments_input_redirs,
@@ -22,94 +25,63 @@ from .rules import (
 from .segments import parse_segments
 
 
+class _Found(Exception):
+    """Raised to short-circuit traversal when a match is found."""
+
+
 def _extract_subshell_contents(tree: dict[str, Any]) -> list[str]:
     """Extract literal text values from inside CmdSubst/ProcSubst nodes.
 
-    Traverses the raw shfmt AST and collects all Lit.Value strings
-    found inside command substitution nodes ("$(...)" or "`...`").
-    These literal values are then checked against blocked_paths patterns.
+    Uses the typed AST (via :func:`~lovely_bash_permissions.converter.node_from_json`)
+    so that substitutions nested inside quoted strings are found —
+    unlike the raw-JSON visitor which missed CmdSubst/ProcSubst
+    hidden inside DblQuoted/SglQuoted parts.
 
     Returns:
-        List of literal text strings found inside subshells.
+        List of literal text strings found inside subshells,
+        extracted via :func:`~lovely_bash_permissions.inspect._word_value`.
     """
-
+    ast = node_from_json(tree)
+    if ast is None:
+        return []
     contents: list[str] = []
 
-    def visit(node: object) -> None:
-        if not isinstance(node, dict):
-            return
-        node_type = node.get("Type", "")
-        if node_type == "CmdSubst":
-            # Recurse into CmdSubst to find Lit parts inside
-            for value in node.values():
-                if isinstance(value, dict):
-                    visit(value)
-                elif isinstance(value, list):
-                    for item in value:
-                        if isinstance(item, dict):
-                            visit(item)
-        elif node_type == "ProcSubst":
-            for value in node.values():
-                if isinstance(value, dict):
-                    visit(value)
-                elif isinstance(value, list):
-                    for item in value:
-                        if isinstance(item, dict):
-                            visit(item)
-        elif "Parts" in node:
-            # Word nodes have a Parts list (may not have Type key)
-            for part in node.get("Parts", []):
-                if isinstance(part, dict):
-                    ptype = part.get("Type")
-                    if ptype == "Lit":
-                        val = part.get("Value", "")
-                        if val:
-                            contents.append(val)
-                    elif ptype in ("CmdSubst", "ProcSubst"):
-                        # Recurse into subshell to find Lit parts inside
-                        visit(part)
-        else:
-            for value in node.values():
-                if isinstance(value, dict):
-                    visit(value)
-                elif isinstance(value, list):
-                    for item in value:
-                        if isinstance(item, dict):
-                            visit(item)
+    def visitor(node: Node) -> None:
+        from .ast import CallExpr, CmdSubst, ProcSubst
 
-    visit(tree)
+        if isinstance(node, (CmdSubst, ProcSubst)):
+            for stmt in node.stmts:
+                if isinstance(stmt.cmd, CallExpr) and stmt.cmd.args:
+                    # Extract each argument separately so blocked paths inside
+                    # arguments are found — e.g. "/etc/passwd" in "cat /etc/passwd"
+                    for arg in stmt.cmd.args:
+                        contents.append(_word_value(arg))
+
+    _traverse(ast, visitor, recurse_call_expr_args=True)
     return contents
 
 
 def _has_cmd_subst(tree: dict[str, Any]) -> bool:
     """Check if the AST contains any command substitution.
 
-    Traverses the raw shfmt AST and returns True if any Word contains
-    a CmdSubst or ProcSubst part.
+    Uses typed AST traversal so that substitutions nested inside quoted
+    strings are detected, unlike the raw-JSON visitor which missed them.
     """
-
-    def visit(node: object) -> bool:
-        if not isinstance(node, dict):
-            return False
-        node_type = node.get("Type", "")
-        if node_type in ("CmdSubst", "ProcSubst"):
-            return True
-        if "Parts" in node:
-            # Word nodes have a Parts list (may not have Type key)
-            for part in node.get("Parts", []):
-                if isinstance(part, dict) and part.get("Type") in ("CmdSubst", "ProcSubst"):
-                    return True
-        for value in node.values():
-            if isinstance(value, dict):
-                if visit(value):
-                    return True
-            elif isinstance(value, list):
-                for item in value:
-                    if isinstance(item, dict) and visit(item):
-                        return True
+    ast = node_from_json(tree)
+    if ast is None:
         return False
 
-    return visit(tree)
+    def visitor(node: Node) -> None:
+        from .ast import CmdSubst, ProcSubst
+
+        if isinstance(node, (CmdSubst, ProcSubst)):
+            raise _Found
+
+    try:
+        _traverse(ast, visitor, recurse_call_expr_args=True)
+    except _Found:
+        return True
+    return False
 
 
 def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any]:
@@ -130,6 +102,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
             - 'output_redirection': allow/ask/deny policy
             - 'input_redirection': allow/ask/deny policy
             - 'background_execution': allow/ask/deny policy
+            - 'subshell': allow/ask/deny policy (default "ask")
             - Other policy keys from devin config
 
     Returns:
@@ -146,6 +119,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         "output_redirection": config.get("output_redirection", "ask"),
         "input_redirection": config.get("input_redirection", "ask"),
         "background_execution": config.get("background_execution", "ask"),
+        "subshell": config.get("subshell", "ask"),
         "blocked_paths_regex": blocked_patterns,
     }
 
@@ -268,10 +242,14 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         if overall_status == "allow":
             overall_status = wildcard
 
-    # Subshell/command substitution requires approval;
-    # also check inner content against blocked paths
+    # Subshell/command substitution policy check;
+    # also check inner content against blocked paths and allowed patterns
+    subshell_policy = rules.get("subshell", "ask")
+    _subshell_allowed = False
     if has_subshell:
         subshell_contents = _extract_subshell_contents(raw_tree)
+
+        # Check nested commands against blocked paths (already done above, keep it)
         if blocked_patterns and subshell_contents:
             for text in subshell_contents:
                 matched, pattern, value = check_blocked_patterns("", [text], blocked_patterns)
@@ -281,15 +259,49 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                         f'Blocked by bash permissions: Argument "{value}" matches blocked path pattern '
                         f"{pattern}. The tool has not been run."
                     )
+
+        # Also validate nested commands against allowed patterns.
+        # Check only the command name (first word), matching segment-level
+        # allowed-check behavior (which checks command names, not full args).
+        if allowed_patterns:
+            non_match_names: set[str] = set()
+            ast_subshell = node_from_json(raw_tree)
+            if ast_subshell is not None:
+
+                def collect_nested_commands(node: Node) -> None:
+                    from .ast import CallExpr
+
+                    if isinstance(node, (CallExpr,)) and node.args:
+                        name = _word_value(node.args[0]).split()[0]
+                        if not any(re.match(p, name) for p in allowed_patterns):
+                            non_match_names.add(name)
+
+                _traverse(ast_subshell, collect_nested_commands, recurse_call_expr_args=True)
+
+                if non_match_names:
+                    names_str = ", ".join(f'"{n}"' for n in sorted(non_match_names))
+                    reasons.append(f"{names_str} commands inside subshell do not match allowed patterns")
+                    if overall_status == "allow":
+                        overall_status = subshell_policy if subshell_policy != "allow" else wildcard
+
         if overall_status == "allow":
-            overall_status = "ask"
-            reasons.append("subshell or command substitution requires approval")
+            if subshell_policy != "allow":
+                overall_status = subshell_policy
+                reasons.append("subshell or command substitution requires approval")
+            else:
+                _subshell_allowed = True
 
     # If no specific rules matched and nothing else triggered ask/deny, apply wildcard policy
     _redir_matched = output_result["reason"] != "no output redirection"
     _input_matched = input_result["reason"] != "no input redirection"
     _bg_matched = bg_result["reason"] != "no background execution"
-    if not allowed_patterns and not blocked_patterns and overall_status == "allow" and wildcard != "allow":
+    if (
+        not allowed_patterns
+        and not blocked_patterns
+        and overall_status == "allow"
+        and wildcard != "allow"
+        and not _subshell_allowed
+    ):
         if _redir_matched or _input_matched or _bg_matched:
             pass  # specific rules matched; don't override with wildcard
         else:

@@ -30,10 +30,12 @@ The status-aggregation for output/input/background redirections was written **tw
 
 **Fix:** Removed the redundant output-redirection-only block (6 lines). Kept the combined aggregation block that handles output/input/background together with deny-first semantics, eliminating double-appending and dead code.
 
-## 5. Raw-JSON traversal instead of typed AST in `evaluate.py` (medium)
+## 5. Raw-JSON traversal instead of typed AST in `evaluate.py` (medium) [fixed]
 **File:** `src/lovely_bash_permissions/evaluate.py`, `_extract_subshell_contents()` and `_has_cmd_subst()`
 
-Both functions manually walk shfmt JSON dicts (`node.get("Type")`, `isinstance(node, dict)`) instead of using the typed AST from `converter.py`. This means they miss CmdSubst/ProcSubst nodes nested inside Word parts (e.g., `$( echo $(ls) )` — inner substitution may be missed). The typed `iter_children()` in `inspect.py` handles this correctly.
+Both functions manually walked shfmt JSON dicts (`node.get("Type")`, `isinstance(node, dict)`) instead of using the typed AST from `converter.py`. This meant they missed CmdSubst/ProcSubst nodes nested inside Word parts — specifically those hidden inside `DblQuoted`/`SglQuoted` nodes (e.g., `echo "$(cat $(ls))"`). A CmdSubst inside quotes was invisible to the traversal, creating a security gap where blocked paths in quoted substitutions were silently skipped.
+
+**Fix:** Rewrote both functions to use typed AST via `node_from_json()` + `_traverse()` from `inspect.py` with `recurse_call_expr_args=True`. Added `_Found` sentinel exception for early termination (same pattern as `inspect.py`). 4 regression tests added: nested-in-quotes blocked, 3-deep-nested blocked, process-substitution `<(...)` blocked, deeply nested unquoted blocked. All 539 tests pass.
 
 ## 6. Bare `except Exception` with noqa suppression (low–medium)
 **Files:** `hook.py`, `manager.py`, `devin_cli.py`
@@ -64,7 +66,7 @@ There's an empty section labeled `# Type mapping from shfmt's JSON to our datacl
 
 **Summary by severity:**
 - **High impact (1):** duplicate aggregation logic (#4)
-- **Medium impact (3):** redundant redir collection (#1), duplicate blocked-pattern logic (#3), raw-JSON traversal (#5)
+- **Medium impact (2):** redundant redir collection (#1), duplicate blocked-pattern logic (#3)
 - **Low–medium (1):** bare excepts with noqa (#6)
 - **Low / documentation (4):** confusing docstring (#8), stale cache (#9), duplicated helper awareness (#7), unused section header (#10)
-- **Fixed (2):** redundant redir collection (#1), empty redirections in segments.py (#2)
+- **Fixed (3):** redundant redir collection (#1), empty redirections in segments.py (#2), raw-JSON traversal (#5)
