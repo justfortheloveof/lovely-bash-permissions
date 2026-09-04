@@ -156,24 +156,27 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         args = segment.get("arguments", [])
         segment_result = {"index": i, "command": cmd_name, "args": args}
 
-        # Check allowed patterns against the full command line
+        # Check allowed patterns against command name.
+        # If arguments contain real values (not "$(...)" placeholders),
+        # check full command line so ^ls$ rejects "ls -la".
         if allowed_patterns:
             matched_patterns = []
 
-            if len(segments) == 1:
-                # Single command: use raw command text (preserves quotes)
-                full_command = command.strip()
-            else:
-                # Multiple segments: use reconstructed text
+            has_real_args = any("$(...)" not in a for a in args)
+            if has_real_args:
                 full_command = cmd_name
                 if args:
                     full_command = " ".join([cmd_name, *args])
-            for pattern in allowed_patterns:
-                if re.match(pattern, full_command):
-                    matched_patterns.append(pattern)
+                for pattern in allowed_patterns:
+                    if re.match(pattern, full_command):
+                        matched_patterns.append(pattern)
+            else:
+                for pattern in allowed_patterns:
+                    if re.match(pattern, cmd_name):
+                        matched_patterns.append(pattern)
+
             if matched_patterns:
                 segment_result["allowed"] = True
-                all_matched_patterns.extend(matched_patterns)
             else:
                 segment_result["allowed"] = False
                 any_segment_not_allowed = True
@@ -267,30 +270,64 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
             non_match_names: set[str] = set()
             ast_subshell = node_from_json(raw_tree)
             if ast_subshell is not None:
-
-                def collect_nested_commands(node: Node) -> None:
-                    from .ast import CallExpr
+                # Recursively walk the AST tracking CmdSubst/ProcSubst nesting depth.
+                def _walk(node: Node, depth: int) -> None:
+                    from .ast import CallExpr, CmdSubst, ProcSubst
 
                     if isinstance(node, (CallExpr,)) and node.args:
-                        name = _word_value(node.args[0]).split()[0]
-                        if not any(re.match(p, name) for p in allowed_patterns):
-                            non_match_names.add(name)
+                        # Skip top-level CallExpr — already checked as a segment.
+                        if depth == 0:
+                            pass
+                        else:
+                            first = _word_value(node.args[0])
+                            rest = " ".join(_word_value(a) for a in node.args[1:])
+                            full_cmd = first if not rest else f"{first} {rest}"
 
-                _traverse(ast_subshell, collect_nested_commands, recurse_call_expr_args=True)
+                            # Check each pattern individually:
+                            # - exact-match patterns (no \\s, no .*) with args → check full_cmd
+                            # Nested commands with real args check full_cmd only
+                            # (name fallback would let "find -exec" match ^find$).
+                            matched = False
+                            has_real_args = (
+                                any("$(...)" not in _word_value(a) for a in node.args[1:])
+                                if hasattr(node, "args") and len(node.args) > 1
+                                else False
+                            )
+                            if has_real_args:
+                                matched = any(re.match(p, full_cmd) for p in allowed_patterns)
+                            else:
+                                matched = any(re.match(p, first) for p in allowed_patterns)
+                            if not matched:
+                                non_match_names.add(first if first != full_cmd else full_cmd)
 
+                    # Increment depth when entering a substitution.
+                    new_depth = depth + (1 if isinstance(node, (CmdSubst, ProcSubst)) else 0)
+                    from .inspect import iter_children
+
+                    for child in iter_children(node, include_call_args=True):
+                        _walk(child, new_depth)
+
+                _walk(ast_subshell, 0)
                 if non_match_names:
                     names_str = ", ".join(f'"{n}"' for n in sorted(non_match_names))
                     reasons.append(f"{names_str} commands inside subshell do not match allowed patterns")
-                    if overall_status == "allow":
-                        overall_status = subshell_policy if subshell_policy != "allow" else wildcard
-
+                    if subshell_policy == "allow":
+                        # Validation failed with allow policy → deny
+                        overall_status = "deny"
+                    elif overall_status == "allow":
+                        # Validation failed with deny policy → keep deny
+                        pass
+                    else:
+                        overall_status = subshell_policy
+                elif overall_status == "ask":
+                    # All nested commands match — override segment-level ask with allow
+                    overall_status = "allow"
         if overall_status == "allow":
             if subshell_policy != "allow":
                 overall_status = subshell_policy
                 reasons.append("subshell or command substitution requires approval")
             else:
                 _subshell_allowed = True
-
     # If no specific rules matched and nothing else triggered ask/deny, apply wildcard policy
     _redir_matched = output_result["reason"] != "no output redirection"
     _input_matched = input_result["reason"] != "no input redirection"
@@ -307,18 +344,15 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         else:
             overall_status = wildcard
             reasons.append(f"wildcard policy is {wildcard}")
-
     # Only include approval reasons when status is allow; hide them for ask/deny
     if overall_status == "allow" and approval_reason:
         reasons.append(approval_reason)
-
     if reasons:
         reason_str = "; ".join(r.rstrip(".!? ") for r in reasons)
         if len(reasons) == 1:
             reason_str += "."
     else:
-        reason_str = "command is allowed"
-
+        reason_str = "command matches allowed pattern"
     return {
         "status": overall_status,
         "reason": reason_str,

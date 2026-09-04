@@ -34,7 +34,7 @@ from .ast import (
     WhileClause,
 )
 from .converter import node_from_json
-from .inspect import _word_value
+from .inspect import _word_raw, _word_value
 from .parser import ParseError, parse
 
 #: Default shell dialect used for parsing
@@ -137,7 +137,7 @@ def _extract_segments(node: object, redirs: list[Redir] | None = None) -> list[d
             segments.append(
                 {
                     "command": _word_value(node.args[0]),
-                    "arguments": [_word_value(arg) for arg in node.args[1:]],
+                    "arguments": [_word_raw(arg) for arg in node.args[1:]],
                     "redirections": redir_dicts,
                 }
             )

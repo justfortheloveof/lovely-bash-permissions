@@ -187,6 +187,37 @@ def _word_value(word: Word) -> str:
     return "".join(parts)
 
 
+def _word_raw(word: Word) -> str:
+    """Get the raw text of a word, preserving quotes.
+
+    Unlike _word_value, this includes quote characters for quoted parts,
+    so patterns like ^echo\\s+'hello' can match quoted arguments.
+    """
+    parts: list[str] = []
+    for part in word.parts:
+        if isinstance(part, Lit):
+            parts.append(part.value)
+        elif isinstance(part, SglQuoted):
+            parts.append(f"'{part.value}'")
+        elif isinstance(part, DblQuoted):
+            if part.value is not None:
+                parts.append(f'"{part.value}"')
+        elif isinstance(part, ParamExp):
+            parts.append(f"${part.param}")
+        elif isinstance(part, CmdSubst):
+            parts.append("$(...)")
+        elif isinstance(part, ArithmExp):
+            parts.append("$(( ... ))")
+        elif isinstance(part, ExtGlob):
+            pattern = part.pattern.value if part.pattern else ""
+            parts.append(f"{part.op}{pattern})")
+        elif isinstance(part, BraceExp):
+            parts.append("{...}")
+        elif isinstance(part, ProcSubst):
+            parts.append(f"{part.op}...)")
+    return "".join(parts)
+
+
 def get_commands(tree: Node) -> list[str]:
     """Extract all command names from the AST.
 
