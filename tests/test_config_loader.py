@@ -343,7 +343,7 @@ class TestLoadPermissionsConfig:
             load_permissions_config(str(temp_project[0]))
 
         error_msg = str(exc_info.value)
-        paths = get_permissions_config_file_paths(temp_project[0])
+        paths = get_permissions_config_file_paths(str(temp_project[0]))
         # All three paths should appear in the error message
         for path in paths:
             assert path in error_msg
