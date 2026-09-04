@@ -20,4 +20,7 @@ All TS/Python parity issues resolved, linting clean (461 tests passing).
 ## Next steps
 
 17. [x] Add tests for config error reporting (invalid JSONC file detection)
-18. [ ] Review remaining TODO items and any edge cases
+18. [x] Review remaining TODO items and any edge cases
+- TODO item "Invalid Config should raise" resolved — covered by step 17 tests
+- Edge cases added: null value treated as invalid, encoding error handling verified
+- 470 tests passing, ruff clean
