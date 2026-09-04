@@ -55,10 +55,27 @@ lovely-bash-permissions devin-cli  ❯ node /home/alx/repos/jftlo/lovely-devi
 }
 ```
 
-- Step 2: Implement per-kind output redirection policy resolution [IN PROGRESS]
+- Step 2: Implement per-kind output redirection policy resolution [DONE]
 
   Completed: Added classify_output_redirection() and _resolve_output_level() in rules.py, modified check_output_redirection to accept per-kind object-form policies. Fixed operator string bugs (" >&" → "&>", "& >>" → "&>>"). N field read from redir level (not inside Word).
 
-  Remaining: 5 tests failing - need to verify evaluate.py passes config correctly to rules functions; fix ruff lint issues (unused Literal import, unused kind_keys variable, ternary SIM108). Then verify all other output_redirection patterns work (Step 3).
+  Completed: Fixed ruff lint issues - unused Literal import, unused kind_keys variable, SIM108 ternary. All 498 tests pass.
 
-- Step 3: validate that all other output_redirection permissions work as expected and document outcome of all different variations
+- Step 3: validate that all other output_redirection permissions work as expected and document outcome of all different variations [DONE]
+
+  Validation completed via tests/test_output_redirection_validation.py:
+
+  **Default config** (output_redirection: `*`=ask, stderr variants=allow):
+  - stdout>file → ask (correct: stdout_to_dev_null falls back to wildcard=ask)
+  - append >> → ask (same reason)
+  - &> both → ask (classified as other/redir, wildcard=ask)
+  - >& bash combined → ask (same)
+  - 2>&1 stderr-to-stdout → auto-approved ✓
+  - 2>stderr/file → ask (classified as other, not stderr_to_dev_null)
+  - pipe+redirect → ask
+
+  **Key finding**: Only stderr_to_stdout kind auto-approves under default config. All other redirections fall back to wildcard=ask.
+
+  **Per-kind deny tests**: All stderr variants auto-approve regardless of deny policies (since those kinds aren't denied). stdout_to_dev_null denies correctly.
+
+  **TS comparison**: Both versions agree - stderr variants auto-approve, others ask. Earlier mismatches were config differences (allowed_cmds_regex matching), not logic bugs.
