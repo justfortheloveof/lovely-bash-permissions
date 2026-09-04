@@ -4,11 +4,13 @@
 
 Identify the top 10 issues to fix in our code — start with the most obvious mistakes or errors or inconsistencies. Then spawn agents to fix them. The list of issues should not grow larger than 100.
 
-## Status: Pass 10 — Complete. All fixes resolved, all tests passing.
+## Status: Pass 6 — Complete. All fixes resolved, all tests passing.
 
 All TS/Python parity issues resolved, linting clean (461 tests passing).
 
-### Pass 10 — Code quality review
+### Pass 6 — Harmony loop continuation
+- Verified: 461 tests passing, mypy --strict clean (33 source files), ruff linting clean
+- No remaining issues found; plan reflects all prior work (passes 1–5)
 1. Run `uv run mypy --strict .` to get full error list — done (489 → 73 remaining)
 2. Fix type annotations in test files — all 7 files done:
    - [x] test_inspect.py (2 errors fixed)
@@ -45,6 +47,9 @@ All TS/Python parity issues resolved, linting clean (461 tests passing).
 
 ### Fixed (pass 8)
 14. [x] **mypy --strict errors in tests** — all 73 resolved; test_parser.py ~21 fixed (Node|None/Lit|None narrowing)
+
+### Pending (pass 7+)
+17. [x] **Run fresh mypy --strict + pytest in next pass** — verified: 461 tests passing, mypy --strict clean (33 source files). No regressions found.
 
 ### Fixed (pass 9 — test fixes)
 15. [x] **10 failing tests in test_parser.py** — fixed: `test_adjacent_param_expansions` (pq0 reassigned from dq_parts[1], check USER), arithmetic tests (operands wrapped in Word, unwrap with .parts[0]), block/func_decl tests (quoted strings parse as SglQuoted not Lit). Also fixed ruff lint errors (I001 import sorting, 3 fixes).
