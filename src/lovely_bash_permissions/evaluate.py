@@ -152,13 +152,11 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     # Parse the command to check for command substitution
     try:
         raw_tree = parse(command)
-    except ParseError:
-        # Empty or whitespace-only command — apply wildcard policy (default "ask")
+    except ParseError as e:
         _wildcard = config.get("*", "ask")
         return {
             "status": _wildcard,
-            "reason": f"bash permission is set to {_wildcard}",
-            "segments": [],
+            "reason": f"ParseError: {e}, defaulting approval decision to bash permission configuration ({_wildcard}).",
         }
 
     has_subshell = _has_cmd_subst(raw_tree)
