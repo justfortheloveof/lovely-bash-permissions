@@ -168,10 +168,12 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
 
         segment_results.append(segment_result)
 
-    # Produce one joined reason from all matched patterns (like TS summarizeCommandMatches)
-    if all_matched_patterns and overall_status == "allow":
+    # Collect matched patterns as approval reasons (only shown when status is allow)
+    if all_matched_patterns:
         noun = "pattern" if len(all_matched_patterns) == 1 else "patterns"
-        reasons.append(f"command matches allowed {noun} {', '.join(all_matched_patterns)}")
+        approval_reason = f"command matches allowed {noun} {', '.join(all_matched_patterns)}"
+    else:
+        approval_reason = None
 
     # Check redirection rules
     output_result = check_output_redirection(raw_tree, rules)
@@ -236,6 +238,10 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         else:
             overall_status = wildcard
             reasons.append(f"wildcard policy is {wildcard}")
+
+    # Only include approval reasons when status is allow; hide them for ask/deny
+    if overall_status == "allow" and approval_reason:
+        reasons.append(approval_reason)
 
     if reasons:
         reason_str = "; ".join(r.rstrip(".!? ") for r in reasons)

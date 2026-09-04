@@ -61,7 +61,9 @@ def get_effective_bash_config(raw_bash: object, project_dir: str) -> dict[str, A
         for item in allow_items:
             allowed_patterns.append(f"^{re.escape(item)}$")
         # Also include explicit allowed_cmds_regex patterns
-        allowed_patterns.extend(bash.get("allowed_cmds_regex", []))
+        for p in bash.get("allowed_cmds_regex", []):
+            # Strip trailing period from pattern (config may quote it inside quotes)
+            allowed_patterns.append(p.rstrip("."))
     allowed_patterns.append(HOOK_LABEL_REGEX)
     allowed_patterns.extend(devin_regexes)
     # Remove duplicates while preserving order
@@ -70,7 +72,9 @@ def get_effective_bash_config(raw_bash: object, project_dir: str) -> dict[str, A
     if raw_bash:
         bash: dict[str, Any] = raw_bash  # type: ignore[assignment]
         # Load blocked_paths_regex directly from config, then merge deny list items
-        blocked_patterns: list[str] = list(bash.get("blocked_paths_regex", []))
+        blocked_patterns: list[str] = []
+        for p in bash.get("blocked_paths_regex", []):
+            blocked_patterns.append(p.rstrip("."))
         deny_items = bash.get("deny", [])
         blocked_patterns.extend(_deny_item_to_regex(d) for d in deny_items)
 
