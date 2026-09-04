@@ -23,10 +23,12 @@ The CallExpr branch never extracted redirections — it hardcoded an empty list.
 
 Both modules reimplement blocked-path matching — one converts deny-list items to regexes, the other does pattern matching against command names and args. The logic overlaps: `_deny_item_to_regex` builds patterns, `check_blocked_patterns` applies them. A single source of truth would be better.
 
-## 4. Duplicate aggregation logic in `evaluate.py` (high)
+## 4. Duplicate aggregation logic in `evaluate.py` (high) [fixed]
 **File:** `src/lovely_bash_permissions/evaluate.py`, two blocks (~lines 158–176 and ~183–204)
 
-The status-aggregation for output/input/background redirections is written **twice**: once right after collecting segment results, and again later. Both blocks do identical `deny → overall_status = "deny"` + reason-appending logic. The second block's output/input/background checks are dead code (the first block already mutated the variables). Easy to fix, but it's confusing.
+The status-aggregation for output/input/background redirections was written **twice**: once right after collecting segment results, and again later. Both blocks did identical `deny → overall_status = "deny"` + reason-appending logic, causing output denial reasons to be appended twice.
+
+**Fix:** Removed the redundant output-redirection-only block (6 lines). Kept the combined aggregation block that handles output/input/background together with deny-first semantics, eliminating double-appending and dead code.
 
 ## 5. Raw-JSON traversal instead of typed AST in `evaluate.py` (medium)
 **File:** `src/lovely_bash_permissions/evaluate.py`, `_extract_subshell_contents()` and `_has_cmd_subst()`
