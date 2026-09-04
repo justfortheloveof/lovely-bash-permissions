@@ -8,7 +8,7 @@ rendering fix so each pipeline segment's redirection can be attributed to the
 command that owns it.
 """
 
-from lovely_bash_permissions import BinaryCmd, parse_ast
+from lovely_bash_permissions import Lit, BinaryCmd, parse_ast
 
 
 class TestBinaryPerSideRedirs:
@@ -22,12 +22,29 @@ class TestBinaryPerSideRedirs:
         assert isinstance(bc, BinaryCmd)
 
         assert len(bc.left_redirs) == 1
-        assert bc.left_redirs[0].word.parts[0].value == "2"
+        left_word = bc.left_redirs[0].word
+        assert left_word is not None
+        left_part = left_word.parts[0]
+        assert left_part is not None
+        assert isinstance(left_part, Lit)
+        assert left_part.value == "2"
 
         assert len(bc.right_redirs) == 1
-        assert bc.right_redirs[0].word.parts[0].value == "3"
+        right_word = bc.right_redirs[0].word
+        assert right_word is not None
+        right_part = right_word.parts[0]
+        assert right_part is not None
+        assert isinstance(right_part, Lit)
+        assert right_part.value == "3"
 
-        merged_targets = [r.word.parts[0].value for r in bc.redirs]
+        merged_targets = []
+        for r in bc.redirs:
+            rw = r.word
+            assert rw is not None
+            rp = rw.parts[0]
+            assert rp is not None
+            assert isinstance(rp, Lit)
+            merged_targets.append(rp.value)
         assert merged_targets == ["2", "3"]
 
     def test_three_segment_left_nested_per_side(self) -> None:
@@ -41,14 +58,31 @@ class TestBinaryPerSideRedirs:
         assert isinstance(inner, BinaryCmd)
 
         assert len(inner.left_redirs) >= 1
-        assert inner.left_redirs[0].word.parts[0].value == "1"
+        left_word2 = inner.left_redirs[0].word
+        assert left_word2 is not None
+        left_part2 = left_word2.parts[0]
+        assert left_part2 is not None
+        assert isinstance(left_part2, Lit)
+        assert left_part2.value == "1"
 
         assert len(inner.right_redirs) >= 1
-        assert inner.right_redirs[0].word.parts[0].value == "2"
+        right_word2 = inner.right_redirs[0].word
+        assert right_word2 is not None
+        right_part2 = right_word2.parts[0]
+        assert right_part2 is not None
+        assert isinstance(right_part2, Lit)
+        assert right_part2.value == "2"
 
-        merged_targets = [
-            r.word.parts[0].value for node in (inner, outer) if isinstance(node, BinaryCmd) for r in node.redirs
-        ]
+        merged_targets = []
+        for node in (inner, outer):
+            if isinstance(node, BinaryCmd):
+                for r in node.redirs:
+                    rw2 = r.word
+                    assert rw2 is not None
+                    rp2 = rw2.parts[0]
+                    assert rp2 is not None
+                    assert isinstance(rp2, Lit)
+                    merged_targets.append(rp2.value)
         assert "1" in merged_targets
         assert "2" in merged_targets
         assert "3" in merged_targets
