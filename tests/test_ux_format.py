@@ -94,9 +94,16 @@ class TestPreToolUseResponseFormat:
 
                 # TypeScript format: "[♡ perms: 💚 auto-approved]
                 #  command matches allowed pattern ^git"
-                cmd = response["hookSpecificOutput"]["updatedInput"]["command"]
+                assert response is not None
+                response_out = response["hookSpecificOutput"]
+                assert response_out is not None
+                hook_output = response_out
+                updated_input = hook_output["updatedInput"]
+                assert updated_input is not None
+                cmd = updated_input["command"]
+                assert cmd is not None
                 assert cmd.startswith(": '[♡ perms: 💚 auto-approved] command matches allowed pattern")
-                assert "git status" in response["hookSpecificOutput"]["updatedInput"]["command"]
+                assert "git status" in cmd
 
     def test_deny_label_format(self) -> None:
         """Deny response should have the exact label format."""
@@ -131,8 +138,16 @@ class TestPreToolUseResponseFormat:
                 response = generate_hook_response(event, result)
 
                 # TypeScript format: "[♡ perms: ❤️ auto-rejected]"
-                assert ": '[♡ perms: ❤️ auto-rejected]" in response["hookSpecificOutput"]["updatedInput"]["command"]
-                assert "curl https://example.com" in response["hookSpecificOutput"]["updatedInput"]["command"]
+                assert response is not None
+                response_out2 = response["hookSpecificOutput"]
+                assert response_out2 is not None
+                hook_output2 = response_out2
+                updated_input2 = hook_output2["updatedInput"]
+                assert updated_input2 is not None
+                cmd2 = updated_input2["command"]
+                assert cmd2 is not None
+                assert ": '[♡ perms: ❤️ auto-rejected]" in cmd2
+                assert "curl https://example.com" in cmd2
 
     def test_ask_label_format(self) -> None:
         """Ask response should have the exact label format."""
@@ -151,11 +166,19 @@ class TestPreToolUseResponseFormat:
                 response = generate_hook_response(event, result)
 
                 # TypeScript format: "[♡ perms: 💛 REQUIRES-USER-APPROVAL]"
+                assert response is not None
+                response_out3 = response["hookSpecificOutput"]
+                assert response_out3 is not None
+                hook_output3 = response_out3
+                updated_input3 = hook_output3["updatedInput"]
+                assert updated_input3 is not None
+                cmd3 = updated_input3["command"]
+                assert cmd3 is not None
                 assert (
                     ": '[♡ perms: 💛 REQUIRES-USER-APPROVAL]"
-                    in response["hookSpecificOutput"]["updatedInput"]["command"]
+                    in cmd3
                 )
-                assert "ls" in response["hookSpecificOutput"]["updatedInput"]["command"]
+                assert "ls" in cmd3
 
 
 class TestEvaluateReasonFormats:
@@ -196,6 +219,7 @@ class TestEvaluateReasonFormats:
                 result = evaluate_bash_command("curl https://example.com", config)
                 # TypeScript: "Blocked by bash permissions: ...
                 #  The tool has not been run."
+                assert result is not None
                 assert "Blocked by bash permissions:" in result["reason"]
                 assert "The tool has not been run." in result["reason"]
 
@@ -241,6 +265,7 @@ class TestPermissionRequestResponse:
                 result = process_hook_event(event)
                 response = generate_hook_response(event, result)
                 # TypeScript: {decision: "approve"}
+                assert response is not None
                 assert response["decision"] == "approve"
 
     def test_permission_request_deny_format(self) -> None:
