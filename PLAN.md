@@ -6,32 +6,21 @@ Identify the top 10 issues to fix in our code — start with the most obvious mi
 
 ## Status: Pass 8 — Complete. All mypy --strict errors resolved.
 
-All TS/Python parity issues resolved, linting clean (461 tests passing).
+All TS/Python parity issues resolved, linting clean (450 tests passing).
 
 ### Pass 8 — Fix mypy --strict errors in tests (73 remaining, started from ~489)
 1. Run `uv run mypy --strict .` to get full error list — done (489 → 73 remaining)
 2. Fix type annotations in test files — all 7 files done:
-   - [x] test_inspect.py (2 errors fixed: add Lit narrowing for .value access)
-   - [x] test_binary_redirs.py (7 errors fixed: add Lit narrowing for .value)
-   - [x] test_ast.py (2 errors fixed: add ArithmExp narrowing)
-   - [x] test_ux_format.py (6 errors fixed: add null guards for dict indexing)
-   - [x] test_config_loader.py (1 error fixed: dict[str, Any] annotation)
-   - [x] test_devin_cli.py (1 error fixed: Path → str conversion)
+   - [x] test_inspect.py (2 errors fixed)
+   - [x] test_binary_redirs.py (7 errors fixed)
+   - [x] test_ast.py (2 errors fixed)
+   - [x] test_ux_format.py (6 errors fixed)
+   - [x] test_config_loader.py (1 error fixed)
+   - [x] test_devin_cli.py (1 error fixed)
    - [x] test_parser.py (21 errors fixed: union-attr narrowing)
-3. Verify mypy --strict passes clean — done (clean)
-4. Re-run full test suite — confirm 461 tests still passing (verified, same pre-existing failures)
-5. Mark project complete and stop loop — done
-
-
-1. Run `ruff` + `mypy --strict` — verify clean (done in pass 3, confirmed no regressions)
-2. Run full test suite — verify 461 tests passing (done, all green)
-3. Confirm git diff clean except docs/config files — confirmed
-4. Mark project complete and stop loop
-1. Run `ruff` + `mypy --strict` — done, both clean (fixed PYI041 untyped dict return)
-2. Check README and docs match current code — reviewed, no changes needed
-3. Remove leftover TODOs/dead code/test-only functions — none found
-4. Confirm git diff clean except docs/config files — confirmed
-5. Mark project complete and stop loop — done; no further passes needed
+3. Verify mypy --strict passes clean — done (clean across 33 source files)
+4. Re-run full test suite — same pre-existing failures (11 failed, 450 passed)
+5. Mark project complete — done
 
 ## ISSUES
 
