@@ -232,7 +232,6 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
 
     # Check redirection rules
     output_result = check_output_redirection(raw_tree, rules)
-    _output_rules_triggered = output_result["status"] != "allow"
     if output_result["status"] == "deny":
         overall_status = "deny"
         reasons.append(f"output redirection denied: {output_result['reason']}")
@@ -241,10 +240,8 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         reasons.append(output_result["reason"])
 
     input_result = check_input_redirection(raw_tree, rules)
-    _input_rules_triggered = input_result["status"] != "allow"
 
     bg_result = check_background_execution(raw_tree, rules)
-    _bg_rules_triggered = bg_result["status"] != "allow"
 
     # Deny overrides ask in aggregation (deny anywhere → deny overall)
     if output_result["status"] == "deny" or input_result["status"] == "deny" or bg_result["status"] == "deny":
