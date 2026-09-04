@@ -5,7 +5,7 @@ description = "A Python library for parsing bash commands into structured AST tr
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
-keywords = ["bash", "parser", "ast", "shell", "shfmt", "permissions"]
+keywords = ["bash", "parser", "ast", "shell", "shfmt", "permissions", "cli", "agent", "devin", "pi"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -34,7 +34,6 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "mypy>=2.3.1",
-    "pytest-xdist>=3.8.0",
     "pytest>=9.1.1",
     "ruff",
 ]
@@ -54,6 +53,3 @@ quote-style = "double"
 markers = [
     "linting: ruff lint and format checks (deselect with '-m not linting')",
 ]
-# -n auto = automatically detect CPU cores and spin up that number of workers
-# --dist loadscope = group tests by their class or module
-addopts = "-n auto --dist loadscope"
