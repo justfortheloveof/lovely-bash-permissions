@@ -16,3 +16,8 @@ All TS/Python parity issues resolved, linting clean (461 tests passing).
 ## ISSUES — all fixed
 
 1–16. [x] See passes 4–10 for resolved issues (type annotations, parity fixes, linting). Zero remaining.
+
+## Next steps
+
+17. [ ] Add tests for config error reporting (invalid JSONC file detection)
+18. [ ] Review remaining TODO items and any edge cases

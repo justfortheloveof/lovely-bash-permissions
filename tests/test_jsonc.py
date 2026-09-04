@@ -3,6 +3,8 @@
 import os
 import tempfile
 
+import pytest
+
 from lovely_bash_permissions.config.jsonc import (
     is_record,
     parse_jsonc,
@@ -179,6 +181,30 @@ class TestReadJsoncFile:
             assert result == {"valid": "json"}
         finally:
             _clean_temp_file(path)
+
+    def test_invalid_json_prints_error_to_stderr(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Invalid JSONC file prints filename and 'error parsing' to stderr."""
+        path = _write_temp_file("{invalid json here}")
+        try:
+            result = read_jsonc_file(path)
+            assert result is None
+        finally:
+            _clean_temp_file(path)
+        outerr = capsys.readouterr()
+        assert "error parsing" in outerr.err
+        assert path in outerr.err
+
+    def test_non_object_value_prints_error_to_stderr(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Valid JSON but non-object value (array) prints 'expected object' to stderr."""
+        path = _write_temp_file("[1, 2, 3]")
+        try:
+            result = read_jsonc_file(path)
+            assert result is None
+        finally:
+            _clean_temp_file(path)
+        outerr = capsys.readouterr()
+        assert "expected object" in outerr.err
+        assert path in outerr.err
 
 
 class TestIsRecord:

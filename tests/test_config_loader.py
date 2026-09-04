@@ -322,6 +322,32 @@ class TestLoadPermissionsConfig:
         with pytest.raises(FileNotFoundError, match="no valid lovely-permissions config found"):
             load_permissions_config(str(temp_project[0]))
 
+    def test_invalid_json_all_files_includes_paths(
+        self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
+    ) -> None:
+        """All files invalid JSON -> error message contains all three paths."""
+        tmpdir = tempfile.mkdtemp()
+        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir.mkdir(parents=True)
+        monkeypatch.setattr(
+            "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+            lambda: config_dir,
+        )
+        # Write invalid JSON to ALL three files (not just missing)
+        project_file = temp_project[1] / "lovely-permissions.jsonc"
+        project_file.write_text("{invalid json}")
+        local_file = temp_project[1] / "lovely-permissions.local.jsonc"
+        local_file.write_text("not valid json")
+
+        with pytest.raises(FileNotFoundError) as exc_info:
+            load_permissions_config(str(temp_project[0]))
+
+        error_msg = str(exc_info.value)
+        paths = get_permissions_config_file_paths(temp_project[0])
+        # All three paths should appear in the error message
+        for path in paths:
+            assert path in error_msg
+
     def test_json_with_comments_works(self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]) -> None:
         """JSONC files with comments parse correctly."""
         tmpdir = tempfile.mkdtemp()
