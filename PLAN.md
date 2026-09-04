@@ -7,6 +7,8 @@ Identify the top 10 issues to fix in our code — start with the most obvious mi
 ## Status: Pass 9 — Complete. All TS/Python parity issues resolved.
 
 [x] Scan for remaining issues — Complete. No remaining issues found; project is complete.
+[x] Fix ruff linting issues (import ordering, unused imports) — Complete
+[x] Fix jsonc primitive parsing to match TS parity — Complete
 
 ### Pass 9: Final review and cleanup (optional)
 1. Run `ruff` + `mypy --strict` for type-checking pass
