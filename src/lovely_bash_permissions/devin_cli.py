@@ -132,7 +132,7 @@ def handle_show_config() -> None:
     sys.exit(0)
 
 
-def handle_hook_event(event: dict[str, Any]) -> dict | None:
+def handle_hook_event(event: dict[str, Any]) -> dict[str, Any] | None:
     """Process a hook event and write response to stdout."""
     result = process_hook_event(event)
     if result.get("action") == "skip":

@@ -48,7 +48,7 @@ def parse_jsonc(text: str) -> dict[str, Any] | list[Any] | str | int | float | b
     text = _strip_trailing_commas(text)
 
     try:
-        return json.loads(text)
+        return json.loads(text)  # type: ignore[no-any-return]
     except json.JSONDecodeError:
         return None
 
@@ -76,6 +76,6 @@ def read_jsonc_file(file_path: str) -> dict[str, Any] | None:
     return value
 
 
-def is_record(value: dict[str, Any] | list[Any] | str | int | float | bool | None) -> bool:
+def is_record(value: dict[str, Any] | list[Any] | str | float | bool | None) -> bool:
     """Check if value is a dictionary (plain object in JSON terms)."""
     return isinstance(value, dict)

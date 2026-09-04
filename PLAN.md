@@ -4,7 +4,7 @@
 
 Identify the top 10 issues to fix in our code — start with the most obvious mistakes or errors or inconsistencies. Then spawn agents to fix them. The list of issues should not grow larger than 100.
 
-## Status: Pass 9 — Complete. All TS/Python parity issues resolved.
+## Status: Pass 9 — Complete. All TS/Python parity issues resolved. Linting and type-checking clean.
 
 [x] Scan for remaining issues — Complete. No remaining issues found; project is complete.
 [x] Fix ruff linting issues (import ordering, unused imports) — Complete
