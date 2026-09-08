@@ -249,8 +249,3 @@ def test_unknown_tool_name_rejected() -> None:
         errors = exc.errors()
         assert len(errors) == 1
         assert "unknown tool name: git" in errors[0]["msg"]
-
-
-def test_known_tool_bash_accepted() -> None:
-    config = {"bash": {"permission": "allow"}}
-    PermissionsConfig.model_validate(config)

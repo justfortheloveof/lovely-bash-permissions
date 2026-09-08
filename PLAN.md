@@ -130,6 +130,7 @@ self._validation_errors = error_list  # new attribute
 def validation_errors(self) -> list[str]:
     return self._validation_errors
 
+
 @property
 def has_validation_errors(self) -> bool:
     return bool(self._validation_errors)
@@ -173,6 +174,7 @@ import logging
 
 log = logging.getLogger(__name__)
 
+
 @model_validator(mode="after")
 def _warn_unknown_keys(self) -> "PermissionsConfig":
     known = {"version", "wildcard"} | KNOWN_TOOLS
@@ -207,6 +209,7 @@ Patterns compiled once in `field_validator("blocked_paths_regex")`, but dict sto
 1. Add compiled-pattern cache:
 ```python
 from functools import lru_cache
+
 
 @lru_cache(maxsize=512)
 def _compile_pattern(pattern: str):
