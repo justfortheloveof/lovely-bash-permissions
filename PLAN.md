@@ -15,7 +15,7 @@ Replace ad-hoc dict acceptance in the lovely-permissions config system with pyda
 
 ---
 
-### Step 1a: Create pydantic models and `_validate_config` function ✅
+### Step 1a: Create pydantic models and `_validate_config` function ✅ ✅
 
 **Files**: `src/lovely_bash_permissions/config/schema.py` (NEW), `tests/test_schema.py` (NEW)
 

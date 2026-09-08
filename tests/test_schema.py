@@ -1,4 +1,6 @@
-from lovely_bash_permissions.config.schema import ToolConfig, _validate_config
+from pydantic import ValidationError
+
+from lovely_bash_permissions.config.schema import PermissionsConfig, ToolConfig, _validate_config
 
 
 def test_valid_config() -> None:
@@ -54,3 +56,17 @@ def test_valid_allow_deny_lists() -> None:
 def test_tool_config_model() -> None:
     config = {"bash": {"permission": "allow", "allowed_cmds_regex": ["^ls"]}}
     ToolConfig.model_validate(config["bash"])
+
+
+def test_permissions_config_model_valid() -> None:
+    PermissionsConfig.model_validate({"bash": {"permission": "allow"}})
+
+
+def test_permissions_config_model_invalid() -> None:
+    try:
+        PermissionsConfig.model_validate({"bash": "allow"})
+        assert False, "expected ValidationError"
+    except ValidationError as exc:
+        errors = exc.errors()
+        assert len(errors) == 1
+

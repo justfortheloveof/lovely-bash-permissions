@@ -4,7 +4,7 @@ import re
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 
 class PermissionLevel(str, Enum):
@@ -52,3 +52,16 @@ def _validate_config(config: dict[str, Any]) -> list[str]:
             errors.append(f"tool '{key}': expected object or null, got {type(value).__name__}")
 
     return errors
+
+
+class PermissionsConfig(BaseModel):
+    model_config = {"extra": "allow", "str_strip_whitespace": True}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _check_tool_dicts(cls, data: Any):
+        if isinstance(data, dict):
+            for key, value in data.items():
+                if not (value is None or isinstance(value, dict)):
+                    raise ValueError(f"tool '{key}': expected object or null")
+        return data
