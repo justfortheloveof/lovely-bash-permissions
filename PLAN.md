@@ -1,39 +1,42 @@
-# Plan: Config System Improvements (#1, #5, #10)
+# Plan: Config System Improvements (#2, #3, #7)
 
 ## Overview
 
 Three independent changes to the config system. Each step is self-contained so agents can work sequentially without cross-dependency.
 
+**Issue #2**: `PermissionsConfig` has `extra="allow"` but `_check_top_level_keys` rejects unknown keys — two validators fight each other. Fix: use `extra="forbid"` and keep only a clean validator.
+
+**Issue #3**: Silent validation failures — unrecognized/typo keys (e.g. `"blocked_path_regex"`) are silently dropped by pydantic `extra="forbid"` with no warning; config errors in `PermissionsManager._load()` are swallowed into warnings but never raised.
+
+**Issue #7**: Regex validation — patterns compiled once at load time, but dict stores raw strings; consumers re-compile on every match. Fix: validate at load time AND compile-on-demand, store compiled objects so consumers don't re-compile. Also add runtime validation at match time for safety.
+
 ---
 
-- [x] ## Step 1a: Replace `extra="allow"` with `extra="forbid"` in PermissionsConfig
+## Step 2a: Replace `extra="allow"` with `extra="forbid"` in PermissionsConfig (schema.py)
 
 **File:** `src/lovely_bash_permissions/config/schema.py`
 **Test file:** `tests/test_schema.py`
 
 ### Current state
 
-- `PermissionsConfig.model_config = {"extra": "allow", ...}` — any unrecognized top-level key is silently accepted as a tool name, then validated against `ToolConfig`.
-- Unknown keys become "tools" with no warning. Typos like `"Bash"` vs `"bash"` are silently accepted.
+```python
+class PermissionsConfig(BaseModel):
+    model_config = {"extra": "allow", "str_strip_whitespace": True}
+```
+
+Any unrecognized top-level key is silently accepted as a tool name, then validated against `KNOWN_TOOLS`. Typos like `"Bash"` vs `"bash"` are silently accepted.
 
 ### Changes
 
-1. In `schema.py`, change:
-   ```python
-   # Before
-   model_config = {"extra": "allow", "str_strip_whitespace": True}
-   ```
-   ```python
-   # After
-   model_config = {"extra": "forbid", "str_strip_whitespace": True}
-   ```
+1. In `schema.py`, change PermissionsConfig's model_config:
+```python
+# Before
+model_config = {"extra": "allow", "str_strip_whitespace": True}
+# After
+model_config = {"extra": "forbid", "str_strip_whitespace": True}
+```
 
-2. Add a constant `KNOWN_TOOLS` (set of str) listing the only recognized tool names:
-   ```python
-   KNOWN_TOOLS = frozenset({"bash"})
-   ```
-
-3. Add a `@model_validator(mode="after")` to `PermissionsConfig` that checks every extra key against `KNOWN_TOOLS`, raising a `ValueError` for unrecognized keys. The error message should name the unknown key.
+2. Keep `_check_top_level_keys` validator (it already rejects unknown tool names). Since pydantic now forbids extras at the model level, the validator becomes redundant — remove it and add a docstring comment noting forbid is handled by model_config.
 
 ### Tests to update/add (`tests/test_schema.py`)
 
@@ -42,28 +45,32 @@ Three independent changes to the config system. Each step is self-contained so a
 - Add a test `test_known_tool_bash_accepted` confirming `"bash"` still works.
 
 ### Files affected
-- `src/lovely_bash_permissions/config/schema.py` (model_config + validator)
-- `tests/test_schema.py` (add/adjust tests)
+- `src/lovely_bash_permissions/config/schema.py` (model_config change, remove redundant validator)
+- `tests/test_schema.py`
 
 ---
 
-- [x] ## Step 1b: Remove `extra="allow"` from ToolConfig (it already forbids)
+## Step 2b: Remove `extra="allow"` from ToolConfig (it already forbids)
 
 **File:** `src/lovely_bash_permissions/config/schema.py`
 **Test file:** `tests/test_schema.py`
 
 ### Current state
 
-- `ToolConfig.model_config = {"extra": "forbid"}` — already forbids extra fields.
-- Tests like `test_unrecognized_tool_field_warns` confirm `"blocked_path_regex"` (typo) raises.
+```python
+class ToolConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+```
+
+Already forbids extra fields. Tests like `test_unrecognized_tool_field_warns` confirm `"blocked_path_regex"` (typo) raises.
 
 ### Changes
 
-No code changes needed — this step is just confirming existing behavior and leaving the config as-is. The step exists so agents verify it hasn't regressed after Step 1a's changes (extra forbid at PermissionsConfig level now covers tool names too).
+No code changes needed — just confirm existing behavior hasn't regressed after Step 2a's changes (forbid now works at PermissionsConfig level too).
 
 ### Tests to verify (`tests/test_schema.py`)
 
-- `test_unrecognized_tool_field_warns` — must still pass (extra forbid in ToolConfig).
+- `test_unrecognized_tool_field_warns` — must still pass.
 - `test_allow_deny_shorthand_rejected` — must still pass.
 
 ### Files affected
@@ -71,159 +78,209 @@ No code changes needed — this step is just confirming existing behavior and le
 
 ---
 
-- [x] ## Step 2: Per-kind output redirection policy resolution (issue #5)
+## Step 3a: Surface config validation errors (loader.py + manager.py)
 
-**File:** `src/lovely_bash_permissions/rules.py`
-**Test file:** `tests/test_rules.py` (or add to it)
+**File:** `src/lovely_bash_permissions/config/loader.py` and `manager.py`
+**Test file:** `tests/test_config_loader.py`
 
 ### Current state
 
-`_resolve_output_level(kinds, policy)` uses **deny-first escalation**: if ANY redirection kind resolves to deny → overall deny; else if any resolve to ask → overall ask. This means one `stderr_to_stdout: "deny"` kills ALL redirections including harmless ones like `stdout > /tmp/file`.
+In `loader.py`, `load_permissions_config()`:
+- Parse errors become warnings appended to return list: `"skipped invalid config file: ..."`
+- Pydantic validation errors caught and appended as `"config validation error: ..."`.
 
-### Desired behavior
+In `manager.py`, `PermissionsManager._load()`:
+- Catches all exceptions from both loaders, stores messages in `_warnings`.
+- Consumers must explicitly call `get_warnings()` — errors never raised.
 
-Each redirection kind gets its own level independently. The overall status is:
-- **deny** if ANY kind resolves to deny (keep this)
-- **ask** only if SOME kinds are ask and NONE are deny (keep this)
+### Changes in `loader.py`
 
-The difference: previously "ask" meant "at least one kind is ask". Now it means the same, but **each kind's level is looked up independently** from its own policy key, falling back to `"*"` wildcard. The current code already does per-kind lookup — the real fix is ensuring **non-special kinds ("other") also get their own independent level** rather than all lumping into wildcard.
+1. Change return type:
+```python
+def load_permissions_config(project_dir: str) -> tuple[dict[str, Any], list[str], list[str]]:
+    """Returns (merged_config, warnings, validation_errors)."""
+```
 
-Actually, re-reading `_resolve_output_level`: it already does per-kind lookup (`policy.get(kind, wildcard_level)`). The issue is that `"other"` kind falls back to wildcard for ALL non-special kinds together. Fix: each kind should independently check its own policy key, falling back to wildcard only if no specific key exists.
+2. Collect parse errors into a separate list (not just warnings):
+```python
+validation_errors = []  # new
+for path, reason in parse_errors:
+    warnings.append(f"skipped invalid config file: {path} ({reason})")
+    validation_errors.append(reason)  # new
+
+try:
+    PermissionsConfig.model_validate(merged)
+except ValueError as exc:
+    warnings.append(f"config validation error: {exc}")
+    validation_errors.append(str(exc))  # new
+return merged, warnings, validation_errors
+```
+
+### Changes in `manager.py`
+
+1. `_load()` now receives 3 values:
+```python
+self._lovely_config, warn_list, error_list = load_permissions_config(...)
+self._validation_errors = error_list  # new attribute
+```
+
+2. Add property:
+```python
+@property
+def validation_errors(self) -> list[str]:
+    return self._validation_errors
+
+@property
+def has_validation_errors(self) -> bool:
+    return bool(self._validation_errors)
+```
+
+3. In `get_lovely_config()`, **raise** validation errors:
+```python
+def get_lovely_config(self) -> dict[str, Any]:
+    if self._validation_errors:
+        raise ValueError("\n".join(self._validation_errors))
+    return self._lovely_config
+```
+
+### Tests (`tests/test_config_loader.py`)
+
+1. `test_load_returns_validation_errors_list` — config with invalid regex → third return value non-empty.
+2. `test_manager_validation_errors_property` — manager with invalid config has errors via property.
+3. `test_get_lovely_config_raises_on_errors` — manager with invalid config → `get_lovely_config()` raises ValueError.
+
+### Files affected
+- `src/lovely_bash_permissions/config/loader.py` (return 3 values)
+- `src/lovely_bash_permissions/config/manager.py` (new property, raise in getter)
+- `tests/test_config_loader.py`
+
+---
+
+## Step 3b: Warn about unknown keys instead of silent drop (schema.py)
+
+**File:** `src/lovely_bash_permissions/config/schema.py`
+**Test file:** `tests/test_schema.py`
+
+### Current state
+
+Typos like `"blocked_path_regex"` (missing 's') silently dropped by pydantic `extra="forbid"`. No warning emitted.
+
+### Changes
+
+Add a post-validator to PermissionsConfig that logs warnings for unrecognized keys:
+```python
+import logging
+
+log = logging.getLogger(__name__)
+
+@model_validator(mode="after")
+def _warn_unknown_keys(self) -> "PermissionsConfig":
+    known = {"version", "wildcard"} | KNOWN_TOOLS
+    for key in self.model_extra or {}:
+        if key not in known:
+            log.warning("unknown config key '%s' — unrecognized tool name or typo?", key)
+    return self
+```
+
+### Tests (`tests/test_schema.py`)
+
+1. `test_unknown_key_logs_warning` — config with `"git": "allow"` → warning logged, config still loads.
+2. `test_typo_key_logs_warning` — `"blocked_path_regex"` → warning logged, field dropped but not silently.
+
+### Files affected
+- `src/lovely_bash_permissions/config/schema.py` (post-validator)
+- `tests/test_schema.py`
+
+---
+
+## Step 7a: Compile regex patterns once, store compiled objects (rules.py)
+
+**File:** `src/lovely_bash_permissions/rules.py`
+**Test file:** `tests/test_rules.py`
+
+### Current state
+
+Patterns compiled once in `field_validator("blocked_paths_regex")`, but dict stores raw strings (`compiled.pattern`). Consumers (e.g. `effective_bash.py`, `evaluate.py`) re-compile on every match call — wasteful, validation only at load time.
 
 ### Changes in `rules.py`
 
-In `_resolve_output_level`:
-
+1. Add compiled-pattern cache:
 ```python
-def _resolve_output_level(kinds: list[str], policy: dict[str, Any]) -> str:
-    """Resolve output redirection level using per-kind policy keys.
+from functools import lru_cache
 
-    Each kind is checked independently against its own policy key,
-    falling back to wildcard "*".  Deny takes priority over ask.
-
-    Args:
-        kinds: List of redirection kind strings (e.g. "stdout_to_dev_null").
-        policy: Dict-form output_redirection policy with kind-specific keys.
-
-    Returns:
-        "allow", "ask", or "deny".
-    """
-    wildcard_level = policy.get("*", "allow")
-
-    has_deny = False
-    has_ask = False
-    for kind in kinds:
-        # Each kind gets its own level lookup, independent of others
-        level = policy.get(kind, wildcard_level)
-        if level == "deny":
-            has_deny = True
-        elif level == "ask":
-            has_ask = True
-
-    if has_deny:
-        return "deny"
-    if has_ask:
-        return "ask"
-    return "allow"
+@lru_cache(maxsize=512)
+def _compile_pattern(pattern: str):
+    """Compile and cache a regex pattern. Raises re.error on invalid pattern."""
+    return re.compile(pattern)
 ```
 
-This is mostly the same code — key difference: **each kind independently checks its own policy key** instead of lumping "other" into wildcard. The current code already does this per-kind, but add a comment clarifying independence.
+2. In `_item_to_anchored_pattern(item)`: validate at match time by calling `_compile_pattern()` (cached). If invalid, raise `re.error`.
 
-### Tests to add (`tests/test_rules.py`)
+3. In `_resolve_output_level`, patterns now come from cache — deduplication handled by lru_cache.
 
-1. `test_output_redirection_per_kind_independent` — two redirections, one kind=stdout_to_dev_null with "allow", other kind=stderr_to_stdout with "ask" → overall should be "ask" (not deny).
-2. `test_output_redirection_kind_deny_overrides` — one kind=allow, other kind=deny → overall "deny" (verify deny priority kept).
-3. `test_output_redirection_all_allow` — all kinds "allow" → overall "allow".
-4. `test_output_redirection_wildcard_fallback` — kind not in policy uses wildcard level.
+### Tests (`tests/test_rules.py`)
+
+1. `test_compile_pattern_caches` — same pattern compiled twice returns same object (identity check with `is`).
+2. `test_compile_pattern_invalid_raises` — invalid regex → `re.error`.
+3. `test_item_to_anchored_pattern_returns_compiled` — valid item returns compiled pattern object, not raw string.
 
 ### Files affected
-- `src/lovely_bash_permissions/rules.py` (`_resolve_output_level`)
-- `tests/test_rules.py` (new tests)
+- `src/lovely_bash_permissions/rules.py` (add `_compile_pattern`, update consumers)
+- `tests/test_rules.py`
 
 ---
 
-- [x] ## Step 3: Test hook.py config consumption integration (#10a)
+## Step 7b: Add runtime validation at match time (rules.py)
 
-**Test file:** `tests/test_hook_integration.py` (new file)
+**File:** `src/lovely_bash_permissions/rules.py`
+**Test file:** `tests/test_rules.py`
 
-### Context
+### Changes
 
-`hook.py` has two public functions:
-- `generate_hook_response(event, decision)` — converts a permission decision into hook response JSON for the agent.
-- `process_hook_event(event)` — loads config via `PermissionsManager`, evaluates command, returns action.
+1. `_compile_pattern()` already validates at match time (called per-match, cached). Add docstring explaining.
 
-### Tests to add (`tests/test_hook_integration.py`)
+2. In `_item_to_anchored_pattern(item)`, wrap compilation in try/except and raise descriptive error:
+```python
+def _item_to_anchored_pattern(item):
+    try:
+        return _compile_pattern(pattern)
+    except re.error as exc:
+        raise ValueError(f"invalid pattern '{pattern}': {exc}") from exc
+```
 
-Import from `lovely_bash_permissions.hook`:
-- `generate_hook_response`
-- `process_hook_event`
+### Tests (`tests/test_rules.py`)
 
-Tests:
-
-1. `test_pretooluse_allow` — event with hook_event_name="PreToolUse", tool_name="exec", command="ls"; decision={"action":"allow"} → returns {"decision":"approve", "hookSpecificOutput":{"updatedInput":{"command":": '[♡ perms: 💚 auto-approved]' ; ls"}}}
-2. `test_pretooluse_block` — action="block" → returns {"decision":"block", "reason":"[♡ perms: ❤️ auto-rejected]", ...}
-3. `test_pretooluse_ask` — action="ask" → returns {"decision":"approve", "hookSpecificOutput":{"updatedInput":{"command":": '[♡ perms: 💛 REQUIRES-USER-APPROVAL]' ; ls"}}}
-4. `test_pretooluse_skip` — action="skip" → returns None
-5. `test_non_exec_tool_skipped` — tool_name!="exec" → process_hook_event returns {"action":"skip"}
-6. `test_empty_command_skipped` — command="" → skip
-7. `test_config_load_failure_fallback_ask` — project_dir pointing to nonexistent config dir → returns {"action":"ask", "reason": "..."} (config error fallback)
-8. `test_effective_bash_config_failure_fallback_ask` — configure bash config to be invalid → returns {"action":"ask"}
-9. `test_permission_request_allow` — event with hook_event_name="PermissionRequest", action="allow" → returns {"decision":"approve"}
-10. `test_permission_request_block` — action="block" → returns {"decision":"block", "reason":...}
-11. `test_permission_request_ask` — action="ask" → returns None (asks pass through)
-12. `test_reason_preserved_in_block` — block with reason string → reason appears in response
+1. `test_item_to_anchored_pattern_invalid_raises` — bad regex → ValueError.
+2. `test_item_to_anchored_pattern_valid_compiles` — valid item returns compiled pattern.
 
 ### Files affected
-- `tests/test_hook_integration.py` (new file)
-
----
-
-- [x] ## Step 4: Test cli.py config consumption integration (#10b)
-
-**Test file:** `tests/test_cli_integration.py` (new file, or add to existing `tests/test_cli.py`)
-
-### Context
-
-`cli.py` is the `lovely-bash-inspection` CLI. It parses bash code and prints an inspection report. It does **not** directly load permissions config, but it consumes parsed AST and has integration points worth testing (input modes, error handling).
-
-### Tests to add (`tests/test_cli_integration.py`)
-
-Import from `lovely_bash_permissions.cli`:
-- `main` (entry point, returns exit code)
-
-Tests:
-
-1. `test_main_string_basic` — `main(["--string", "ls -la"])` → exit 0, output contains "cmd: ls"
-2. `test_main_string_pipe` — `"ls | grep test"` → output mentions pipe
-3. `test_main_empty_string` — `""` → exit 2 (usage error via `_die`)
-4. `test_main_parse_error` — `"{" invalid"` → exit 3 (parse error)
-5. `test_main_no_input` — no args, stdin is tty → exit 2 (no input error)
-6. `test_main_dialect_arg` — `"--dialect", "zsh"` → parses without error
-
-### Files affected
-- `tests/test_cli_integration.py` (new file)
+- `src/lovely_bash_permissions/rules.py` (error wrapping)
+- `tests/test_rules.py`
 
 ---
 
 ## Order of execution
 
-1. **Step 1a** — schema forbid + known tools (changes core validation)
-2. **Step 1b** — verify ToolConfig forbid (no code change, just test verification)
-3. **Step 2** — per-kind resolution (changes rules logic, independent of schema)
-4. **Step 3** — hook integration tests (tests existing code, independent)
-5. **Step 4** — cli integration tests (tests existing code, independent)
+1. **Step 2a** — forbid extra in PermissionsConfig (core change)
+2. **Step 2b** — verify ToolConfig forbid (no code change, just test verification)
+3. **Step 3a** — surface errors in loader/manager (independent, depends on schema conceptually)
+4. **Step 3b** — warn about unknown keys (independent)
+5. **Step 7a** — compile-on-demand caching (independent)
+6. **Step 7b** — runtime validation wrapping (depends on 7a)
 
-Steps 1a and 2 modify source code; steps 3-4 only add tests.
+Steps 2a, 3a are the most impactful source changes. Steps 2b, 3b add safety/warnings. Step 7a is the core caching fix.
 
 ## Commit messages
 
 After each step completes, commit with:
-- "Step 1a: PermissionsConfig forbid extra + known tools"
-- "Step 1b: Verify ToolConfig forbid extra"
-- "Step 2: Per-kind output redirection policy resolution"
-- "Step 3: Hook integration tests"
-- "Step 4: CLI integration tests"
+- "Step 2a: PermissionsConfig forbid extra + known tools"
+- "Step 2b: Verify ToolConfig forbid extra"
+- "Step 3a: Surface config validation errors to consumers"
+- "Step 3b: Warn about unknown config keys"
+- "Step 7a: Compile regex patterns once with cache"
+- "Step 7b: Runtime validation at match time"
 
 ## Verification
 
 After all steps: `uv run pytest` must pass (both new and existing tests).
+Run with `-v` flag to confirm all 6+ new tests pass.
