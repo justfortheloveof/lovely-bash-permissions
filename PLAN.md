@@ -1,318 +1,124 @@
-# Plan: Config System Improvements (#2, #3, #7)
+# Plan: Fix empty-segment auto-approval and generic reason message
 
-## Overview
+## Bugs
 
-Three independent changes to the config system. Each step is self-contained so agents can work sequentially without cross-dependency.
+Two related bugs in `evaluate_bash_command()` (src/lovely_bash_permissions/evaluate.py):
 
-**Issue #2**: `PermissionsConfig` has `extra="allow"` but `_check_top_level_keys` rejects unknown keys — two validators fight each other. Fix: use `extra="forbid"` and keep only a clean validator.
+**Bug 1 — empty segments auto-approved**: Commands whose AST parses as `DeclClause` (e.g. `export BOGUS=true bogus`) produce an empty segments list from `parse_segments()`. Since no segments are checked against allowed patterns, `any_segment_not_allowed` stays False and `overall_status` defaults to "allow" → auto-approved. Should instead fall back to wildcard policy (ask/deny).
 
-**Issue #3**: Silent validation failures — unrecognized/typo keys (e.g. `"blocked_path_regex"`) are silently dropped by pydantic `extra="forbid"` with no warning; config errors in `PermissionsManager._load()` are swallowed into warnings but never raised.
+**Bug 2 — generic "command matches allowed pattern" message**: When status=allow but `all_matched_patterns` is empty (because no segments were checked at all), the reason string falls through to `reason_str = "command matches allowed pattern"` — a generic message with no actual pattern shown. Misleading for auto-approved commands that never matched anything.
 
-**Issue #7**: Regex validation — patterns compiled once at load time, but dict stores raw strings; consumers re-compile on every match. Fix: validate at load time AND compile-on-demand, store compiled objects so consumers don't re-compile. Also add runtime validation at match time for safety.
+**Root cause**: `parse_segments()` only handles `CallExpr` nodes, not `DeclClause`. The empty-segment case needs a wildcard-policy fallback.
 
----
-
-## Step 2a: Replace `extra="allow"` with `extra="forbid"` in PermissionsConfig (schema.py) ✅ COMPLETED
-
-**File:** `src/lovely_bash_permissions/config/schema.py`
-**Test file:** `tests/test_schema.py`
-
-### Changes made
-- PermissionsConfig model_config: `{"extra": "allow", ...}` → `{"extra": "forbid", ...}`
-- Added `bash: ToolConfig | None = None` field (known tools declared as explicit fields, forbid doesn't reject them)
-- Removed `_validate_tools` validator (redundant with forbid)
-- Kept `_check_top_level_keys` as before-validator for custom error messages
-- Updated tests: `test_allow_deny_shorthand_rejected` assertion, added `test_known_tool_bash_accepted`, `test_unknown_tool_name_rejected`
-- Fixed lint issues (unused import, duplicate function)
-
-### Current state
-
-```python
-class PermissionsConfig(BaseModel):
-    model_config = {"extra": "allow", "str_strip_whitespace": True}
-```
-
-Any unrecognized top-level key is silently accepted as a tool name, then validated against `KNOWN_TOOLS`. Typos like `"Bash"` vs `"bash"` are silently accepted.
-
-### Changes
-
-1. In `schema.py`, change PermissionsConfig's model_config:
-```python
-# Before
-model_config = {"extra": "allow", "str_strip_whitespace": True}
-# After
-model_config = {"extra": "forbid", "str_strip_whitespace": True}
-```
-
-2. Keep `_check_top_level_keys` validator (it already rejects unknown tool names). Since pydantic now forbids extras at the model level, the validator becomes redundant — remove it and add a docstring comment noting forbid is handled by model_config.
-
-### Tests to update/add (`tests/test_schema.py`)
-
-- Existing test `test_unknown_top_level_key_rejected` already expects a `ValidationError` for `"Bash": "allow"` — verify it still passes (it will, since `"forbid"` rejects extra keys).
-- Add a test `test_unknown_tool_name_rejected` that passes an unrecognized key (e.g. `"git"`) and asserts `ValidationError`.
-- Add a test `test_known_tool_bash_accepted` confirming `"bash"` still works.
-
-### Files affected
-- `src/lovely_bash_permissions/config/schema.py` (model_config change, remove redundant validator)
-- `tests/test_schema.py`
+## Files affected
+- `src/lovely_bash_permissions/evaluate.py` (both fixes)
+- `tests/test_evaluate.py` (new tests)
 
 ---
 
-## Step 2b: Verify ToolConfig forbid extra ✅ COMPLETED
+## Step 1: Fix empty-segment commands to use wildcard policy (evaluate.py)
 
-### Verified existing behavior:
-- `test_unrecognized_tool_field_warns` passes (typo fields raise ValidationError)
-- `test_allow_deny_shorthand_rejected` passes
-- Full test suite: all functional tests pass, UX format tests updated for new error message formats
+**Goal**: When `parse_segments()` returns an empty list and allowed patterns exist, treat the command as non-matching → apply wildcard policy instead of auto-approving.
+
+**Changes in `evaluate_bash_command()`**:
+After extracting segments, add a guard:
 
 ```python
-class ToolConfig(BaseModel):
-    model_config = {"extra": "forbid"}
+segments = parse_segments(command)
+
+if not segments and allowed_patterns:
+    # No command segments found (e.g. "export VAR=val cmd" parses as DeclClause)
+    # Treat as non-matching; apply wildcard policy
+    overall_status = config.get("*", "ask")
+    non_matching = ["<empty command>"]
+    reasons.append(f"{non_matching[0]} produced no parseable segments — defaulting to wildcard policy ({config.get('*', 'ask')}).")
+    # Skip the segment loop entirely
+else:
+    # ... existing segment loop and rest of function
 ```
 
-Already forbids extra fields. Tests like `test_unrecognized_tool_field_warns` confirm `"blocked_path_regex"` (typo) raises.
+Note: move the "commands not matching allowed patterns" block (`if allowed_patterns and any_segment_not_allowed:`) **after** this guard, or merge its logic into the new empty-segment path.
 
-### Changes
+**Tests to add (`tests/test_evaluate.py`):**
+1. `test_empty_segments_with_allowed_patterns_asks` — `export BOGUS=true bogus` with allowed patterns → status=ask (not allow)
+2. `test_empty_segments_wildcard_allow` — same command, wildcard=allow → status=allow (only when wildcard explicitly allows)
+3. `test_empty_segments_wildcard_deny` — same command, wildcard=deny → status=deny
+4. `test_empty_segments_no_patterns_allows` — no allowed patterns, empty segments → allow (existing behavior preserved)
+5. `test_empty_segments_reason_message` — reason contains "wildcard policy" text
 
-No code changes needed — just confirm existing behavior hasn't regressed after Step 2a's changes (forbid now works at PermissionsConfig level too).
+## Step 2: Fix generic "command matches allowed pattern" reason string (evaluate.py)
 
-### Tests to verify (`tests/test_schema.py`)
+**Goal**: When status=allow and there are matched patterns, show them. When status=allow but no patterns matched (empty segments), show the wildcard-policy reason instead of generic message.
 
-- `test_unrecognized_tool_field_warns` — must still pass.
-- `test_allow_deny_shorthand_rejected` — must still pass.
+**Changes in `evaluate_bash_command()`** — fix the reason_str construction at end of function:
 
-### Files affected
-- None (verification only). If any test fails, re-add `extra="forbid"` to ToolConfig.
-
----
-
-## Step 3a: Surface config validation errors (loader.py + manager.py) ✅ COMPLETED
-
-**File:** `src/lovely_bash_permissions/config/loader.py` and `manager.py`
-**Test file:** `tests/test_config_loader.py`, `tests/test_permissions_manager.py`
-
-### Changes made (loader.py):
-- Return type: `tuple[dict, list[str], list[str]]` (merged_config, warnings, validation_errors)
-- Parse errors for missing files → warnings only (not raised — normal condition)
-- Pydantic validation errors → added to both warnings AND validation_errors
-- Manager raises ValueError only on pydantic validation errors (not parse errors)
-
-### Changes made (manager.py):
-- `_load()` receives 3 values, stores `self._validation_errors`
-- Added `validation_errors` property, `has_validation_errors` property
-- `get_lovely_config()` raises ValueError when validation_errors non-empty
-
-
-
-In `loader.py`, `load_permissions_config()`:
-- Parse errors become warnings appended to return list: `"skipped invalid config file: ..."`
-- Pydantic validation errors caught and appended as `"config validation error: ..."`.
-
-In `manager.py`, `PermissionsManager._load()`:
-- Catches all exceptions from both loaders, stores messages in `_warnings`.
-- Consumers must explicitly call `get_warnings()` — errors never raised.
-
-### Changes in `loader.py`
-
-1. Change return type:
 ```python
-def load_permissions_config(project_dir: str) -> tuple[dict[str, Any], list[str], list[str]]:
-    """Returns (merged_config, warnings, validation_errors)."""
+# Replace the existing block:
+if overall_status == "allow" and all_matched_patterns:
+    noun = "pattern" if len(all_matched_patterns) == 1 else "patterns"
+    approval_reason = f"command matches allowed {noun} {', '.join(all_matched_patterns)}"
+    reasons.append(approval_reason)
+
+if reasons:
+    reason_str = "; ".join(r.rstrip(".!? ") for r in reasons)
+    if len(reasons) == 1:
+        reason_str += "."
+elif all_matched_patterns:
+    noun = "pattern" if len(all_matched_patterns) == 1 else "patterns"
+    reason_str = f"command matches allowed {noun} {', '.join(all_matched_patterns)}"
+else:
+    reason_str = "command matches allowed pattern"  # BUG — generic, no patterns
+
+# New logic:
+if all_matched_patterns and overall_status == "allow":
+    noun = "pattern" if len(all_matched_patterns) == 1 else "patterns"
+    reason_str = f"command matches allowed {noun} {', '.join(all_matched_patterns)}"
+if not reasons and overall_status == "allow":
+    reason_str = f"allowed by wildcard policy ({config.get('*', 'ask')})"
+if reasons:  # reason from segment checks takes priority over wildcard text
+    reason_str = "; ".join(r.rstrip(".!? ") for r in reasons)
+    if len(reasons) == 1:
+        reason_str += "."
 ```
 
-2. Collect parse errors into a separate list (not just warnings):
+Actually, restructure more cleanly — the approval reason is now added in step 1's empty-segment path, and for matching commands it's added when patterns match. Consolidate:
+
 ```python
-validation_errors = []  # new
-for path, reason in parse_errors:
-    warnings.append(f"skipped invalid config file: {path} ({reason})")
-    validation_errors.append(reason)  # new
+# Build reason_str from reasons list (populated by segment checks AND empty-segment path)
+if overall_status == "allow" and all_matched_patterns:
+    noun = "pattern" if len(all_matched_patterns) == 1 else "patterns"
+    approval_reason = f"command matches allowed {noun} {', '.join(all_matched_patterns)}"
+    reasons.append(approval_reason)
 
-try:
-    PermissionsConfig.model_validate(merged)
-except ValueError as exc:
-    warnings.append(f"config validation error: {exc}")
-    validation_errors.append(str(exc))  # new
-return merged, warnings, validation_errors
+reason_str = "; ".join(r.rstrip(".!? ") for r in reasons) if reasons else "allowed by wildcard policy"
+if len(reasons) == 1:
+    reason_str += "."
 ```
 
-### Changes in `manager.py`
+**Tests to add (`tests/test_evaluate.py`):**
+1. `test_allow_reason_shows_patterns` — matching command → reason contains actual pattern(s)
+2. `test_empty_segment_reason_not_generic` — empty segments → reason NOT "command matches allowed pattern"
+3. `test_empty_segment_reason_contains_wildcard_info` — reason mentions wildcard policy
 
-1. `_load()` now receives 3 values:
-```python
-self._lovely_config, warn_list, error_list = load_permissions_config(...)
-self._validation_errors = error_list  # new attribute
-```
+## Step 3: Verify existing tests pass and add regression test for reported commands
 
-2. Add property:
-```python
-@property
-def validation_errors(self) -> list[str]:
-    return self._validation_errors
+**Goal**: Confirm all existing tests still pass, and add a regression test covering the exact reported commands.
 
+**Tests to add (`tests/test_evaluate.py`):**
+1. `test_bogus_command_rejected` — `"bogus"` → ask (existing behavior, verify)
+2. `test_export_bogus_rejected` — `"export BOGUS=true bogus"` → ask (regression for bug 1)
+3. `test_export_bogus_reason_not_auto_approved` — reason should NOT contain "auto-approved" or "matches allowed pattern" (regression for bug 2)
 
-@property
-def has_validation_errors(self) -> bool:
-    return bool(self._validation_errors)
-```
-
-3. In `get_lovely_config()`, **raise** validation errors:
-```python
-def get_lovely_config(self) -> dict[str, Any]:
-    if self._validation_errors:
-        raise ValueError("\n".join(self._validation_errors))
-    return self._lovely_config
-```
-
-### Tests (`tests/test_config_loader.py`)
-
-1. `test_load_returns_validation_errors_list` — config with invalid regex → third return value non-empty.
-2. `test_manager_validation_errors_property` — manager with invalid config has errors via property.
-3. `test_get_lovely_config_raises_on_errors` — manager with invalid config → `get_lovely_config()` raises ValueError.
-
-### Files affected
-- `src/lovely_bash_permissions/config/loader.py` (return 3 values)
-- `src/lovely_bash_permissions/config/manager.py` (new property, raise in getter)
-- `tests/test_config_loader.py`
-
----
-
-## Step 3b: Warn about unknown keys instead of silent drop (schema.py) ✅ COMPLETED
-
-**File:** `src/lovely_bash_permissions/config/schema.py`
-**Test file:** `tests/test_schema.py`
-
-### Current state
-
-Typos like `"blocked_path_regex"` (missing 's') silently dropped by pydantic `extra="forbid"`. No warning emitted.
-
-### Changes
-
-Add a post-validator to PermissionsConfig that logs warnings for unrecognized keys:
-```python
-import logging
-
-log = logging.getLogger(__name__)
-
-
-@model_validator(mode="after")
-def _warn_unknown_keys(self) -> "PermissionsConfig":
-    known = {"version", "wildcard"} | KNOWN_TOOLS
-    for key in self.model_extra or {}:
-        if key not in known:
-            log.warning("unknown config key '%s' — unrecognized tool name or typo?", key)
-    return self
-```
-
-### Tests (`tests/test_schema.py`)
-
-1. `test_unknown_key_logs_warning` — config with `"git": "allow"` → warning logged, config still loads.
-2. `test_typo_key_logs_warning` — `"blocked_path_regex"` → warning logged, field dropped but not silently.
-
-### Files affected
-- `src/lovely_bash_permissions/config/schema.py` (post-validator)
-- `tests/test_schema.py`
-
----
-
-## Step 7a: Compile regex patterns once, store compiled objects (rules.py) ✅ COMPLETED
-
-**File:** `src/lovely_bash_permissions/rules.py`
-**Test file:** `tests/test_rules.py`
-
-Patterns compiled once in `field_validator("blocked_paths_regex")`, but dict stores raw strings (`compiled.pattern`). Consumers (e.g. `effective_bash.py`, `evaluate.py`) re-compile on every match call — wasteful, validation only at load time.
-
-### Changes in `rules.py`
-
-1. Add compiled-pattern cache:
-```python
-from functools import lru_cache
-
-
-@lru_cache(maxsize=512)
-def _compile_pattern(pattern: str):
-    """Compile and cache a regex pattern. Raises re.error on invalid pattern."""
-    return re.compile(pattern)
-```
-
-2. In `_item_to_anchored_pattern(item)`: validate at match time by calling `_compile_pattern()` (cached). If invalid, raise `re.error`.
-
-3. In `_resolve_output_level`, patterns now come from cache — deduplication handled by lru_cache.
-
-### Tests (`tests/test_rules.py`)
-
-1. `test_compile_pattern_caches` — same pattern compiled twice returns same object (identity check with `is`).
-2. `test_compile_pattern_invalid_raises` — invalid regex → `re.error`.
-3. `test_item_to_anchored_pattern_returns_compiled` — valid item returns compiled pattern object, not raw string.
-
-### Files affected
-- `src/lovely_bash_permissions/rules.py` (add `_compile_pattern`, update consumers)
-- `tests/test_rules.py`
-
----
-
-## Step 7b: Add runtime validation at match time (rules.py) ✅ COMPLETED
-
-**File:** `src/lovely_bash_permissions/rules.py`
-**Test file:** `tests/test_rules.py`
-
-1. `_compile_pattern()` already validates at match time (called per-match, cached). Add docstring explaining.
-
-2. In `_item_to_anchored_pattern(item)`, wrap compilation in try/except and raise descriptive error:
-```python
-def _item_to_anchored_pattern(item):
-    try:
-        return _compile_pattern(pattern)
-    except re.error as exc:
-        raise ValueError(f"invalid pattern '{pattern}': {exc}") from exc
-```
-
-### Tests (`tests/test_rules.py`)
-
-1. `test_item_to_anchored_pattern_invalid_raises` — bad regex → ValueError.
-2. `test_item_to_anchored_pattern_valid_compiles` — valid item returns compiled pattern.
-
-### Files affected
-- `src/lovely_bash_permissions/rules.py` (error wrapping)
-- `tests/test_rules.py`
+Then run `uv run pytest -v` to confirm all tests pass.
 
 ---
 
 ## Order of execution
-
-1. **Step 2a** — forbid extra in PermissionsConfig (core change)
-2. **Step 2b** — verify ToolConfig forbid (no code change, just test verification)
-3. **Step 3a** — surface errors in loader/manager (independent, depends on schema conceptually)
-4. **Step 3b** — warn about unknown keys (independent)
-5. **Step 7a** — compile-on-demand caching (independent)
-6. **Step 7b** — runtime validation wrapping (depends on 7a)
-
-Steps 2a, 3a are the most impactful source changes. Steps 2b, 3b add safety/warnings. Step 7a is the core caching fix.
+1. **Step 1** — empty-segment wildcard fallback (core fix)
+2. **Step 2** — reason string cleanup (dependent on step 1's reasons list)
+3. **Step 3** — verification + regression tests
 
 ## Commit messages
-
-Committed:
-- "Step 2a: PermissionsConfig forbid extra + known tools"
-- "Step 2b: Fix lint issues (unused import, duplicate function)"
-
-Remaining:
-- "Step 3a: Surface config validation errors to consumers" (after test fixes)
-- "Step 3b: Warn about unknown config keys"
-- "Step 7a: Compile regex patterns once with cache"
-- "Step 7b: Runtime validation at match time"
-- "Step 3a: Surface config validation errors to consumers"
-- "Step 3b: Warn about unknown config keys"
-- "Step 7a: Compile regex patterns once with cache"
-- "Step 7b: Runtime validation at match time"
-
-## Verification
-
-### Current status (end of pass 1)
-- Steps 2a, 2b: ✅ Completed. All schema tests pass.
-- Step 3a: 🔄 In progress. Core loader/manager changes done; remaining test fixes in `test_permissions_manager.py` needed (4 tests expect parse errors to raise ValueError — need pydantic validation error configs instead).
-- Steps 3b, 7a, 7b: ⏳ Not started.
-
-### Next pass (pass 2)
-1. Fix remaining `test_permissions_manager.py` failures
-2. Run full `uv run pytest -v` to confirm all tests pass
-3. Proceed to Step 3b (warn about unknown keys)
-4. Then Steps 7a, 7b (regex compile-on-demand caching)
+- "Step 1: Empty-segment commands use wildcard policy instead of auto-approve"
+- "Step 2: Fix generic 'command matches allowed pattern' reason string"
+- "Step 3: Regression tests for reported empty-segment bugs"
