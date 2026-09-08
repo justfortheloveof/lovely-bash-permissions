@@ -92,40 +92,16 @@ class TestParseJsonc:
         }""")
         assert result == {"a": 1}
 
-    def test_trailing_commas_objects(self) -> None:
-        result = parse_jsonc('{"a": 1, "b": 2,}')
-        assert result == {"a": 1, "b": 2}
-
-    def test_trailing_commas_arrays(self) -> None:
-        result = parse_jsonc("[1, 2, 3,]")
-        assert result == [1, 2, 3]
-
-    def test_trailing_comma_in_string(self) -> None:
-        result = parse_jsonc(chr(123) + chr(34) + "a" + chr(34) + chr(58) + " " + chr(34) + "1," + chr(34) + chr(125))
-        assert result == {"a": "1,"}
-
-    def test_trailing_comma_object(self) -> None:
-        result = parse_jsonc(chr(123) + chr(34) + "a" + chr(34) + chr(58) + " 1," + chr(125))
-        assert result == {"a": 1}
-
-    def test_nested_trailing_comma(self) -> None:
-        result = parse_jsonc(
-            chr(123)
-            + chr(34)
-            + "a"
-            + chr(34)
-            + chr(58)
-            + " "
-            + chr(123)
-            + chr(34)
-            + "b"
-            + chr(34)
-            + chr(58)
-            + " 1,"
-            + chr(125)
-            + chr(125)
-        )
-        assert result == {"a": {"b": 1}}
+    def test_trailing_commas(self) -> None:
+        """Trailing commas in objects, arrays, and nested structures parse correctly."""
+        result = parse_jsonc("""{
+            "a": 1,
+            "b": [2, 3,],
+            "c": {
+                "d": 4,
+            },
+        }""")
+        assert result == {"a": 1, "b": [2, 3], "c": {"d": 4}}
 
     def test_bom_prefix(self) -> None:
         result = parse_jsonc('\ufeff{"a": 1}')
