@@ -56,22 +56,6 @@ class ToolConfig(BaseModel):
         return result
 
 
-_TOOL_RECOGNIZED_FIELDS = frozenset(
-    (
-        "permission",
-        "perm",
-        "blocked_paths_regex",
-        "allowed_cmds_regex",
-        "prompt",
-        "*",
-        "subshell",
-        "output_redirection",
-        "input_redirection",
-        "background_execution",
-    )
-)
-
-
 class PermissionsConfig(BaseModel):
     model_config = {"extra": "allow", "str_strip_whitespace": True}
 
@@ -115,10 +99,6 @@ class PermissionsConfig(BaseModel):
                     continue
                 if not isinstance(value, dict):
                     raise ValueError(f"tool '{key}': expected object or null")  # noqa: TRY004
-                unrecognized = set(value.keys()) - _TOOL_RECOGNIZED_FIELDS
-                if unrecognized:
-                    fields = ", ".join(sorted(unrecognized))
-                    raise ValueError(f"tool '{key}': unrecognized fields: {fields}")
                 try:
                     ToolConfig.model_validate(value)
                 except (ValueError, re.error) as exc:
