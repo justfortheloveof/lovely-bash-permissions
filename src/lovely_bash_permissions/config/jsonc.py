@@ -13,6 +13,10 @@ import json5
 class JSONCDecodeError(ValueError):
     """Raised when json5 fails to parse; carries line/column position."""
 
+    message: str
+    column: int
+    line: int
+
     def __init__(self, message: str) -> None:
         self.message = message
         match = re.search(r"at column (\d+)", message)
@@ -44,10 +48,10 @@ def read_jsonc_file(file_path: str) -> dict[str, Any] | None:
     try:
         value = parse_jsonc(text)
     except JSONCDecodeError as exc:
-        print(f"error parsing {file_path}: expected ... at line {exc.line} col {exc.column}", file=sys.stderr)
+        print(f"error parsing {file_path}: {exc.message} at line {exc.line} col {exc.column}", file=sys.stderr)
         return None
     if value is None:
-        print(f"error parsing {file_path}: invalid JSONC (null value)", file=sys.stderr)
+        print(f"error parsing {file_path}: expected object, got null", file=sys.stderr)
     elif not isinstance(value, dict):
         print(f"error parsing {file_path}: expected object, got {type(value).__name__}", file=sys.stderr)
         return None

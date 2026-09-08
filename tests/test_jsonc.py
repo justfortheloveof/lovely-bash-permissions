@@ -42,8 +42,12 @@ class TestParseJsonc:
 
     def test_parse_invalid_jsonc(self) -> None:
         """Malformed JSONC raises JSONCDecodeError with line/column info."""
+
+        def _try_parse(text: str) -> None:
+            parse_jsonc(text)
+
         for bad in ("{invalid}", '{"a": }', "trailing, comma}"):
-            err = pytest.raises(JSONCDecodeError, lambda b=bad: parse_jsonc(b))
+            err = pytest.raises(JSONCDecodeError, _try_parse, bad)
             assert err.value.line > 0
             assert err.value.column > 0
 
