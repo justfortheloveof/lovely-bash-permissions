@@ -63,19 +63,13 @@ def load_permissions_config(project_dir: str) -> tuple[dict[str, Any], list[str]
     parse_errors: list[tuple[str, str]] = []
     for path in paths:
         log.debug("checking config file: %s", path)
-        data = read_jsonc_file(path)
-        if data is not None and isinstance(data, dict):
-            configs.append(data)
+        result = read_jsonc_file(path)
+        if result.error is None and isinstance(result.value, dict):
+            configs.append(result.value)
             loaded_any = True
         else:
             configs.append({})
-            p = Path(path)
-            if data is None and p.exists():
-                reason = "invalid JSONC"
-            elif not p.exists():
-                reason = "file not found"
-            else:
-                reason = f"expected object, got {type(data).__name__}"
+            reason = result.error if result.error else "invalid JSONC"
             parse_errors.append((path, reason))
 
     if not loaded_any:

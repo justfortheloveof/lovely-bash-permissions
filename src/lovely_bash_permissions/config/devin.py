@@ -76,13 +76,13 @@ def load_devin_exec_permissions(project_dir: str) -> dict[str, list[Any]]:
     errors = []
 
     for source in sources:
-        data = read_jsonc_file(source)
-        if data is None or not isinstance(data, dict):
+        result = read_jsonc_file(source)
+        if result.error is not None or not isinstance(result.value, dict):
             continue
 
         # Extract permissions.allow (may not exist)
         allow_list = []
-        perms_data: dict[str, Any] | None = data.get("permissions")
+        perms_data: dict[str, Any] | None = result.value.get("permissions")
         if perms_data is not None and isinstance(perms_data, dict):
             allow_list = perms_data.get("allow", [])
             if not isinstance(allow_list, list):

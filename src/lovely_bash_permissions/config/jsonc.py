@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -35,27 +36,58 @@ def parse_jsonc(text: str) -> Any | None:  # noqa: ANN401
         raise JSONCDecodeError(str(exc)) from None
 
 
-def read_jsonc_file(file_path: str) -> dict[str, Any] | None:
-    """Read and parse a JSONC file. Returns dict or None."""
+@dataclass
+class JsoncLoadResult:
+    """Result of loading a JSONC file, distinguishing success/failure modes."""
+
+    value: dict[str, Any] | None
+    error: str | None
+
+    @classmethod
+    def ok(cls, value: dict[str, Any]) -> JsoncLoadResult:
+        return cls(value=value, error=None)
+
+    @classmethod
+    def missing(cls, path: str) -> JsoncLoadResult:
+        return cls(value=None, error=f"file not found: {path}")
+
+    @classmethod
+    def parse_error(cls, path: str, msg: str, line: int = 0, col: int = 0) -> JsoncLoadResult:
+        detail = msg
+        if line:
+            detail += f" at line {line} col {col}"
+        return cls(value=None, error=f"{detail}\nin {path}")
+
+    @classmethod
+    def read_error(cls, path: str, err: BaseException) -> JsoncLoadResult:
+        return cls(value=None, error=f"error reading {path}: {err}")
+
+
+def read_jsonc_file(file_path: str) -> JsoncLoadResult:
+    """Read and parse a JSONC file.
+
+    Returns a JsoncLoadResult indicating success, missing file, read error, or parse error.
+    """
     path = Path(file_path)
     if not path.exists():
-        return None
+        return JsoncLoadResult.missing(file_path)
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as e:
         print(f"error reading {file_path}: {e}", file=sys.stderr)
-        return None
+        return JsoncLoadResult.read_error(file_path, e)
     try:
         value = parse_jsonc(text)
     except JSONCDecodeError as exc:
         print(f"error parsing {file_path}: {exc.message} at line {exc.line} col {exc.column}", file=sys.stderr)
-        return None
+        return JsoncLoadResult.parse_error(file_path, exc.message, exc.line, exc.column)
     if value is None:
         print(f"error parsing {file_path}: expected object, got null", file=sys.stderr)
+        return JsoncLoadResult(value=None, error="expected object, got null")
     elif not isinstance(value, dict):
         print(f"error parsing {file_path}: expected object, got {type(value).__name__}", file=sys.stderr)
-        return None
-    return value
+        return JsoncLoadResult(value=None, error=f"expected object, got {type(value).__name__}")
+    return JsoncLoadResult.ok(value)
 
 
 def is_record(value: Any) -> bool:  # noqa: ANN401
