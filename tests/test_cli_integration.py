@@ -12,7 +12,6 @@ argument parsing, input reading, and AST rendering rather than deep
 unit behaviour.
 """
 
-import sys
 from unittest import mock
 
 import pytest
@@ -35,7 +34,7 @@ def test_main_string_basic(capsys: pytest.CaptureFixture[str]) -> None:
     exit_code = main(["--string", "ls -la"])
     assert exit_code == 0
     lines = _stdout(capsys)
-    cmd_lines = [l for l in lines if "cmd:" in l]
+    cmd_lines = [line for line in lines if "cmd:" in line]
     assert len(cmd_lines) >= 1, f"No 'cmd:' line found in {lines}"
     assert "ls" in cmd_lines[0]
 
@@ -50,7 +49,7 @@ def test_main_string_pipe(capsys: pytest.CaptureFixture[str]) -> None:
     exit_code = main(["--string", "ls | grep test"])
     assert exit_code == 0
     lines = _stdout(capsys)
-    pipes_line = [l for l in lines if l.startswith("Pipes:")]
+    pipes_line = [line for line in lines if line.startswith("Pipes:")]
     assert len(pipes_line) >= 1, f"No 'Pipes:' line found in {lines}"
     assert "yes" in pipes_line[0]
 
@@ -86,9 +85,11 @@ def test_main_parse_error(capsys: pytest.CaptureFixture[str]) -> None:
 def test_main_no_input(capsys: pytest.CaptureFixture[str]) -> None:
     """No args and stdin is a tty → exit 2 (no input error)."""
     # Mock sys.stdin.isatty() to return True so _read_input hits the tty guard.
-    with mock.patch("lovely_bash_permissions.cli.sys.stdin", isatty=mock.Mock(return_value=True)):
-        with pytest.raises(SystemExit) as exc:
-            main([])
+    with (
+        mock.patch("lovely_bash_permissions.cli.sys.stdin", isatty=mock.Mock(return_value=True)),
+        pytest.raises(SystemExit) as exc,
+    ):
+        main([])
     assert exc.value.code == 2
 
 
