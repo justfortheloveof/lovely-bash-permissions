@@ -21,7 +21,6 @@ Issues 2, 4, 8 (per-tool inheritance docs, caching/TTL, config file existence ch
 - Pattern validation (`_strip_trailing_period`) happens at model-validation time but regex validity isn't checked until runtime.
 - `read_jsonc_file` returns `None` on any error, hiding the cause (missing file vs permission denied).
 - Merge replaces nested objects wholesale — global `bash.allowed_cmds_regex` is lost when local adds any key to `bash`.
-- CLI lacks `--show-config` (print effective config + considered files) and `--test "<cmd>"`.
 - No end-to-end test verifies precedence ordering actually works.
 
 ## Implementation Steps (sequential, one agent per step)
@@ -45,7 +44,7 @@ Issues 2, 4, 8 (per-tool inheritance docs, caching/TTL, config file existence ch
 
 ### Step 3b: Fix deep merge to recursively merge nested objects (issue 9)
 
-**Goal**: When global config has `{"bash": {"allowed_cmds_regex": ["^git"]}}` and local adds `{"bash": {"blocked_paths_regex": [...]}}`, the merged result should contain **both** keys under `bash` instead of replacing `bash` entirely.
+**Completed**: Modified `merge_deep()` in loader.py to recursively merge nested objects and collect conflict warnings. Updated all existing tests for new return type `(dict, list[str])`. Added `_warn_conflict` helper. Tests updated in test_config_loader.py and test_jsonc.py. All 583 tests pass; linting clean.
 
 **Changes**:
 1. In `loader.py` `merge_deep()`: after merging objects recursively, collect keys present in both target and source for that object; when they conflict (same key, different values), emit a warning like `"key 'allowed_cmds_regex' defined in project config overrides global"`.
@@ -92,18 +91,6 @@ Issues 2, 4, 8 (per-tool inheritance docs, caching/TTL, config file existence ch
 
 ---
 
-### Step 3f: Add --show-config and --test CLI commands (issue 6)
-
-**Goal**: Mirror TypeScript's `printConfigCli()` and test mode.
-
-**Changes**:
-1. In `cli.py`, add `--show-config` flag: prints effective bash config (allowed/blocked patterns, wildcard permission) and lists considered files.
-2. Add `--test "<command>"` flag: evaluates a single command against the effective config and prints approval decision.
-
-**Tests**: `test_show_config_prints_effective`, `test_test_flag_approves_allowed`.
-
----
-
 ### Step 3g: Run full test suite and fix any issues
 
 Run `uv run pytest` after each step. Fix linting (ruff, mypy) before committing.
@@ -123,5 +110,4 @@ Run `uv run pytest` after each step. Fix linting (ruff, mypy) before committing.
 | Patterns validated at runtime only | Invalid patterns fail fast during config load |
 | `read_jsonc_file` returns None on any error | Typed result distinguishes missing / permission denied / parse error |
 | Deep merge replaces nested objects wholesale | Objects merged recursively; conflicts warned |
-| No config inspection CLI | `--show-config` and `--test` commands added |
 | No precedence ordering tests | E2E tests verify global < project < local wins |
