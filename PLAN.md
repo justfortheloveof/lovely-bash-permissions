@@ -127,6 +127,7 @@ Then run `uv run pytest -v` to confirm all tests pass.
 3. **Step 3** — verification + regression tests ✅ (all 640 tests pass)
 
 ## Deferred
+- **Detect unhandled node types in `_extract_segments()`**: For every unsupported node type (DeclClause, CaseClause, etc.), instead of silently returning `[]`, detect the type and raise/log a warning like "Parser DeclClause handling is not implemented" — gives visibility into what's unsupported rather than silent fallback to wildcard policy. Implement in a follow-up.
 - **`parse_segments()` coverage gaps**: Currently 0-segment (returns `[]`) for these node types:
   - **DeclClause**: `export/unset/alias` statements → shows `<empty command>`
   - **CaseClause**: `case x in a) cmd;; esac`
