@@ -250,7 +250,7 @@ def _compile_pattern(pattern: str):
 
 ---
 
-## Step 7b: Add runtime validation at match time (rules.py) ⏳ NOT STARTED
+## Step 7b: Add runtime validation at match time (rules.py) ✅ COMPLETED
 
 **File:** `src/lovely_bash_permissions/rules.py`
 **Test file:** `tests/test_rules.py`
