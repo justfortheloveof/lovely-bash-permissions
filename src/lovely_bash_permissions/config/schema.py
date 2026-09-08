@@ -19,11 +19,15 @@ class ToolConfig(BaseModel):
 
     @field_validator("blocked_paths_regex", "allowed_cmds_regex", mode="before")
     @classmethod
-    def strip_trailing_period(cls, v: list[str], info: ValidationInfo) -> list[str]:
+    def validate_regexes(cls, v: list[str], info: ValidationInfo) -> list[str]:
+        """Validate that each pattern compiles as a regex.
+
+        Patterns are used as-written — no stripping or mutation.
+        """
         result: list[str] = []
         for p in v:
             try:
-                compiled = re.compile(p.rstrip("."))
+                compiled = re.compile(p)
             except re.error as exc:
                 raise ValueError(f'pattern "{p}": invalid regex: {exc}') from exc
             result.append(compiled.pattern)

@@ -36,7 +36,7 @@ def get_effective_bash_config(raw_bash: object, project_dir: str) -> dict[str, A
             allowed_patterns.append(_item_to_anchored_pattern(item))
         # Also include explicit allowed_cmds_regex patterns
         for p in bash.get("allowed_cmds_regex", []):
-            allowed_patterns.append(p)  # noqa: PERF402 — trailing period stripped by validator
+            allowed_patterns.append(p)  # noqa: PERF402 — patterns used as-is
     allowed_patterns.append(HOOK_LABEL_REGEX)
     allowed_patterns.extend(devin_regexes)
     # Remove duplicates while preserving order
@@ -46,7 +46,7 @@ def get_effective_bash_config(raw_bash: object, project_dir: str) -> dict[str, A
         # Load blocked_paths_regex directly from config, then merge deny list items
         blocked_patterns: list[str] = []
         for p in bash.get("blocked_paths_regex", []):
-            blocked_patterns.append(p)  # noqa: PERF402 — trailing period stripped by validator
+            blocked_patterns.append(p)  # noqa: PERF402 — patterns used as-is
         deny_items = bash.get("deny", [])
         blocked_patterns.extend(_item_to_anchored_pattern(d) for d in deny_items)
 

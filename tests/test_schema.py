@@ -120,10 +120,14 @@ def test_unknown_version_rejected() -> None:
         assert "unknown schema version: 2" in errors[0]["msg"]
 
 
-def test_trailing_period_stripped() -> None:
-    config = ToolConfig(allowed_cmds_regex=["^git."], blocked_paths_regex=["^/tmp/"])
-    assert config.allowed_cmds_regex == ["^git"]
-    assert config.blocked_paths_regex == ["^/tmp/"]
+def test_trailing_dot_unchanged() -> None:
+    """Patterns are used as-written; trailing dots (escaped or bare) preserved."""
+    config = ToolConfig(
+        allowed_cmds_regex=[r"^git\."],
+        blocked_paths_regex=["^/tmp/."],  # bare dot preserved
+    )
+    assert config.allowed_cmds_regex == [r"^git\."]  # escaped dot kept
+    assert config.blocked_paths_regex == ["^/tmp/."]  # bare dot kept
 
 
 def test_invalid_regex_rejected_at_load() -> None:
