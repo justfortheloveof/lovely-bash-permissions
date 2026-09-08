@@ -17,7 +17,13 @@ node /home/alx/repos/jftlo/lovely-devin-permissions/dist/hook.js --test 'cmd'
 
 ### Number 1
 
-The example below is unexpected, it should result in an ASK and not a denial just like is shown in the 2nd example.
+**DONE (31a51d4)** Fixed subshell permission bug.
+
+The issue was in `evaluate_bash_command()` at lines ~319-320: when nested commands inside a subshell didn't match allowed patterns and `subshell_policy == "allow"`, it set `overall_status = "deny"` (auto-rejected). But "allow" policy means skip validation — failed validation should result in ask (user approval needed), not deny.
+
+Fix: changed the condition to check `overall_status == "deny"` first (blocked paths already set this), then handle each policy: allow → ask, deny → deny, ask → ask.
+
+Both `echo $(herdr)` and `herdr` now correctly return ASK (REQUIRES-USER-APPROVAL) instead of block.
 
 Unexpected:
 ```

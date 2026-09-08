@@ -5,10 +5,9 @@ regexes. Always includes the hook label regex so commands prefixed with
 the hook label pass through the allowed pattern check.
 """
 
-import re
 from typing import Any
 
-from ..rules import deny_item_to_pattern
+from ..rules import _item_to_anchored_pattern
 from .devin import exec_permission_to_regex, load_devin_exec_regexes
 
 HOOK_COMMAND_PREFIX = ": '[♡ perms:"
@@ -31,10 +30,10 @@ def get_effective_bash_config(raw_bash: object, project_dir: str) -> dict[str, A
     allowed_patterns: list[str] = []
     if raw_bash:
         bash: dict[str, Any] = raw_bash  # type: ignore[assignment]
-        # Convert allow list to allowed patterns
+        # Convert allow list to allowed patterns (shared helper, issue #3)
         allow_items = bash.get("allow", [])
         for item in allow_items:
-            allowed_patterns.append(f"^{re.escape(item)}$")
+            allowed_patterns.append(_item_to_anchored_pattern(item))
         # Also include explicit allowed_cmds_regex patterns
         for p in bash.get("allowed_cmds_regex", []):
             # Strip trailing period from pattern (config may quote it inside quotes)
@@ -50,7 +49,7 @@ def get_effective_bash_config(raw_bash: object, project_dir: str) -> dict[str, A
         for p in bash.get("blocked_paths_regex", []):
             blocked_patterns.append(p.rstrip("."))
         deny_items = bash.get("deny", [])
-        blocked_patterns.extend(deny_item_to_pattern(d) for d in deny_items)
+        blocked_patterns.extend(_item_to_anchored_pattern(d) for d in deny_items)
 
         return {
             "*": bash.get("*", "ask"),

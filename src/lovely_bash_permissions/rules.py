@@ -15,14 +15,14 @@ COMBINED_OPS: frozenset[str] = frozenset({">&", "&>", "&>>"})
 DEV_NULL: str = "/dev/null"
 
 
-def deny_item_to_pattern(item: str) -> str:
-    """Convert a deny-list item to an anchored regex pattern.
+def _item_to_anchored_pattern(item: str) -> str:
+    """Convert a list item (allow or deny) to an anchored regex pattern.
 
     Items can be bare command names ("curl") or command patterns
     ("rm -rf /"). Escapes regex-special chars and anchors with ``^...$``.
 
     Args:
-        item: A deny-list entry, optionally quoted.
+        item: A list entry (from allow or deny config), optionally quoted.
 
     Returns:
         An anchored regex pattern string.
@@ -39,6 +39,20 @@ def deny_item_to_pattern(item: str) -> str:
         return f"^{re.escape(cmd)}(\\s.*)?$"
     else:
         return f"^{re.escape(item)}$"
+
+
+def deny_item_to_pattern(item: str) -> str:
+    """Convert a deny-list item to an anchored regex pattern.
+
+    Alias for :func:`_item_to_anchored_pattern`; kept for backward compatibility.
+
+    Args:
+        item: A deny-list entry, optionally quoted.
+
+    Returns:
+        An anchored regex pattern string.
+    """
+    return _item_to_anchored_pattern(item)
 
 
 def _match_pattern(value: str, pattern: str) -> bool:
