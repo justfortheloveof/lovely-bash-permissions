@@ -158,6 +158,8 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     # Collect all matched patterns across ALL segments (joined into one reason, like TS)
 
     all_matched_patterns: list[str] = []
+    segment_results: list[dict[str, Any]] = []
+
 
     for i, segment in enumerate(segments):
         cmd_name = segment.get("command", "")
@@ -208,6 +210,8 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
             segment_result["blocked"] = False
 
         segment_results.append(segment_result)
+
+
 
         # Collect matched patterns as approval reasons (only shown when status is allow).
         # NOTE: approval_reason must be built AFTER _walk() so it includes nested command matches.
@@ -340,39 +344,39 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                     reasons.append("subshell or command substitution requires approval")
                 else:
                     _subshell_allowed = True
-        # If no specific rules matched and nothing else triggered ask/deny, apply wildcard policy
-        _redir_matched = output_result["reason"] != "no output redirection"
-        _input_matched = input_result["reason"] != "no input redirection"
-        _bg_matched = bg_result["reason"] != "no background execution"
-        if (
-            not allowed_patterns
-            and not blocked_patterns
-            and overall_status == "allow"
-            and wildcard != "allow"
-            and not _subshell_allowed
-        ):
-            if _redir_matched or _input_matched or _bg_matched:
-                pass  # specific rules matched; don't override with wildcard
-            else:
-                overall_status = wildcard
-                reasons.append(f"wildcard policy is {wildcard}")
-        # Only include approval reasons when status is allow; hide them for ask/deny
-        if overall_status == "allow" and all_matched_patterns:
-            # Build approval reason from ALL matched patterns (top-level + nested)
-            noun = "pattern" if len(all_matched_patterns) == 1 else "patterns"
-            approval_reason = f"command matches allowed {noun} {', '.join(all_matched_patterns)}"
-            reasons.append(approval_reason)
-        if reasons:
-            reason_str = "; ".join(r.rstrip(".!? ") for r in reasons)
-            if len(reasons) == 1:
-                reason_str += "."
-        elif all_matched_patterns:
-            noun = "pattern" if len(all_matched_patterns) == 1 else "patterns"
-            reason_str = f"command matches allowed {noun} {', '.join(all_matched_patterns)}"
+    # If no specific rules matched and nothing else triggered ask/deny, apply wildcard policy
+    _redir_matched = output_result["reason"] != "no output redirection"
+    _input_matched = input_result["reason"] != "no input redirection"
+    _bg_matched = bg_result["reason"] != "no background execution"
+    if (
+        not allowed_patterns
+        and not blocked_patterns
+        and overall_status == "allow"
+        and wildcard != "allow"
+        and not _subshell_allowed
+    ):
+        if _redir_matched or _input_matched or _bg_matched:
+            pass  # specific rules matched; don't override with wildcard
         else:
-            reason_str = "command matches allowed pattern"
-        return {
-            "status": overall_status,
-            "reason": reason_str,
-            "segments": segment_results,
-        }
+            overall_status = wildcard
+            reasons.append(f"wildcard policy is {wildcard}")
+    # Only include approval reasons when status is allow; hide them for ask/deny
+    if overall_status == "allow" and all_matched_patterns:
+        # Build approval reason from ALL matched patterns (top-level + nested)
+        noun = "pattern" if len(all_matched_patterns) == 1 else "patterns"
+        approval_reason = f"command matches allowed {noun} {', '.join(all_matched_patterns)}"
+        reasons.append(approval_reason)
+    if reasons:
+        reason_str = "; ".join(r.rstrip(".!? ") for r in reasons)
+        if len(reasons) == 1:
+            reason_str += "."
+    elif all_matched_patterns:
+        noun = "pattern" if len(all_matched_patterns) == 1 else "patterns"
+        reason_str = f"command matches allowed {noun} {', '.join(all_matched_patterns)}"
+    else:
+        reason_str = "command matches allowed pattern"
+    return {
+        "status": overall_status,
+        "reason": reason_str,
+        "segments": segment_results,
+    }
