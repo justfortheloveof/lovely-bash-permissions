@@ -577,16 +577,12 @@ class TestResultStructure:
 
     def test_empty_segments_wildcard_allow(self) -> None:
         """Empty segments with wildcard=allow → allow."""
-        result = evaluate_bash_command(
-            "export BOGUS=true bogus", make_config(allowed=["^ls"], wildcard="allow")
-        )
+        result = evaluate_bash_command("export BOGUS=true bogus", make_config(allowed=["^ls"], wildcard="allow"))
         assert result["status"] == "allow"
 
     def test_empty_segments_wildcard_deny(self) -> None:
         """Empty segments with wildcard=deny → deny."""
-        result = evaluate_bash_command(
-            "export BOGUS=true bogus", make_config(allowed=["^ls"], wildcard="deny")
-        )
+        result = evaluate_bash_command("export BOGUS=true bogus", make_config(allowed=["^ls"], wildcard="deny"))
         assert result["status"] == "deny"
 
     def test_empty_segments_no_patterns_allows(self) -> None:
@@ -616,16 +612,12 @@ class TestResultStructure:
 
     def test_export_bogus_rejected(self) -> None:
         """'export BOGUS=true bogus' → ask (regression for bug 1: empty segments wildcard policy)."""
-        result = evaluate_bash_command(
-            "export BOGUS=true bogus", make_config(allowed=["^ls"])
-        )
+        result = evaluate_bash_command("export BOGUS=true bogus", make_config(allowed=["^ls"]))
         assert result["status"] == "ask"
 
     def test_export_bogus_reason_not_auto_approved(self) -> None:
         """Reason should NOT contain 'auto-approved' or 'matches allowed pattern' (regression for bug 2)."""
-        result = evaluate_bash_command(
-            "export BOGUS=true bogus", make_config(allowed=["^ls"])
-        )
+        result = evaluate_bash_command("export BOGUS=true bogus", make_config(allowed=["^ls"]))
         reason = result["reason"].lower()
         assert "auto-approved" not in reason, f"Reason should not contain 'auto-approved': {reason}"
         assert "matches allowed pattern" not in reason, f"Reason should not contain 'matches allowed pattern': {reason}"

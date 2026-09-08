@@ -157,9 +157,9 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     any_segment_not_allowed = False
 
     # Default values for redirection results (initialized before loop so they're always defined).
-    output_result: dict = {"status": "allow", "reason": "no output redirection"}
-    input_result: dict = {"status": "allow", "reason": "no input redirection"}
-    bg_result: dict = {"status": "allow", "reason": "no background execution"}
+    output_result: dict[str, Any] = {"status": "allow", "reason": "no output redirection"}
+    input_result: dict[str, Any] = {"status": "allow", "reason": "no input redirection"}
+    bg_result: dict[str, Any] = {"status": "allow", "reason": "no background execution"}
 
     # Collect all matched patterns across ALL segments (joined into one reason, like TS)
 
@@ -319,7 +319,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                                 if matched:
                                     all_matched_patterns.extend(matching_patterns)
                                 else:
-                                    non_match_names.add(first if first != full_cmd else full_cmd)
+                                    non_match_names.add(first if first != full_cmd else full_cmd)  # noqa: B023
 
                         # Increment depth when entering a substitution.
                         new_depth = depth + (1 if isinstance(node, (CmdSubst, ProcSubst)) else 0)
