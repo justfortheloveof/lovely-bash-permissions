@@ -299,9 +299,12 @@ class TestJsonOutputFormat:
 
             from lovely_bash_permissions.devin_cli import handle_test
 
-            with patch.dict(
-                os.environ,
-                {"DEVIN_GLOBAL_CONFIG_DIR": devin_dir, "DEVIN_PROJECT_DIR": devin_dir},
+            with (
+                patch.dict(
+                    os.environ,
+                    {"DEVIN_GLOBAL_CONFIG_DIR": devin_dir, "DEVIN_PROJECT_DIR": devin_dir},
+                ),
+                patch("lovely_bash_permissions.config.manager.load_permissions_config", return_value={}),
             ):
                 captured = io.StringIO()
                 with patch("sys.stdout", captured), patch("sys.exit"):

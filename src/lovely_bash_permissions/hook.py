@@ -112,15 +112,15 @@ def process_hook_event(event: dict[str, Any]) -> dict[str, Any]:
     try:
         manager = PermissionsManager(project_dir)
         raw_config = manager.get_lovely_config()
-    except Exception as e:  # noqa: BLE001
-        print(f"error: {e}", file=sys.stderr)
-        return {"action": "block", "reason": str(e)}
+    except (FileNotFoundError, OSError):
+        print("error: permissions config load failed", file=sys.stderr)
+        return {"action": "block", "reason": "permissions config load failed"}
 
     try:
         config = get_effective_bash_config(raw_config.get("bash"), project_dir)
-    except Exception as e:  # noqa: BLE001
-        print(f"error: {e}", file=sys.stderr)
-        return {"action": "block", "reason": str(e)}
+    except (ValueError, FileNotFoundError, OSError):
+        print("error: effective bash config load failed", file=sys.stderr)
+        return {"action": "block", "reason": "effective bash config load failed"}
 
     result = evaluate_bash_command(command, config)
     status = result.get("status", "ask")

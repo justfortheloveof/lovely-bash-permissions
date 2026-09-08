@@ -66,7 +66,7 @@ def read_jsonc_file(file_path: str) -> dict[str, Any] | None:
 
     try:
         text = path.read_text(encoding="utf-8")
-    except Exception as e:  # noqa: BLE001
+    except (OSError, UnicodeDecodeError) as e:
         print(f"error reading {file_path}: {e}", file=sys.stderr)
         return None
     value = parse_jsonc(text)
