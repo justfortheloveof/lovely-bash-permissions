@@ -85,13 +85,14 @@ def is_record(value: Any) -> bool:
 
 **File**: `src/lovely_bash_permissions/config/jsonc.py` (edit)
 
-**What it does**: Convert json5's structured parse errors into readable messages. Currently our parser just says `"invalid JSONC"` — json5's exceptions carry line/column info we can surface.
+**What it does**: Convert json5's structured parse errors into readable messages.
 
 **Instructions**:
-1. Catch `json5.JSON5DecodeError` (or ValueError) in `parse_jsonc`.
-2. In `read_jsonc_file`, format the error into a message like `"error parsing {file_path}: expected ',' or '}' at line 3 col 5"`.
+1. Define custom `JSONCDecodeError(ValueError)` exception class with `.line` and `.column` attributes extracted from json5's error message string.
+2. In `parse_jsonc`, catch ValueError, extract line/col from `<file>:<line> Unexpected ... at column <n>` format, raise JSONCDecodeError.
+3. In `read_jsonc_file`, catch JSONCDecodeError and format into: `"error parsing {file_path}: expected ... at line X col Y"`.
 
-**Tests**: Verify error messages from invalid configs contain position info.
+**Tests**: Added `test_error_messages_enriched_with_position`, updated invalid-input tests to expect exception.
 
 ---
 

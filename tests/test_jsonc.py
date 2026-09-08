@@ -6,6 +6,7 @@ import tempfile
 import pytest
 
 from lovely_bash_permissions.config.jsonc import (
+    JSONCDecodeError,
     is_record,
     parse_jsonc,
     read_jsonc_file,
@@ -40,10 +41,11 @@ class TestParseJsonc:
         assert result == {"a": 1, "b": [2, 3]}
 
     def test_parse_invalid_jsonc(self) -> None:
-        """Malformed JSONC returns None."""
-        assert parse_jsonc("{invalid}") is None
-        assert parse_jsonc('{"a": }') is None
-        assert parse_jsonc("trailing, comma}") is None
+        """Malformed JSONC raises JSONCDecodeError with line/column info."""
+        for bad in ("{invalid}", '{"a": }', "trailing, comma}"):
+            err = pytest.raises(JSONCDecodeError, lambda b=bad: parse_jsonc(b))
+            assert err.value.line > 0
+            assert err.value.column > 0
 
     def test_parse_with_bom(self) -> None:
         """File starting with BOM parses correctly."""
@@ -126,16 +128,25 @@ class TestParseJsonc:
         assert result == {"a": 1}
 
     def test_empty_string(self) -> None:
-        result = parse_jsonc("")
-        assert result is None
+        with pytest.raises(JSONCDecodeError):
+            parse_jsonc("")
 
     def test_whitespace_only(self) -> None:
-        result = parse_jsonc("   \n\t  ")
-        assert result is None
+        with pytest.raises(JSONCDecodeError):
+            parse_jsonc("   \n\t  ")
 
     def test_invalid_json(self) -> None:
-        result = parse_jsonc("{invalid}")
-        assert result is None
+        with pytest.raises(JSONCDecodeError):
+            parse_jsonc("{invalid}")
+
+    def test_error_messages_enriched_with_position(self) -> None:
+        """Parse errors from json5 carry line/column position info."""
+        err = pytest.raises(JSONCDecodeError, lambda: parse_jsonc("{bad}"))
+        assert err.value.line > 0
+        assert err.value.column > 0
+        # repr includes position details from json5
+        msg = str(err.value)
+        assert "column" in msg.lower()
 
     def test_nested_objects(self) -> None:
         result = parse_jsonc('{"outer": {"inner": "value"}}')
@@ -293,7 +304,7 @@ class TestReadJsoncFile:
     def test_null_value_treated_as_invalid(self) -> None:
         """Valid JSON null value is treated as invalid (empty/falsy), same as empty string."""
         result = parse_jsonc("null")
-        assert result is None
+        assert result is None  # null parses as valid JSON, returns literal None
 
     def test_encoding_error_prints_to_stderr(self, capsys: pytest.CaptureFixture[str]) -> None:
         """File with invalid UTF-8 bytes prints 'error reading' to stderr."""
