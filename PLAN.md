@@ -63,7 +63,7 @@ lovely-bash-permissions devin-cli ❯ uv run lovely-devin-permissions -t 'echo $
 
 ### Number 7
 
-**TODO** `_word_value` helper duplicated — conceptually reimplemented in `evaluate.py`; should use single source of truth from `inspect.py`.
+**RESOLVED** `_word_value` already uses single source of truth from `inspect.py`; evaluate.py properly imports and uses it. No duplication remains.
 
 ### Number 8
 

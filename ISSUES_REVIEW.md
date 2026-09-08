@@ -42,7 +42,7 @@ Both functions manually walked shfmt JSON dicts (`node.get("Type")`, `isinstance
 
 Multiple locations catch all exceptions with `except Exception as e: # noqa: BLE001` — the noqa comment suppresses the lint warning rather than fixing it. E.g., `PermissionsManager._load()` swallows any error from config loading without distinguishing file-not-found from parse errors. Should catch specific exceptions (FileNotFoundError, ValueError) so callers get actionable error info.
 
-## 7. `_word_value` helper duplicated across files (low)
+## 7. `_word_value` helper duplicated across files (low) [resolved]
 **Files:** `inspect.py`, imported by `segments.py` and `cli.py`
 
 The `_word_value()` helper lives in `inspect.py` but is re-implemented conceptually in `_extract_subshell_contents()` and elsewhere. If the literal-concatenation logic ever needs updating (e.g., handling new node types), all copies must be updated. It should be the single source of truth (it already is, but `evaluate.py` ignores it).
@@ -68,5 +68,6 @@ There's an empty section labeled `# Type mapping from shfmt's JSON to our datacl
 - **High impact (1):** duplicate aggregation logic (#4)
 - **Medium impact (2):** redundant redir collection (#1), duplicate blocked-pattern logic (#3)
 - **Low–medium (1):** bare excepts with noqa (#6)
-- **Low / documentation (4):** confusing docstring (#8), stale cache (#9), duplicated helper awareness (#7), unused section header (#10)
+- **Low / documentation (3):** confusing docstring (#8), stale cache (#9), unused section header (#10)
 - **Fixed (4):** redundant redir collection (#1), empty redirections in segments.py (#2), raw-JSON traversal (#5), duplicate blocked-pattern logic (#3)
+- **Resolved (1):** _word_value helper duplication (#7)
