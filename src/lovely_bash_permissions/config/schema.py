@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from enum import Enum
 
-from pydantic import BaseModel, ValidationInfo, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
 
 class PermissionLevel(str, Enum):
@@ -12,10 +12,32 @@ class PermissionLevel(str, Enum):
     ask = "ask"
 
 
+class OutputRedirectionPolicy(BaseModel):
+    """Policy for output redirection.
+
+    Accepts either a plain ``PermissionLevel`` string (\"allow\", \"deny\", \"ask\")
+    or a dict with optional keys:
+
+    - ``*`` — wildcard/default for any redirection not otherwise matched
+    - ``stdout_to_dev_null`` — level for ``>/dev/null``-style discards
+    - ``stderr_to_dev_null`` — level for ``2>/dev/null``-style discards
+    - ``stderr_to_stdout`` — level for ``2>&1``-style fd duplication
+    """
+
+    star: PermissionLevel | None = Field(None, alias="*")
+    stdout_to_dev_null: PermissionLevel | None = None
+    stderr_to_dev_null: PermissionLevel | None = None
+    stderr_to_stdout: PermissionLevel | None = None
+
+
 class ToolConfig(BaseModel):
     permission: PermissionLevel | None = None
     blocked_paths_regex: list[str] = []
     allowed_cmds_regex: list[str] = []
+    output_redirection: OutputRedirectionPolicy | PermissionLevel | None = None
+    input_redirection: PermissionLevel | None = None
+    background_execution: PermissionLevel | None = None
+    subshell: PermissionLevel | None = None
 
     @field_validator("blocked_paths_regex", "allowed_cmds_regex", mode="before")
     @classmethod
@@ -40,8 +62,6 @@ _TOOL_RECOGNIZED_FIELDS = frozenset(
         "perm",
         "blocked_paths_regex",
         "allowed_cmds_regex",
-        "allow",
-        "deny",
         "prompt",
         "*",
         "subshell",

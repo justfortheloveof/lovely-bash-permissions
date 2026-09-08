@@ -1,6 +1,11 @@
 from pydantic import ValidationError
 
-from lovely_bash_permissions.config.schema import PermissionLevel, PermissionsConfig, ToolConfig
+from lovely_bash_permissions.config.schema import (
+    OutputRedirectionPolicy,
+    PermissionLevel,
+    PermissionsConfig,
+    ToolConfig,
+)
 
 
 def test_valid_config() -> None:
@@ -54,11 +59,6 @@ def test_invalid_regex() -> None:
 
 def test_valid_allowed_cmds_regex() -> None:
     config = {"bash": {"allowed_cmds_regex": ["^ls"]}}
-    PermissionsConfig.model_validate(config)
-
-
-def test_valid_allow_deny_lists() -> None:
-    config = {"bash": {"allow": ["git"], "deny": ["rm"]}}
     PermissionsConfig.model_validate(config)
 
 
@@ -163,3 +163,64 @@ def test_unrecognized_tool_field_warns() -> None:
         errors = exc.errors()
         assert len(errors) == 1
         assert "unrecognized fields" in errors[0]["msg"]
+
+
+def test_tool_config_output_redirection_string() -> None:
+    """Valid string policy accepted as output_redirection."""
+    config: ToolConfig = ToolConfig(
+        output_redirection="allow"  # type: ignore[arg-type]
+    )
+    assert isinstance(config.output_redirection, PermissionLevel)
+    assert config.output_redirection == PermissionLevel.allow
+
+    config2: ToolConfig = ToolConfig(
+        output_redirection="deny"  # type: ignore[arg-type]
+    )
+    assert config2.output_redirection == PermissionLevel.deny
+
+    config3: ToolConfig = ToolConfig(
+        output_redirection="ask"  # type: ignore[arg-type]
+    )
+    assert config3.output_redirection == PermissionLevel.ask
+
+
+def test_tool_config_output_redirection_dict() -> None:
+    """Valid dict policy accepted as output_redirection."""
+    config: ToolConfig = ToolConfig(
+        output_redirection={  # type: ignore[arg-type]
+            "*": "allow",
+            "stdout_to_dev_null": "deny",
+            "stderr_to_dev_null": None,
+            "stderr_to_stdout": "ask",
+        }
+    )
+    policy = config.output_redirection
+    assert isinstance(policy, OutputRedirectionPolicy)
+    assert policy.star == PermissionLevel.allow
+    assert policy.stdout_to_dev_null == PermissionLevel.deny
+    assert policy.stderr_to_dev_null is None
+    assert policy.stderr_to_stdout == PermissionLevel.ask
+
+
+def test_allow_deny_shorthand_rejected() -> None:
+    """Shorthand allow/deny fields are no longer recognized (explicitly removed)."""
+    config = {"bash": {"allow": ["git"], "deny": ["rm"]}}
+    try:
+        PermissionsConfig.model_validate(config)
+    except ValidationError as exc:
+        errors = exc.errors()
+        assert len(errors) == 1
+        assert "unrecognized fields" in errors[0]["msg"]
+        assert "allow" in errors[0]["msg"]
+
+
+def test_tool_config_input_background_subshell_levels() -> None:
+    """All four bash permission fields accept allow/ask/deny."""
+    config = ToolConfig(
+        input_redirection=PermissionLevel.allow,
+        background_execution=PermissionLevel.ask,
+        subshell=PermissionLevel.deny,
+    )
+    assert config.input_redirection == PermissionLevel.allow
+    assert config.background_execution == PermissionLevel.ask
+    assert config.subshell == PermissionLevel.deny
