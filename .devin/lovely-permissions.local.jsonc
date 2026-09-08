@@ -1,0 +1,1 @@
+{"*": "allow", "output_redirection": {"*": "ask", "stderr_to_stdout": "deny"}}

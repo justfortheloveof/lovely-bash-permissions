@@ -6,7 +6,7 @@ Three independent changes to the config system. Each step is self-contained so a
 
 ---
 
-## Step 1a: Replace `extra="allow"` with `extra="forbid"` in PermissionsConfig
+- [x] ## Step 1a: Replace `extra="allow"` with `extra="forbid"` in PermissionsConfig
 
 **File:** `src/lovely_bash_permissions/config/schema.py`
 **Test file:** `tests/test_schema.py`
@@ -47,7 +47,7 @@ Three independent changes to the config system. Each step is self-contained so a
 
 ---
 
-## Step 1b: Remove `extra="allow"` from ToolConfig (it already forbids)
+- [x] ## Step 1b: Remove `extra="allow"` from ToolConfig (it already forbids)
 
 **File:** `src/lovely_bash_permissions/config/schema.py`
 **Test file:** `tests/test_schema.py`

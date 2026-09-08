@@ -108,11 +108,12 @@ def process_hook_event(event: dict[str, Any]) -> dict[str, Any]:
 
     project_dir = event.get("project_dir", ".")
 
+    manager: PermissionsManager | None = None
     try:
         manager = PermissionsManager(project_dir)
         raw_config = manager.get_lovely_config()
     except (FileNotFoundError, OSError):
-        reason = manager.get_error() or "permissions config load failed"
+        reason = (manager and manager.get_error()) or "permissions config load failed"
         return {"action": "ask", "reason": f"config error (fallback to ask): {reason}"}
 
     try:
