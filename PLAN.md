@@ -67,12 +67,12 @@ lovely-bash-permissions devin-cli ❯ uv run lovely-devin-permissions -t 'echo $
 
 ### Number 8
 
-**TODO** `_resolve_output_level()` docstring says "Any-asks semantics" but implementation uses deny-first priority — misleading documentation.
+**DONE (b1cb4cc)** Fixed misleading docstring in `_resolve_output_level()` — renamed from "Any-asks semantics" to "Deny-first escalation" with clarified precedence rule.
 
 ### Number 9
 
-**TODO** Stale `find_shfmt()` cache — lru_cache doesn't check if binary exists/moved, causing silent FileNotFoundError until process restart.
+**DONE (b1cb4cc)** `find_shfmt()` now checks if cached path still exists before returning; warns and re-searches if stale.
 
 ### Number 10
 
-**TODO** Unused converter section header in `converter.py` (~line 37) — dead space between orphaned header and actual converters.
+**DONE (b1cb4cc)** Removed orphaned "# Type mapping from shfmt's JSON to our dataclasses" section header in `converter.py`.
