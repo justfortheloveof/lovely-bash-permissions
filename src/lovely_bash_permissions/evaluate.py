@@ -326,9 +326,6 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                         overall_status = "deny"  # Validation failed, deny policy → reject outright
                     else:  # ask
                         overall_status = subshell_policy
-                elif overall_status == "ask":
-                    # All nested commands match and subshell_policy is ask — override segment-level ask with allow
-                    overall_status = "allow"
         if overall_status == "allow":
             if subshell_policy != "allow":
                 overall_status = subshell_policy

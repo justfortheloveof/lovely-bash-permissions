@@ -245,9 +245,10 @@ class TestEdgeCases:
 
     def test_command_substitution(self) -> None:
         segs = parse_segments("echo $(date)")
-        assert len(segs) == 1
+        assert len(segs) == 2
         assert segs[0]["command"] == "echo"
         assert len(segs[0]["arguments"]) == 1
+        assert segs[1]["command"] == "date"
 
     def test_invalid_bash_syntax(self) -> None:
         segs = parse_segments("((((")

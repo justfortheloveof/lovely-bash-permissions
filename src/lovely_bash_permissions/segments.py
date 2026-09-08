@@ -24,14 +24,17 @@ from .ast import (
     BinaryCmd,
     Block,
     CallExpr,
+    CmdSubst,
     File,
     FuncDecl,
     IfClause,
     Lit,
     OrCmd,
+    ProcSubst,
     Redir,
     Stmt,
     WhileClause,
+    Word,
 )
 from .converter import node_from_json
 from .inspect import _word_raw, _word_value
@@ -141,6 +144,9 @@ def _extract_segments(node: object, redirs: list[Redir] | None = None) -> list[d
                     "redirections": redir_dicts,
                 }
             )
+            # Recurse into arguments to find nested CmdSubst/ProcSubst redirections
+            for arg in node.args[1:]:
+                segments.extend(_extract_segments(arg, redirs))
 
     elif isinstance(node, (IfClause, WhileClause)):
         # Handle conditional blocks: extract from each branch.
@@ -156,6 +162,19 @@ def _extract_segments(node: object, redirs: list[Redir] | None = None) -> list[d
         if hasattr(node, "else_stmts") and node.else_stmts:
             for stmt in node.else_stmts:
                 segments.extend(_extract_segments(stmt))
+
+    elif isinstance(node, Word):
+        # Word nodes (arguments) may contain CmdSubst/ProcSubst in their parts.
+        # Recurse into each part to find nested redirections.
+        for part in node.parts:
+            segments.extend(_extract_segments(part))
+
+    elif isinstance(node, (CmdSubst, ProcSubst)):
+        # Command/process substitution: recurse into each stmt, passing inherited redirs.
+        if hasattr(node, "stmts") and node.stmts:
+            inherited = list(redirs or [])
+            for stmt in node.stmts:
+                segments.extend(_extract_segments(stmt, inherited))
 
     elif isinstance(node, (FuncDecl, Block)):
         # Function body / block: recurse into contained stmts

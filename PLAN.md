@@ -15,64 +15,34 @@ node /home/alx/repos/jftlo/lovely-devin-permissions/dist/hook.js --test 'cmd'
 
 ## ISSUES
 
-### Number 1
+### Number 1 — Nested command substitution redirections bypass permissions
 
-**DONE (31a51d4)** Fixed subshell permission bug.
+The first example requires user approval, as expected per global user config.
 
-The issue was in `evaluate_bash_command()` at lines ~319-320: when nested commands inside a subshell didn't match allowed patterns and `subshell_policy == "allow"`, it set `overall_status = "deny"` (auto-rejected). But "allow" policy means skip validation — failed validation should result in ask (user approval needed), not deny.
-
-Fix: changed the condition to check `overall_status == "deny"` first (blocked paths already set this), then handle each policy: allow → ask, deny → deny, ask → ask.
-
-Both `echo $(herdr)` and `herdr` now correctly return ASK (REQUIRES-USER-APPROVAL) instead of block.
-
-Unexpected:
 ```
-lovely-bash-permissions devin-cli ❯ uv run lovely-devin-permissions -t 'echo $(herdr)'
+lovely-bash-permissions devin-cli ❯ uv run lovely-devin-permissions -t 'ls > /tmp/deleteme'
 {
-  "decision": "block",
-  "reason": "[♡ perms: ❤️ auto-rejected] \"herdr\" commands inside subshell do not match allowed patterns.",
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
     "updatedInput": {
-      "command": ": '[♡ perms: ❤️ auto-rejected] \"herdr\" commands inside subshell do not match allowed patterns.' ; echo $(herdr)"
+      "command": ": '[♡ perms: 💛 REQUIRES-USER-APPROVAL] output redirection requires approval.' ; ls > /tmp/deleteme"
     }
   }
 }
 ```
 
-### Number 3
+This second example shows the issue: a nested command's redirection inside `$()` bypasses the permissions system — it was auto-approved instead of requiring approval.
 
-**DONE (75dce53)** Consolidated duplicate blocked-pattern logic into single shared helper.
+**Research findings (completed):**
+- segments.py `_extract_segments()` already has CmdSubst/ProcSubst handling — nested redirections ARE extracted correctly now.
+- rules.py `_find_redirs()` already has CmdSubst recursion — raw AST path also sees nested redirects.
+- Verified: `parse_segments('echo $(ls > /tmp/deleteme)')` now returns 2 segments, the second with redirections.
+- Verified: `evaluate_bash_command()` with explicit config returns "ask" for nested redirects.
 
-- `deny_item_to_pattern()` renamed to `_item_to_anchored_pattern()` (generic name, applies to both allow and deny lists)
-- `effective_bash.py` now uses shared helper for both allow and deny pattern conversion
-- `deny_item_to_pattern()` kept as backward-compatible alias
-- 542 tests pass, ruff lint clean
+**Remaining bug:** The CLI's effective config has `subshell: "allow"`, so subshell policy passes through. But the output_redirection check (dict-form with `*` = "ask") should still trigger "ask". Need to investigate why CLI test shows auto-approved — possibly the config loader doesn't pass subshell policy correctly, or output_redirection dict-form resolution is broken for nested segments.
 
-
-### Number 6
-
-**DONE (2e0571b)** Replaced bare except Exception with specific exception types.
-
-- jsonc.py: OSError, UnicodeDecodeError for file read operations
-- manager.py: kept broad Exception with noqa (intentional error-handling code)
-- devin_cli.py: OSError for file write, ValueError/FileNotFoundError/OSError for config loading
-- hook.py: FileNotFoundError/OSError for config load, same plus ValueError for bash config
-- All noqa: BLE001 suppressions removed where specific exceptions used
-- 542 tests pass
-
-### Number 7
-
-**RESOLVED** `_word_value` already uses single source of truth from `inspect.py`; evaluate.py properly imports and uses it. No duplication remains.
-
-### Number 8
-
-**DONE (b1cb4cc)** Fixed misleading docstring in `_resolve_output_level()` — renamed from "Any-asks semantics" to "Deny-first escalation" with clarified precedence rule.
-
-### Number 9
-
-**DONE (b1cb4cc)** `find_shfmt()` now checks if cached path still exists before returning; warns and re-searches if stale.
-
-### Number 10
-
-**DONE (b1cb4cc)** Removed orphaned "# Type mapping from shfmt's JSON to our dataclasses" section header in `converter.py`.
+**Next steps:**
+1. Trace CLI config loading to find where subshell/output_redirection policy gets lost
+2. Fix the config pipeline so nested redirections trigger approval regardless of subshell policy
+3. Add tests in `tests/test_nested_redirections.py` verifying nested redirects require approval
+4. Verify with CLI: `uv run lovely-devin-permissions --test 'echo $(ls > /tmp/deleteme)'` returns ask/deny, not approve

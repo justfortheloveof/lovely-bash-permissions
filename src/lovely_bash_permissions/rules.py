@@ -88,6 +88,9 @@ def _find_redirs(node: dict[str, Any]) -> list[dict[str, Any]]:
     # CallExpr has Redirs directly on the node itself
     if node.get("Type") == "CallExpr":
         redirs.extend(node.get("Redirs", []))
+        # Recurse into arguments to find CmdSubst/ProcSubst redirections
+        for arg in node.get("Args", []):
+            redirs.extend(_find_redirs(arg))
 
     # BinaryCmd: redirects live on X/Y wrapper nodes (left/right operands).
     # The converter merges these into a single ``redirs`` field for the
@@ -104,6 +107,18 @@ def _find_redirs(node: dict[str, Any]) -> list[dict[str, Any]]:
         redirs.extend(_find_redirs(left))
         right = node.get("Right", {})
         redirs.extend(_find_redirs(right))
+
+    # CmdSubst / ProcSubst: recurse into each stmt's Cmd (raw JSON has "Stmts")
+    if node.get("Type") in ("CmdSubst", "ProcSubst"):
+        for stmt in node.get("Stmts", []):
+            redirs.extend(stmt.get("Redirs", []))
+            redirs.extend(_find_redirs(stmt.get("Cmd", {}) or {}))
+
+    # Word: recurse into parts (may contain CmdSubst/ProcSubst).
+    # Word nodes lack a "Type" field, so detect by presence of "Parts".
+    if node.get("Parts"):
+        for part in node["Parts"]:
+            redirs.extend(_find_redirs(part))
 
     return redirs
 
