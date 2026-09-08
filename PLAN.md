@@ -24,13 +24,7 @@ Issues 6–8 (precedence docs, caching, richer error messages) are deferred to a
 
 ### Step 2a: Centralize trailing-period stripping into shared utility
 
-**Completed**: Field validator `strip_trailing_period` in ToolConfig strips trailing periods. Removed `.rstrip(".")` from effective_bash.py loops. Added `test_trailing_period_stripped()`.
-
-**Instructions**:
-1. Add `_strip_trailing_period(s: str) -> str` at top of `schema.py`.
-2. Update `ToolConfig.blocked_paths_regex` and `allowed_cmds_regex` field validators to call `_strip_trailing_period()` on each entry.
-3. In `effective_bash.py`, remove the `.rstrip(".")` calls — patterns are already stripped by validation.
-4. Add `test_trailing_period_stripped()` to `tests/test_schema.py`: config with `"^git."` → accepted, stored as `"^git"`.
+**Completed**: Field validator `strip_trailing_period` in ToolConfig strips trailing periods. Removed `.rstrip(".")` from effective_bash.py loops (both allowed_cmds_regex and blocked_paths_regex). Added `test_trailing_period_stripped()` to verify. Fixed ruff PERF402 false positives with `# noqa: PERF402` comments. Fixed PLAN.md ruff format issue.
 
 ---
 
