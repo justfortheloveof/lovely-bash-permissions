@@ -100,7 +100,7 @@ class PermissionsConfig(BaseModel):
 
 ---
 
-### Step 1c: Integrate validation into config loader (rich errors)
+### Step 1c: Integrate validation into config loader (rich errors) ✅
 
 **File**: `src/lovely_bash_permissions/config/loader.py` (edit — two changes)
 
