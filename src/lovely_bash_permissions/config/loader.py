@@ -65,11 +65,11 @@ def merge_deep(
     return result, warnings
 
 
-def load_permissions_config(project_dir: str) -> tuple[dict[str, Any], list[str]]:
+def load_permissions_config(project_dir: str) -> tuple[dict[str, Any], list[str], list[str]]:
     """Load and merge lovely-devin-permissions config.
 
     Returns:
-        Tuple of (merged config dict, list of warning strings for skipped files).
+        Tuple of (merged config dict, warnings list, validation_errors list).
 
     Raises:
         FileNotFoundError: if none of the config files exist (all missing).
@@ -96,6 +96,7 @@ def load_permissions_config(project_dir: str) -> tuple[dict[str, Any], list[str]
         raise FileNotFoundError(f"no valid lovely-permissions config found\n{details}")
 
     warnings: list[str] = []
+    validation_errors: list[str] = []
     for path, reason in parse_errors:
         warnings.append(f"skipped invalid config file: {path} ({reason})")
 
@@ -110,5 +111,6 @@ def load_permissions_config(project_dir: str) -> tuple[dict[str, Any], list[str]
         PermissionsConfig.model_validate(merged)
     except ValueError as exc:
         warnings.append(f"config validation error: {exc}")
+        validation_errors.append(str(exc))
 
-    return merged, warnings
+    return merged, warnings, validation_errors

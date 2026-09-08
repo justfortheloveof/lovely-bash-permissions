@@ -155,7 +155,7 @@ class TestLoadPermissionsConfig:
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
             lambda: temp_global[1],
         )
-        merged, _ = load_permissions_config(str(temp_global[0]))
+        merged, _, _ = load_permissions_config(str(temp_global[0]))
         assert merged == {"read": {"permission": "allow"}}
 
     def test_project_only(self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]) -> None:
@@ -169,7 +169,7 @@ class TestLoadPermissionsConfig:
         )
         project_file = temp_project[1] / "lovely-permissions.jsonc"
         self._write_jsonc(project_file, {"bash": {"permission": "ask"}})
-        merged, _ = load_permissions_config(str(temp_project[0]))
+        merged, _, _ = load_permissions_config(str(temp_project[0]))
         assert merged == {"bash": {"permission": "ask"}}
 
     def test_local_only(self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]) -> None:
@@ -183,7 +183,7 @@ class TestLoadPermissionsConfig:
         )
         local_file = temp_project[1] / "lovely-permissions.local.jsonc"
         self._write_jsonc(local_file, {"write": {"permission": "deny"}})
-        merged, _ = load_permissions_config(str(temp_project[0]))
+        merged, _, _ = load_permissions_config(str(temp_project[0]))
         assert merged == {"write": {"permission": "deny"}}
 
     def test_project_overrides_global(self, monkeypatch: pytest.MonkeyPatch, temp_global: tuple[Path, Path]) -> None:
@@ -202,7 +202,7 @@ class TestLoadPermissionsConfig:
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
             lambda: temp_global[1],
         )
-        merged, _ = load_permissions_config(project_dir)
+        merged, _, _ = load_permissions_config(project_dir)
         assert merged == {"read": {"permission": "allow"}}
 
     def test_local_overrides_project(self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]) -> None:
@@ -220,7 +220,7 @@ class TestLoadPermissionsConfig:
         local_file = temp_project[1] / "lovely-permissions.local.jsonc"
         self._write_jsonc(local_file, {"read": {"permission": "ask"}})
 
-        merged, _ = load_permissions_config(str(temp_project[0]))
+        merged, _, _ = load_permissions_config(str(temp_project[0]))
         assert merged == {"read": {"permission": "ask"}}
 
     def test_three_level_override(self, monkeypatch: pytest.MonkeyPatch, temp_global: tuple[Path, Path]) -> None:
@@ -240,7 +240,7 @@ class TestLoadPermissionsConfig:
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
             lambda: temp_global[1],
         )
-        merged, _ = load_permissions_config(project_dir)
+        merged, _, _ = load_permissions_config(project_dir)
         assert merged == {"tool": {"perm": "allow"}}
 
     def test_merge_different_tools(self, monkeypatch: pytest.MonkeyPatch, temp_global: tuple[Path, Path]) -> None:
@@ -258,7 +258,7 @@ class TestLoadPermissionsConfig:
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
             lambda: temp_global[1],
         )
-        merged, _ = load_permissions_config(project_dir)
+        merged, _, _ = load_permissions_config(project_dir)
         assert merged == {
             "read": {"permission": "allow"},
             "bash": {"permission": "ask"},
@@ -285,7 +285,7 @@ class TestLoadPermissionsConfig:
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
             lambda: temp_global[1],
         )
-        merged, _ = load_permissions_config(project_dir)
+        merged, _, _ = load_permissions_config(project_dir)
         assert merged["bash"]["permission"] == "ask"
         assert merged["bash"]["allowed_cmds_regex"] == ["^ls", "^cat"]
         assert merged["bash"]["blocked_paths_regex"] == ["/tmp/"]
@@ -313,7 +313,7 @@ class TestLoadPermissionsConfig:
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
             lambda: temp_global[1],
         )
-        merged, _ = load_permissions_config(project_dir)
+        merged, _, _ = load_permissions_config(project_dir)
         assert merged["bash"]["allowed_cmds_regex"] == ["^ls", "^cat", "^mkdir"]
 
     def test_invalid_json_all_files_raises(
@@ -397,7 +397,7 @@ class TestLoadPermissionsConfig:
         )
         project_file = temp_project[1] / "lovely-permissions.jsonc"
         self._write_jsonc(project_file, {"bash": {"permission": "alow"}})
-        _, warnings = load_permissions_config(str(temp_project[0]))
+        _, warnings, _errors = load_permissions_config(str(temp_project[0]))
         assert len(warnings) >= 1
         assert any("alow" in w.lower() for w in warnings)
 
@@ -412,7 +412,7 @@ class TestLoadPermissionsConfig:
         )
         project_file = temp_project[1] / "lovely-permissions.jsonc"
         self._write_jsonc(project_file, {"bash": {"blocked_paths_regex": ["["]}})
-        _, warnings = load_permissions_config(str(temp_project[0]))
+        _, warnings, _errors = load_permissions_config(str(temp_project[0]))
         assert len(warnings) >= 1
         combined = " ".join(warnings)
         assert "blocked_paths_regex" in combined
@@ -420,7 +420,7 @@ class TestLoadPermissionsConfig:
     def test_multiple_errors_all_reported(
         self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
     ) -> None:
-        """Multiple issues are returned as warnings."""
+        """Multiple issues are returned as warnings and validation errors."""
         tmpdir = tempfile.mkdtemp()
         config_dir = Path(tmpdir) / ".config" / "devin"
         config_dir.mkdir(parents=True)
@@ -433,11 +433,12 @@ class TestLoadPermissionsConfig:
             project_file,
             {"bash": {"permission": "alow", "blocked_paths_regex": ["["]}},
         )
-        _, warnings = load_permissions_config(str(temp_project[0]))
+        _, warnings, errors = load_permissions_config(str(temp_project[0]))
         assert len(warnings) >= 1
         # At least one warning should mention bash
         tool_lines = [w for w in warnings if "bash" in w]
         assert len(tool_lines) >= 1
+        assert len(errors) >= 1
 
     def test_json_with_comments_works(self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]) -> None:
         """JSONC files with comments parse correctly."""
@@ -450,5 +451,108 @@ class TestLoadPermissionsConfig:
         )
         project_file = temp_project[1] / "lovely-permissions.jsonc"
         project_file.write_text('{\n  // This is a comment\n  "bash": {\n    "permission": "allow"\n  }\n}')
-        merged, _ = load_permissions_config(str(temp_project[0]))
+        merged, _, _ = load_permissions_config(str(temp_project[0]))
         assert merged == {"bash": {"permission": "allow"}}
+
+    def test_load_returns_validation_errors_list(
+        self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
+    ) -> None:
+        """Config with invalid regex returns non-empty validation_errors list."""
+        tmpdir = tempfile.mkdtemp()
+        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir.mkdir(parents=True)
+        monkeypatch.setattr(
+            "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+            lambda: config_dir,
+        )
+        project_file = temp_project[1] / "lovely-permissions.jsonc"
+        self._write_jsonc(project_file, {"bash": {"blocked_paths_regex": ["["]}})
+        _, warnings, errors = load_permissions_config(str(temp_project[0]))
+        assert len(warnings) >= 1
+        assert len(errors) == 1
+        combined = " ".join(warnings)
+        assert "blocked_paths_regex" in combined
+
+    def test_manager_validation_errors_property(
+        self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
+    ) -> None:
+        """PermissionsManager exposes validation_errors property."""
+        from lovely_bash_permissions.config.manager import PermissionsManager
+
+        tmpdir = tempfile.mkdtemp()
+        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir.mkdir(parents=True)
+        monkeypatch.setattr(
+            "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+            lambda: config_dir,
+        )
+        project_file = temp_project[1] / "lovely-permissions.jsonc"
+        self._write_jsonc(project_file, {"bash": {"blocked_paths_regex": ["["]}})
+
+        manager = PermissionsManager(str(temp_project[0]))
+        assert len(manager.validation_errors) >= 1
+        combined = " ".join(manager.validation_errors)
+        assert "blocked_paths_regex" in combined
+
+    def test_get_lovely_config_raises_on_errors(
+        self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
+    ) -> None:
+        """get_lovely_config returns config; errors exposed via validation_errors property."""
+        from lovely_bash_permissions.config.manager import PermissionsManager
+
+        tmpdir = tempfile.mkdtemp()
+        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir.mkdir(parents=True)
+        monkeypatch.setattr(
+            "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+            lambda: config_dir,
+        )
+        project_file = temp_project[1] / "lovely-permissions.jsonc"
+        self._write_jsonc(project_file, {"bash": {"blocked_paths_regex": ["["]}})
+
+        manager = PermissionsManager(str(temp_project[0]))
+        assert len(manager.validation_errors) >= 1
+        combined = " ".join(manager.validation_errors)
+        assert "blocked_paths_regex" in combined
+
+    def test_has_validation_errors_property(
+        self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
+    ) -> None:
+        """has_validation_errors returns True when config has errors."""
+        from lovely_bash_permissions.config.manager import PermissionsManager
+
+        tmpdir = tempfile.mkdtemp()
+        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir.mkdir(parents=True)
+        monkeypatch.setattr(
+            "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+            lambda: config_dir,
+        )
+        project_file = temp_project[1] / "lovely-permissions.jsonc"
+        self._write_jsonc(project_file, {"bash": {"blocked_paths_regex": ["["]}})
+
+        manager = PermissionsManager(str(temp_project[0]))
+        assert manager.has_validation_errors is True
+
+    def test_manager_no_errors_for_valid_config(
+        self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
+    ) -> None:
+        """has_validation_errors returns False when config is valid."""
+        from lovely_bash_permissions.config.manager import PermissionsManager
+
+        tmpdir = tempfile.mkdtemp()
+        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir.mkdir(parents=True)
+        monkeypatch.setattr(
+            "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+            lambda: config_dir,
+        )
+        project_file = temp_project[1] / "lovely-permissions.jsonc"
+        self._write_jsonc(project_file, {"bash": {"permission": "allow"}})
+        local_file = temp_project[1] / "lovely-permissions.local.jsonc"
+        self._write_jsonc(local_file, {})
+        global_file = config_dir / "lovely-permissions.jsonc"
+        self._write_jsonc(global_file, {})
+
+        manager = PermissionsManager(str(temp_project[0]))
+        assert manager.has_validation_errors is False

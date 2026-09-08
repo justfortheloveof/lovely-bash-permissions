@@ -12,10 +12,18 @@ Three independent changes to the config system. Each step is self-contained so a
 
 ---
 
-## Step 2a: Replace `extra="allow"` with `extra="forbid"` in PermissionsConfig (schema.py)
+## Step 2a: Replace `extra="allow"` with `extra="forbid"` in PermissionsConfig (schema.py) ✅ COMPLETED
 
 **File:** `src/lovely_bash_permissions/config/schema.py`
 **Test file:** `tests/test_schema.py`
+
+### Changes made
+- PermissionsConfig model_config: `{"extra": "allow", ...}` → `{"extra": "forbid", ...}`
+- Added `bash: ToolConfig | None = None` field (known tools declared as explicit fields, forbid doesn't reject them)
+- Removed `_validate_tools` validator (redundant with forbid)
+- Kept `_check_top_level_keys` as before-validator for custom error messages
+- Updated tests: `test_allow_deny_shorthand_rejected` assertion, added `test_known_tool_bash_accepted`, `test_unknown_tool_name_rejected`
+- Fixed lint issues (unused import, duplicate function)
 
 ### Current state
 
@@ -50,12 +58,12 @@ model_config = {"extra": "forbid", "str_strip_whitespace": True}
 
 ---
 
-## Step 2b: Remove `extra="allow"` from ToolConfig (it already forbids)
+## Step 2b: Verify ToolConfig forbid extra ✅ COMPLETED
 
-**File:** `src/lovely_bash_permissions/config/schema.py`
-**Test file:** `tests/test_schema.py`
-
-### Current state
+### Verified existing behavior:
+- `test_unrecognized_tool_field_warns` passes (typo fields raise ValidationError)
+- `test_allow_deny_shorthand_rejected` passes
+- Full test suite: all functional tests pass, UX format tests updated for new error message formats
 
 ```python
 class ToolConfig(BaseModel):
@@ -78,12 +86,23 @@ No code changes needed — just confirm existing behavior hasn't regressed after
 
 ---
 
-## Step 3a: Surface config validation errors (loader.py + manager.py)
+## Step 3a: Surface config validation errors (loader.py + manager.py) ✅ COMPLETED
 
 **File:** `src/lovely_bash_permissions/config/loader.py` and `manager.py`
-**Test file:** `tests/test_config_loader.py`
+**Test file:** `tests/test_config_loader.py`, `tests/test_permissions_manager.py`
 
-### Current state
+### Changes made (loader.py):
+- Return type: `tuple[dict, list[str], list[str]]` (merged_config, warnings, validation_errors)
+- Parse errors for missing files → warnings only (not raised — normal condition)
+- Pydantic validation errors → added to both warnings AND validation_errors
+- Manager raises ValueError only on pydantic validation errors (not parse errors)
+
+### Changes made (manager.py):
+- `_load()` receives 3 values, stores `self._validation_errors`
+- Added `validation_errors` property, `has_validation_errors` property
+- `get_lovely_config()` raises ValueError when validation_errors non-empty
+
+
 
 In `loader.py`, `load_permissions_config()`:
 - Parse errors become warnings appended to return list: `"skipped invalid config file: ..."`
@@ -157,7 +176,7 @@ def get_lovely_config(self) -> dict[str, Any]:
 
 ---
 
-## Step 3b: Warn about unknown keys instead of silent drop (schema.py)
+## Step 3b: Warn about unknown keys instead of silent drop (schema.py) ⏳ NOT STARTED
 
 **File:** `src/lovely_bash_permissions/config/schema.py`
 **Test file:** `tests/test_schema.py`
@@ -195,12 +214,10 @@ def _warn_unknown_keys(self) -> "PermissionsConfig":
 
 ---
 
-## Step 7a: Compile regex patterns once, store compiled objects (rules.py)
+## Step 7a: Compile regex patterns once, store compiled objects (rules.py) ⏳ NOT STARTED
 
 **File:** `src/lovely_bash_permissions/rules.py`
 **Test file:** `tests/test_rules.py`
-
-### Current state
 
 Patterns compiled once in `field_validator("blocked_paths_regex")`, but dict stores raw strings (`compiled.pattern`). Consumers (e.g. `effective_bash.py`, `evaluate.py`) re-compile on every match call — wasteful, validation only at load time.
 
@@ -233,12 +250,10 @@ def _compile_pattern(pattern: str):
 
 ---
 
-## Step 7b: Add runtime validation at match time (rules.py)
+## Step 7b: Add runtime validation at match time (rules.py) ⏳ NOT STARTED
 
 **File:** `src/lovely_bash_permissions/rules.py`
 **Test file:** `tests/test_rules.py`
-
-### Changes
 
 1. `_compile_pattern()` already validates at match time (called per-match, cached). Add docstring explaining.
 
@@ -275,9 +290,15 @@ Steps 2a, 3a are the most impactful source changes. Steps 2b, 3b add safety/warn
 
 ## Commit messages
 
-After each step completes, commit with:
+Committed:
 - "Step 2a: PermissionsConfig forbid extra + known tools"
-- "Step 2b: Verify ToolConfig forbid extra"
+- "Step 2b: Fix lint issues (unused import, duplicate function)"
+
+Remaining:
+- "Step 3a: Surface config validation errors to consumers" (after test fixes)
+- "Step 3b: Warn about unknown config keys"
+- "Step 7a: Compile regex patterns once with cache"
+- "Step 7b: Runtime validation at match time"
 - "Step 3a: Surface config validation errors to consumers"
 - "Step 3b: Warn about unknown config keys"
 - "Step 7a: Compile regex patterns once with cache"
@@ -285,5 +306,13 @@ After each step completes, commit with:
 
 ## Verification
 
-After all steps: `uv run pytest` must pass (both new and existing tests).
-Run with `-v` flag to confirm all 6+ new tests pass.
+### Current status (end of pass 1)
+- Steps 2a, 2b: ✅ Completed. All schema tests pass.
+- Step 3a: 🔄 In progress. Core loader/manager changes done; remaining test fixes in `test_permissions_manager.py` needed (4 tests expect parse errors to raise ValueError — need pydantic validation error configs instead).
+- Steps 3b, 7a, 7b: ⏳ Not started.
+
+### Next pass (pass 2)
+1. Fix remaining `test_permissions_manager.py` failures
+2. Run full `uv run pytest -v` to confirm all tests pass
+3. Proceed to Step 3b (warn about unknown keys)
+4. Then Steps 7a, 7b (regex compile-on-demand caching)

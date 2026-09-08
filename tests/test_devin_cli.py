@@ -121,16 +121,19 @@ def project_with_bash_config(tmp_project: Path) -> Path:
     # Create config with bash rules in the devin config location
     config = {
         "bash": {
-            "allow": ["git", "ls", "cat"],
-            "deny": ["rm -rf /", "curl"],
-            "prompt": ["apt-get"],
+            "allowed_cmds_regex": ["^git", "^ls", "^cat"],
+            "blocked_paths_regex": ["curl"],
         }
     }
     with open(devin_dir / "config.json", "w") as f:
         json.dump(config, f)
+    with open(devin_dir / "lovely-permissions.local.jsonc", "w") as f:
+        json.dump({}, f)
     # Also create the lovely-permissions.jsonc file
     with open(devin_dir / "lovely-permissions.jsonc", "w") as f:
         json.dump(config, f)
+    with open(devin_dir / "lovely-permissions.local.jsonc", "w") as f:
+        json.dump({}, f)
     return Path(project_dir)
 
 
