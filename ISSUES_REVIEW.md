@@ -18,7 +18,7 @@ The CallExpr branch never extracted redirections — it hardcoded an empty list.
 
 **Fix:** Added `_extract_redirs()` helper that extracts `Redir` objects from typed AST nodes (`Stmt.redirs`, `BinaryCmd.left/right_redirs`). Threaded redirs through recursive calls so each CallExpr segment inherits its redirections. Also fixed two pre-existing bugs: IfClause/WhileClause checked nonexistent `"cond"` instead of `cond_stmts`, and Block nodes (FuncDecl bodies) weren't handled. Added 18 regression tests covering simple/redir, pipe left/right/both-sides, and/or chains, sequential, background-on-pipe, complex pipes, if/while/body, func-body. Bonus: replaced `evaluate.py`'s raw-tree redirection checks with segment-based `_check_segments_output_redirs()` and `_check_segments_input_redirs()`, making segments the single source of truth (addresses issue #5's raw-JSON traversal concern for redirections).
 
-## 3. Duplicate blocked-pattern logic (medium)
+## 3. Duplicate blocked-pattern logic (medium) [fixed]
 **Files:** `effective_bash.py` (`_deny_item_to_regex`) and `rules.py` (`check_blocked_patterns`)
 
 Both modules reimplement blocked-path matching — one converts deny-list items to regexes, the other does pattern matching against command names and args. The logic overlaps: `_deny_item_to_regex` builds patterns, `check_blocked_patterns` applies them. A single source of truth would be better.
@@ -69,4 +69,4 @@ There's an empty section labeled `# Type mapping from shfmt's JSON to our datacl
 - **Medium impact (2):** redundant redir collection (#1), duplicate blocked-pattern logic (#3)
 - **Low–medium (1):** bare excepts with noqa (#6)
 - **Low / documentation (4):** confusing docstring (#8), stale cache (#9), duplicated helper awareness (#7), unused section header (#10)
-- **Fixed (3):** redundant redir collection (#1), empty redirections in segments.py (#2), raw-JSON traversal (#5)
+- **Fixed (4):** redundant redir collection (#1), empty redirections in segments.py (#2), raw-JSON traversal (#5), duplicate blocked-pattern logic (#3)
