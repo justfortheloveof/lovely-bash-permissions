@@ -127,7 +127,17 @@ Then run `uv run pytest -v` to confirm all tests pass.
 3. **Step 3** — verification + regression tests ✅ (all 640 tests pass)
 
 ## Deferred
-- **DeclClause support in `parse_segments()`**: Currently empty-segment commands show `<empty command>` instead of the real name (e.g. "bogus"). Fix requires extending `parse_segments()` to handle export/alias/unset statements. Lower priority — implement in a follow-up.
+- **`parse_segments()` coverage gaps**: Currently 0-segment (returns `[]`) for these node types:
+  - **DeclClause**: `export/unset/alias` statements → shows `<empty command>`
+  - **CaseClause**: `case x in a) cmd;; esac`
+  - **ForClause / CStyleLoop**: `for i in ...; do ... done`, `{ cstyle loop }`
+  - **Subshell**: `( ls )` — note: brace groups `{ ls; cd; }` DO work (2 segments)
+  - **TestClause**: `[[ ... ]]` — note: `[ ]` works fine (1 segment)
+  - **TimeClause**: `time sleep 1`
+  - **ArithmCmd / LetClause**: `(())`, `let x=1`
+  - **CoprocClause**: coprocess statements
+  - Leading pipes `| ls` and semicolons `; cmd`
+- **Impact**: these all fall through to wildcard policy (ask/deny) instead of being evaluated against allowed patterns. Fixing requires adding handler cases to `_extract_segments()` (segments.py) — lower priority, implement in a follow-up.
 
 ## Commit messages
 - "Step 1: Empty-segment commands use wildcard policy instead of auto-approve"
