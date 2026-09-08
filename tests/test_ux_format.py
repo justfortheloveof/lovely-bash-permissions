@@ -118,7 +118,7 @@ class TestPreToolUseResponseFormat:
             from lovely_bash_permissions.evaluate import evaluate_bash_command
 
             with patch.dict(os.environ, {"DEVIN_GLOBAL_CONFIG_DIR": devin_dir}):
-                lovely_config = load_permissions_config(devin_dir)
+                lovely_config, _ = load_permissions_config(devin_dir)
                 config = get_effective_bash_config(lovely_config.get("bash", {}), devin_dir)
                 result = evaluate_bash_command("curl https://example.com", config)
                 assert result["status"] == "deny"
@@ -211,7 +211,7 @@ class TestEvaluateReasonFormats:
             from lovely_bash_permissions.evaluate import evaluate_bash_command
 
             with patch.dict(os.environ, {"DEVIN_GLOBAL_CONFIG_DIR": devin_dir}):
-                lovely_config = load_permissions_config(devin_dir)
+                lovely_config, _ = load_permissions_config(devin_dir)
                 config = get_effective_bash_config(lovely_config.get("bash", {}), devin_dir)
                 result = evaluate_bash_command("curl https://example.com", config)
                 # TypeScript: "Blocked by bash permissions: ...
@@ -278,7 +278,7 @@ class TestPermissionRequestResponse:
             from lovely_bash_permissions.evaluate import evaluate_bash_command
 
             with patch.dict(os.environ, {"DEVIN_GLOBAL_CONFIG_DIR": devin_dir}):
-                lovely_config = load_permissions_config(devin_dir)
+                lovely_config, _ = load_permissions_config(devin_dir)
                 config = get_effective_bash_config(lovely_config.get("bash", {}), devin_dir)
                 result = evaluate_bash_command("curl https://example.com", config)
                 # TypeScript: reason includes "[♡ perms: ❤️ auto-rejected]"
@@ -304,7 +304,10 @@ class TestJsonOutputFormat:
                     os.environ,
                     {"DEVIN_GLOBAL_CONFIG_DIR": devin_dir, "DEVIN_PROJECT_DIR": devin_dir},
                 ),
-                patch("lovely_bash_permissions.config.manager.read_jsonc_file", return_value={}),
+                patch(
+                    "lovely_bash_permissions.config.manager.load_permissions_config",
+                    return_value=({"bash": {"permission": "allow"}}, []),
+                ),
             ):
                 captured = io.StringIO()
                 with patch("sys.stdout", captured), patch("sys.exit"):

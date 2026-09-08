@@ -145,8 +145,8 @@ class TestLoadPermissionsConfig:
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
             lambda: temp_global[1],
         )
-        result = load_permissions_config(str(temp_global[0]))
-        assert result == {"read": {"permission": "allow"}}
+        merged, _ = load_permissions_config(str(temp_global[0]))
+        assert merged == {"read": {"permission": "allow"}}
 
     def test_project_only(self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]) -> None:
         """Only project config exists."""
@@ -159,8 +159,8 @@ class TestLoadPermissionsConfig:
         )
         project_file = temp_project[1] / "lovely-permissions.jsonc"
         self._write_jsonc(project_file, {"bash": {"permission": "ask"}})
-        result = load_permissions_config(str(temp_project[0]))
-        assert result == {"bash": {"permission": "ask"}}
+        merged, _ = load_permissions_config(str(temp_project[0]))
+        assert merged == {"bash": {"permission": "ask"}}
 
     def test_local_only(self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]) -> None:
         """Only local config exists."""
@@ -173,8 +173,8 @@ class TestLoadPermissionsConfig:
         )
         local_file = temp_project[1] / "lovely-permissions.local.jsonc"
         self._write_jsonc(local_file, {"write": {"permission": "deny"}})
-        result = load_permissions_config(str(temp_project[0]))
-        assert result == {"write": {"permission": "deny"}}
+        merged, _ = load_permissions_config(str(temp_project[0]))
+        assert merged == {"write": {"permission": "deny"}}
 
     def test_project_overrides_global(self, monkeypatch: pytest.MonkeyPatch, temp_global: tuple[Path, Path]) -> None:
         """Project config overrides global per tool."""
@@ -192,8 +192,8 @@ class TestLoadPermissionsConfig:
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
             lambda: temp_global[1],
         )
-        result = load_permissions_config(project_dir)
-        assert result == {"read": {"permission": "allow"}}
+        merged, _ = load_permissions_config(project_dir)
+        assert merged == {"read": {"permission": "allow"}}
 
     def test_local_overrides_project(self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]) -> None:
         """Local config overrides project per tool."""
@@ -210,8 +210,8 @@ class TestLoadPermissionsConfig:
         local_file = temp_project[1] / "lovely-permissions.local.jsonc"
         self._write_jsonc(local_file, {"read": {"permission": "ask"}})
 
-        result = load_permissions_config(str(temp_project[0]))
-        assert result == {"read": {"permission": "ask"}}
+        merged, _ = load_permissions_config(str(temp_project[0]))
+        assert merged == {"read": {"permission": "ask"}}
 
     def test_three_level_override(self, monkeypatch: pytest.MonkeyPatch, temp_global: tuple[Path, Path]) -> None:
         """Global < project < local precedence."""
@@ -230,8 +230,8 @@ class TestLoadPermissionsConfig:
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
             lambda: temp_global[1],
         )
-        result = load_permissions_config(project_dir)
-        assert result == {"tool": {"perm": "allow"}}
+        merged, _ = load_permissions_config(project_dir)
+        assert merged == {"tool": {"perm": "allow"}}
 
     def test_merge_different_tools(self, monkeypatch: pytest.MonkeyPatch, temp_global: tuple[Path, Path]) -> None:
         """Different tool configs from different files merge together."""
@@ -248,8 +248,8 @@ class TestLoadPermissionsConfig:
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
             lambda: temp_global[1],
         )
-        result = load_permissions_config(project_dir)
-        assert result == {
+        merged, _ = load_permissions_config(project_dir)
+        assert merged == {
             "read": {"permission": "allow"},
             "bash": {"permission": "ask"},
         }
@@ -275,10 +275,10 @@ class TestLoadPermissionsConfig:
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
             lambda: temp_global[1],
         )
-        result = load_permissions_config(project_dir)
-        assert result["bash"]["permission"] == "ask"
-        assert result["bash"]["allowed_cmds_regex"] == ["^ls", "^cat"]
-        assert result["bash"]["blocked_paths_regex"] == ["/tmp/"]
+        merged, _ = load_permissions_config(project_dir)
+        assert merged["bash"]["permission"] == "ask"
+        assert merged["bash"]["allowed_cmds_regex"] == ["^ls", "^cat"]
+        assert merged["bash"]["blocked_paths_regex"] == ["/tmp/"]
 
     def test_arrays_concatenated_across_files(
         self, monkeypatch: pytest.MonkeyPatch, temp_global: tuple[Path, Path]
@@ -303,8 +303,8 @@ class TestLoadPermissionsConfig:
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
             lambda: temp_global[1],
         )
-        result = load_permissions_config(project_dir)
-        assert result["bash"]["allowed_cmds_regex"] == ["^ls", "^cat", "^mkdir"]
+        merged, _ = load_permissions_config(project_dir)
+        assert merged["bash"]["allowed_cmds_regex"] == ["^ls", "^cat", "^mkdir"]
 
     def test_invalid_json_all_files_raises(
         self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
@@ -441,5 +441,5 @@ class TestLoadPermissionsConfig:
         )
         project_file = temp_project[1] / "lovely-permissions.jsonc"
         project_file.write_text('{\n  // This is a comment\n  "bash": {\n    "permission": "allow"\n  }\n}')
-        result = load_permissions_config(str(temp_project[0]))
-        assert result == {"bash": {"permission": "allow"}}
+        merged, _ = load_permissions_config(str(temp_project[0]))
+        assert merged == {"bash": {"permission": "allow"}}

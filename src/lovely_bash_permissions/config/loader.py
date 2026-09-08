@@ -46,11 +46,11 @@ def merge_deep(target: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]
     return result
 
 
-def load_permissions_config(project_dir: str) -> dict[str, Any]:
+def load_permissions_config(project_dir: str) -> tuple[dict[str, Any], list[str]]:
     """Load and merge lovely-devin-permissions config.
 
     Returns:
-        Merged config dict.
+        Tuple of (merged config dict, list of warning strings for skipped files).
 
     Raises:
         FileNotFoundError: if none of the config files exist or all are invalid.
@@ -98,6 +98,10 @@ def load_permissions_config(project_dir: str) -> dict[str, Any]:
         details = "\n".join(f"  {p}: {r}" for p, r in parse_errors)
         raise FileNotFoundError(f"no valid lovely-permissions config found\n{details}")
 
+    warnings: list[str] = []
+    for path, reason in parse_errors:
+        warnings.append(f"skipped invalid config file: {path} ({reason})")
+
     # Merge in order: global < project < local
     merged: dict[str, Any] = {}
     for cfg in configs:
@@ -113,4 +117,4 @@ def load_permissions_config(project_dir: str) -> dict[str, Any]:
     if validation_errors:
         raise FileNotFoundError("no valid lovely-permissions config found\n" + "\n  ".join(validation_errors))
 
-    return merged
+    return merged, warnings
