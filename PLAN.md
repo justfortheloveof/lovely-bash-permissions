@@ -178,7 +178,7 @@ Tests:
 
 ---
 
-## Step 4: Test cli.py config consumption integration (#10b)
+- [x] ## Step 4: Test cli.py config consumption integration (#10b)
 
 **Test file:** `tests/test_cli_integration.py` (new file, or add to existing `tests/test_cli.py`)
 
