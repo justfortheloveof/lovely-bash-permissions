@@ -10,6 +10,7 @@ from lovely_bash_permissions.rules import (
     check_allowed_patterns,
     check_background_execution,
     check_blocked_patterns,
+    _item_to_anchored_pattern,
     check_input_redirection,
     check_output_redirection,
 )
@@ -61,8 +62,27 @@ def test_compile_pattern_caches() -> None:
 
 
 def test_compile_pattern_invalid_raises() -> None:
-    """Invalid regex pattern raises re.error."""
-    with pytest.raises(re.error):
+    """Invalid regex pattern raises ValueError with descriptive message."""
+    with pytest.raises(ValueError):
+        _compile_pattern("[invalid")
+
+
+def test_compile_pattern_invalid_raises_message() -> None:
+    """Invalid regex pattern ValueError message includes pattern and error."""
+    import re as _re
+    exc = pytest.raises(ValueError, lambda: _compile_pattern("[invalid"))
+    assert "invalid pattern" in str(exc.value)
+
+
+def test_item_to_anchored_pattern_valid_compiles() -> None:
+    """Valid item returns compiled pattern (no exception)."""
+    result = _compile_pattern("^curl$")
+    assert isinstance(result, type(re.compile("")))
+
+
+def test_item_to_anchored_pattern_invalid_raises() -> None:
+    """Bad regex pattern raises ValueError (not re.error)."""
+    with pytest.raises(ValueError):
         _compile_pattern("[invalid")
 
 

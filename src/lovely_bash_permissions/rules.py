@@ -58,15 +58,18 @@ def deny_item_to_pattern(item: str) -> str:
 
 @lru_cache(maxsize=512)
 def _compile_pattern(pattern: str) -> re.Pattern[str]:
-    """Compile and cache a regex pattern. Raises re.error on invalid pattern."""
-    return re.compile(pattern)
+    """Compile and cache a regex pattern. Raises ValueError on invalid pattern."""
+    try:
+        return re.compile(pattern)
+    except re.error as exc:
+        raise ValueError(f"invalid pattern {pattern!r}: {exc}") from exc
 
 
 def _match_pattern(value: str, pattern: str) -> bool:
     """Check a single value against one pattern (unanchored search)."""
     try:
         return bool(_compile_pattern(pattern).search(value))
-    except re.error:
+    except ValueError:
         return False
 
 
@@ -183,7 +186,10 @@ def check_allowed_patterns(command_name: str, allowed_patterns: list[str]) -> bo
         True if command matches ANY pattern, False if matches none
         or patterns list is empty.
     """
-    return any(_compile_pattern(p).search(command_name) for p in allowed_patterns)
+    try:
+        return any(_compile_pattern(p).search(command_name) for p in allowed_patterns)
+    except ValueError:
+        return False
 
 
 def check_blocked_patterns(
