@@ -29,6 +29,27 @@ def _clean_temp_file(path: str) -> None:
 class TestParseJsonc:
     """Tests for parse_jsonc function."""
 
+    def test_parse_valid_jsonc(self) -> None:
+        """Valid JSONC with comments and trailing commas parses correctly."""
+        result = parse_jsonc("""{
+            // header comment
+            "a": 1,
+            /* block */
+            "b": [2, 3,],
+        }""")
+        assert result == {"a": 1, "b": [2, 3]}
+
+    def test_parse_invalid_jsonc(self) -> None:
+        """Malformed JSONC returns None."""
+        assert parse_jsonc("{invalid}") is None
+        assert parse_jsonc('{"a": }') is None
+        assert parse_jsonc("trailing, comma}") is None
+
+    def test_parse_with_bom(self) -> None:
+        """File starting with BOM parses correctly."""
+        result = parse_jsonc('\ufeff{"a": 1}')
+        assert result == {"a": 1}
+
     def test_valid_json_object(self) -> None:
         result = parse_jsonc('{"a": 1, "b": 2}')
         assert result == {"a": 1, "b": 2}

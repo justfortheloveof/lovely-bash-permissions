@@ -1,98 +1,28 @@
-"""JSONC (JSON with Comments) parser.
-
-Strips comments and parses JSON. Supports both .json and .jsonc files.
-"""
+"""JSONC parser using json5 library."""
 
 from __future__ import annotations
 
-import json
-import re
 import sys
 from pathlib import Path
 from typing import Any
 
-
-def _strip_comments(text: str) -> str:
-    """Remove block comments /* ... */ and line comments // ... from JSONC text."""
-    # Block comments first
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
-    # Then line comments
-    text = re.sub(r"//[^\n]*", "", text)
-    return text
+import json5
 
 
-def _strip_trailing_commas(text: str) -> str:
-    """Remove trailing commas before closing brackets, respecting string boundaries."""
-    result = []
-    in_string = False
-    escape_next = False
-    i = 0
-    while i < len(text):
-        ch = text[i]
-        if escape_next:
-            result.append(ch)
-            escape_next = False
-            i += 1
-            continue
-        if ch == chr(92):
-            escape_next = True
-            result.append(ch)
-            i += 1
-            continue
-        if ch == chr(34):
-            in_string = not in_string
-            result.append(ch)
-            i += 1
-            continue
-        if not in_string and ch == chr(44) and i + 1 < len(text):
-            next_non_ws = ""
-            for j in range(i + 1, len(text)):
-                if text[j] not in " \t\n\r":
-                    next_non_ws = text[j]
-                    break
-            if next_non_ws in "}]":
-                i += 1
-                continue
-        result.append(ch)
-        i += 1
-    return "".join(result)
-
-
-def parse_jsonc(text: str) -> dict[str, Any] | list[Any] | str | int | float | bool | None:
-    """Parse JSONC text into a Python object.
-
-    Returns:
-        Any valid JSON value, or None if parsing fails or input is empty
-    """
-    if not text or not text.strip():
-        return None
-
-    # Remove BOM if present
-    text = text.lstrip("\ufeff")
-
-    # Strip comments
-    text = _strip_comments(text)
-
-    # Strip trailing commas
-    text = _strip_trailing_commas(text)
-
+def parse_jsonc(text: str) -> Any | None:  # noqa: ANN401
+    """Parse JSONC text using json5. Returns None on parse error."""
+    cleaned = text.lstrip("\ufeff")  # strip BOM
     try:
-        return json.loads(text)  # type: ignore[no-any-return]
-    except json.JSONDecodeError:
+        return json5.loads(cleaned)
+    except (ValueError, TypeError):
         return None
 
 
 def read_jsonc_file(file_path: str) -> dict[str, Any] | None:
-    """Read and parse a JSONC file.
-
-    Returns:
-        dict if the file exists and contains a valid JSON object
-        None if the file doesn't exist, is empty/invalid, or contains a non-object value
-    """
+    """Read and parse a JSONC file. Returns dict or None."""
     path = Path(file_path)
     if not path.exists():
         return None
-
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as e:
@@ -107,6 +37,6 @@ def read_jsonc_file(file_path: str) -> dict[str, Any] | None:
     return value
 
 
-def is_record(value: dict[str, Any] | list[Any] | str | float | bool | None) -> bool:
-    """Check if value is a dictionary (plain object in JSON terms)."""
+def is_record(value: Any) -> bool:  # noqa: ANN401
+    """Check if value is a plain object (dict)."""
     return isinstance(value, dict)
