@@ -3,7 +3,9 @@
 from typing import Any
 
 from .devin import load_devin_exec_regexes
-from .loader import load_permissions_config
+from .jsonc import read_jsonc_file
+from .loader import get_permissions_config_file_paths, merge_deep
+from .schema import PermissionsConfig, _validate_config
 
 
 class PermissionsManager:
@@ -20,17 +22,47 @@ class PermissionsManager:
         self._lovely_error: str | None = None
         self._devin_regexes: list[str] = []
         self._devin_error: str | None = None
+        self._warnings: list[str] = []
         self._load()
 
     def _load(self) -> None:
         """Load config from disk, capturing errors."""
-        # Load lovely-permissions config
-        try:
-            self._lovely_config = load_permissions_config(self._project_dir)
+        self._warnings = []  # reset warnings on each reload
+
+        paths = get_permissions_config_file_paths(self._project_dir)
+        configs: list[dict[str, Any]] = []
+        loaded_any = False
+
+        for path in paths:
+            data = read_jsonc_file(path)
+            if data is not None and isinstance(data, dict):
+                configs.append(data)
+                loaded_any = True
+            else:
+                self._warnings.append(f"skipped invalid config file: {path}")
+
+        if loaded_any:
+            merged: dict[str, Any] = {}
+            for cfg in configs:
+                merged = merge_deep(merged, cfg)
+
+            try:
+                PermissionsConfig.model_validate(merged)
+            except ValueError:
+                self._lovely_config = {}
+                self._lovely_error = "no valid lovely-permissions config found"
+                return
+
+            validation_errors = _validate_config(merged)
+            if validation_errors:
+                self._lovely_config = {}
+                self._lovely_error = "no valid lovely-permissions config found"
+                return
+
+            self._lovely_config = merged
             self._lovely_error = None
-        except Exception as e:  # noqa: BLE001
-            self._lovely_config = {}
-            self._lovely_error = str(e)
+        else:
+            self._lovely_error = "no valid lovely-permissions config found"
 
         # Load Devin exec regexes
         try:
@@ -69,3 +101,7 @@ class PermissionsManager:
     def get_error(self) -> str | None:
         """Return error message if invalid, None if valid."""
         return self._lovely_error
+
+    def get_warnings(self) -> list[str]:
+        """Return warnings for config files that were skipped."""
+        return self._warnings

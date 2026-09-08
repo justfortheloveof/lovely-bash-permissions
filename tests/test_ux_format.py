@@ -304,7 +304,7 @@ class TestJsonOutputFormat:
                     os.environ,
                     {"DEVIN_GLOBAL_CONFIG_DIR": devin_dir, "DEVIN_PROJECT_DIR": devin_dir},
                 ),
-                patch("lovely_bash_permissions.config.manager.load_permissions_config", return_value={}),
+                patch("lovely_bash_permissions.config.manager.read_jsonc_file", return_value={}),
             ):
                 captured = io.StringIO()
                 with patch("sys.stdout", captured), patch("sys.exit"):
