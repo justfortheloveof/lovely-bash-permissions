@@ -10,6 +10,8 @@ Two related bugs in `evaluate_bash_command()` (src/lovely_bash_permissions/evalu
 
 **Root cause**: `parse_segments()` only handles `CallExpr` nodes, not `DeclClause`. The empty-segment case needs a wildcard-policy fallback.
 
+**Remaining issue (deferred)**: When `parse_segments()` returns empty, the reason shows `<empty command>` instead of the real command name (e.g. "bogus"). Fixing this requires extending `parse_segments()` to handle `DeclClause` nodes (export/alias/unset statements). Worth doing in a follow-up, lower priority.
+
 ## Files affected
 - `src/lovely_bash_permissions/evaluate.py` (both fixes)
 - `tests/test_evaluate.py` (new tests)
@@ -122,7 +124,10 @@ Then run `uv run pytest -v` to confirm all tests pass.
 ## Order of execution
 1. **Step 1** — empty-segment wildcard fallback (core fix) ✅
 2. **Step 2** — reason string cleanup (dependent on step 1's reasons list) ✅
-3. **Step 3** — verification + regression tests ✅
+3. **Step 3** — verification + regression tests ✅ (all 640 tests pass)
+
+## Deferred
+- **DeclClause support in `parse_segments()`**: Currently empty-segment commands show `<empty command>` instead of the real name (e.g. "bogus"). Fix requires extending `parse_segments()` to handle export/alias/unset statements. Lower priority — implement in a follow-up.
 
 ## Commit messages
 - "Step 1: Empty-segment commands use wildcard policy instead of auto-approve"
