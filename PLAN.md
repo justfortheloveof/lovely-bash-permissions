@@ -1,113 +1,71 @@
-# Plan: Strengthen config schema validation and error reporting (round 2)
+# Plan: Strengthen config schema — add missing bash permission fields and wildcard `*` (round 3)
 
 ## Objective
 
-Fix issues 1, 3, 5, 6, 7, and 9 from the config review:
+Add three improvements to the config system, drawn from the TypeScript `BashPermissions` implementation:
 
 | # | Issue | Fix |
 |---|-------|-----|
-| 1 | `extra: "allow"` silently accepts typos (e.g. `"Bash": {}`) | Reject unknown top-level keys, emit warnings for unrecognized fields per tool |
-| 3 | `blocked_paths_regex` / `allowed_cmds_regex` patterns validated at runtime only | Validate each pattern compiles during config load, fail fast |
-| 5 | `read_jsonc_file` returns None on any read error, indistinguishable from missing file | Return a result type with success/failure + error reason enum (`NotFound`, `PermissionDenied`, `ParseError`) |
-| 6 | No e2e test that precedence ordering works (global < project < local) | Add tests writing all 3 files with conflicting values, verify highest precedence wins |
-| 7 | Config has no schema documentation output command | Add `--show-config` and `--test "<cmd>"` CLI commands (mirror TypeScript) |
-| 9 | Deep merge replaces whole nested objects instead of merging their keys (e.g. global `bash.allowed_cmds_regex` lost when local adds `bash.blocked_paths_regex`) | Fix merge to recursively merge object keys; warn on cross-level key conflicts |
+| 1 | Schema missing bash-specific permission fields (`output_redirection`, `input_redirection`, `background_execution`) | Model these in `ToolConfig`; they are recognized, validated, and consumed by `effective_bash.py` |
+| 2 | No wildcard `*` permission level at config root (TS has `'*': permissionLevelSchema`) | Accept and validate `"*": "allow"/"deny"/"ask"` at top level; `effective_bash.py` reads it as default |
 
-Issues 2, 4, 8 (per-tool inheritance docs, caching/TTL, config file existence check in tests) are deferred to a later plan.
+**Explicitly removed from scope**: allow/deny shorthand fields (`allow: [...]`, `deny: [...]`), and any other shorthands — these are **not** added. Hot-reload / file watching (issue 5), JSON schema/IDE support (issue 10), and issues 3, 6, 7, 8, 9 are deferred to a later plan.
 
 ## Background: Current state
 
-- `config/schema.py`: Pydantic models (`ToolConfig`, `PermissionsConfig`) with `"extra": "allow"` — silently accepts typos.
-- Pattern validation (`_strip_trailing_period`) happens at model-validation time but regex validity isn't checked until runtime.
-- `read_jsonc_file` returns `None` on any error, hiding the cause (missing file vs permission denied).
-- Merge replaces nested objects wholesale — global `bash.allowed_cmds_regex` is lost when local adds any key to `bash`.
-- No end-to-end test verifies precedence ordering actually works.
+- `config/schema.py`: Pydantic models (`ToolConfig`, `PermissionsConfig`) with `"extra": "allow"` — silently accepts typos, but also **omits** bash-specific fields the TS side consumes.
+- `_TOOL_RECOGNIZED_FIELDS` lists `allow`, `deny`, `subshell`, `output_redirection`, `input_redirection`, `background_execution` as allowed keys, but `ToolConfig` only models `permission`, `blocked_paths_regex`, `allowed_cmds_regex`. Configs using the bash fields pass validation but are silently ignored by the evaluator.
+- No wildcard `*` permission level at config root — TS has it, Python doesn't model it.
+
 
 ## Implementation Steps (sequential, one agent per step)
 
 ---
 
-### Step 3a: Add result type and improve error reporting in jsonc reader (issue 5)
+### Step 3a: Model bash-specific permission fields in `ToolConfig` (issue 1)
 
-**Goal**: Replace `read_jsonc_file` returning `(dict | None)` with a typed result that distinguishes missing files, permission errors, and parse errors.
+**Goal**: Add the four bash-specific permission fields that `effective_bash.py` consumes, so config files using them are validated rather than silently ignored.
 
 **Changes**:
-1. Add `class JsoncLoadResult` dataclass in `jsonc.py`:
-   - Fields: `value: dict[str, Any] | None`, `error: str | None`
-   - Factories: `JsoncLoadResult.ok(dict)`, `JsoncLoadResult.missing(path)`, `JsoncLoadResult.parse_error(path, msg, line, col)`, `JsoncLoadResult.read_error(path, err)`
-2. Rewrite `read_jsonc_file` to return `JsoncLoadResult`.
-3. Update every caller (`loader.py`, `devin.py`) to match on result type instead of checking `None`.
+1. In `config/schema.py`, extend `ToolConfig` with:
+   - `output_redirection: OutputRedirectionPolicy | None = None` — union of `PermissionLevel` (string) or dict with keys `*`, `stdout_to_dev_null`, `stderr_to_dev_null`, `stderr_to_stdout`.
+   - `input_redirection: PermissionLevel | None = None`
+   - `background_execution: PermissionLevel | None = None`
+   - `subshell: PermissionLevel | None = None`
+2. Define `OutputRedirectionPolicy` as a Pydantic model (or use a custom type with a validator) mirroring the TS `outputRedirectionPolicySchema`.
+3. Remove `allow`, `deny` from `_TOOL_RECOGNIZED_FIELDS` — shorthand fields are **not** added (per project decision). Keep `subshell`, `output_redirection`, `input_redirection`, `background_execution`.
 
-**Tests**: `test_jsonc_load_result_missing`, `test_jsonc_load_result_parse_error`, `test_jsonc_load_result_perm_denied`.
+**Tests**: `test_tool_config_output_redirection_string`, `test_tool_config_output_redirection_dict`, `test_tool_config_input_background_subshell_levels`.
 
 ---
 
-### Step 3b: Fix deep merge to recursively merge nested objects (issue 9)
+### Step 3b: Add wildcard `*` permission level at config root (issue 2)
 
-**Completed**: Modified `merge_deep()` in loader.py to recursively merge nested objects and collect conflict warnings. Updated all existing tests for new return type `(dict, list[str])`. Added `_warn_conflict` helper. Tests updated in test_config_loader.py and test_jsonc.py. All 583 tests pass; linting clean.
+**Goal**: Accept `"*": "allow"|"deny"|"ask"` at the top level, validating it as a `PermissionLevel`.
 
 **Changes**:
-1. In `loader.py` `merge_deep()`: after merging objects recursively, collect keys present in both target and source for that object; when they conflict (same key, different values), emit a warning like `"key 'allowed_cmds_regex' defined in project config overrides global"`.
-2. Add helper `_warn_conflict(key, level1, level2)` that appends to a warnings list threaded through merge.
+1. In `PermissionsConfig`, add `wildcard: PermissionLevel | None = None` (or a field named `"*"` via `Field(alias="*")`) to model the root-level wildcard.
+2. `_check_version` / `_check_top_level_keys` already skip `"*"` — keep that behavior; just add the field to the model.
+3. Update `effective_bash.py` (`get_effective_bash_config`) to read the wildcard from config instead of hardcoding `"ask"` default.
 
-**Tests**: `test_merge_nested_objects_both_keys`, `test_merge_warns_on_conflict`.
+**Tests**: `test_wildcard_allow`, `test_wildcard_deny`, `test_wildcard_ask`.
 
 ---
 
-### Step 3c: Validate regex patterns at config load time (issue 7)
-
-**Goal**: Fail fast during config load when a pattern doesn't compile, rather than failing at command-evaluation time.
-
-**Changes**:
-1. In `ToolConfig`, extend the field validator to call `re.compile()` on each pattern; catch `re.error` and raise a Pydantic `ValueError(f"tool '{key}': invalid pattern: {exc}")`.
-2. Ensure `loader.py` propagates the validation error as a config-load failure (already handled by existing try/except around `model_validate`).
-
-**Tests**: `test_invalid_regex_rejected_at_load`, `test_empty_pattern_acceptable`.
-
----
-
-### Step 3d: Reject unknown top-level keys, warn on unrecognized tool fields (issue 1)
-
-**Goal**: Typos like `"Bash": {"permission":"allow"}` should be rejected; unrecognized keys inside a tool object should warn.
-
-**Changes**:
-1. `PermissionsConfig`: add model_validator that checks each top-level key against known keys (`version`, `"*"`, plus any tool name whose value is a dict). Unknown top-level keys raise `ValueError("unknown config key: '<key>'").
-2. Inside `_check_tool_dicts`: for known tool keys, warn on unrecognized field names (e.g., `blocked_path_regex` typo instead of `blocked_paths_regex`).
-
-**Tests**: `test_unknown_top_level_key_rejected`, `test_unrecognized_tool_field_warns`.
-
----
-
-### Step 3e: Add precedence-ordering e2e tests (issue 6)
-
-**Completed**: Added test_precedence_local_wins (three-file conflict, local wins) and test_cross_level_merge_both_keys (global allowed_cmds_regex + local blocked_paths_regex both survive). All 589 tests pass including linting.
-
-**Changes**:
-1. In `tests/test_permissions_manager.py`, add test writing all three config files with conflicting values for the same tool key.
-2. Assert that `manager.get_lovely_config()` returns the value from local > project > global (last wins).
-3. Add test for cross-level merge: global sets `bash.allowed_cmds_regex`, local sets `bash.blocked_paths_regex` — verify both keys survive in merged config (links to step 3b fix).
-
-**Tests**: `test_precedence_local_wins`, `test_cross_level_merge_both_keys`.
-
----
-
-### Step 3g: Run full test suite and fix any issues
+### Step 3c: Run full test suite and fix any issues
 
 Run `uv run pytest` after each step. Fix linting (ruff, mypy) before committing.
 
 ## Files Modified
-- EDIT: `src/lovely_bash_permissions/config/jsonc.py` (steps 3a, 3c)
-- EDIT: `src/lovely_bash_permissions/config/schema.py` (steps 3b, 3d)
-- EDIT: `src/lovely_bash_permissions/config/loader.py` (steps 3a, 3b)
-- EDIT: `src/lovely_bash_permissions/cli.py` (step 3f)
-- EDIT: `tests/test_jsonc.py`, `tests/test_schema.py`, `tests/test_config_loader.py`, `tests/test_permissions_manager.py` (all steps)
+- EDIT: `src/lovely_bash_permissions/config/schema.py` (steps 3a, 3b)
+- EDIT: `src/lovely_bash_permissions/config/effective_bash.py` (step 3b — read wildcard from config)
+
+- EDIT: `tests/test_schema.py`, `tests/test_permissions_manager.py` (all steps)
 
 ## Why this is better than the current approach
 
 | Old | New |
 |---|---|
-| `extra: "allow"` silently accepts typos | Unknown top-level keys rejected; unrecognized tool fields warned |
-| Patterns validated at runtime only | Invalid patterns fail fast during config load |
-| `read_jsonc_file` returns None on any error | Typed result distinguishes missing / permission denied / parse error |
-| Deep merge replaces nested objects wholesale | Objects merged recursively; conflicts warned |
-| No precedence ordering tests | E2E tests verify global < project < local wins |
+| Bash fields (`output_redirection`, etc.) silently ignored | Fields modeled, validated, consumed by evaluator |
+| No wildcard `*` at config root | Root-level default permission level accepted and used |
+
