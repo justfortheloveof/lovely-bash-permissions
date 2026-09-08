@@ -177,6 +177,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
 
             if matched_patterns:
                 segment_result["allowed"] = True
+                all_matched_patterns.extend(matched_patterns)
             else:
                 segment_result["allowed"] = False
                 any_segment_not_allowed = True
@@ -200,12 +201,8 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
 
         segment_results.append(segment_result)
 
-    # Collect matched patterns as approval reasons (only shown when status is allow)
-    if all_matched_patterns:
-        noun = "pattern" if len(all_matched_patterns) == 1 else "patterns"
-        approval_reason = f"command matches allowed {noun} {', '.join(all_matched_patterns)}"
-    else:
-        approval_reason = None
+    # Collect matched patterns as approval reasons (only shown when status is allow).
+    # NOTE: approval_reason must be built AFTER _walk() so it includes nested command matches.
 
     # Check redirection rules (from segments — single source of truth, issue #2/#3)
     output_result = _check_segments_output_redirs(segments, rules)
@@ -288,16 +285,25 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                             # Nested commands with real args check full_cmd only
                             # (name fallback would let "find -exec" match ^find$).
                             matched = False
+                            matching_patterns: list[str] = []
                             has_real_args = (
                                 any("$(...)" not in _word_value(a) for a in node.args[1:])
                                 if hasattr(node, "args") and len(node.args) > 1
                                 else False
                             )
                             if has_real_args:
-                                matched = any(re.match(p, full_cmd) for p in allowed_patterns)
+                                for p in allowed_patterns:
+                                    if re.match(p, full_cmd):
+                                        matched = True
+                                        matching_patterns.append(p)
                             else:
-                                matched = any(re.match(p, first) for p in allowed_patterns)
-                            if not matched:
+                                for p in allowed_patterns:
+                                    if re.match(p, first):
+                                        matched = True
+                                        matching_patterns.append(p)
+                            if matched:
+                                all_matched_patterns.extend(matching_patterns)
+                            else:
                                 non_match_names.add(first if first != full_cmd else full_cmd)
 
                     # Increment depth when entering a substitution.
@@ -345,12 +351,18 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
             overall_status = wildcard
             reasons.append(f"wildcard policy is {wildcard}")
     # Only include approval reasons when status is allow; hide them for ask/deny
-    if overall_status == "allow" and approval_reason:
+    if overall_status == "allow" and all_matched_patterns:
+        # Build approval reason from ALL matched patterns (top-level + nested)
+        noun = "pattern" if len(all_matched_patterns) == 1 else "patterns"
+        approval_reason = f"command matches allowed {noun} {', '.join(all_matched_patterns)}"
         reasons.append(approval_reason)
     if reasons:
         reason_str = "; ".join(r.rstrip(".!? ") for r in reasons)
         if len(reasons) == 1:
             reason_str += "."
+    elif all_matched_patterns:
+        noun = "pattern" if len(all_matched_patterns) == 1 else "patterns"
+        reason_str = f"command matches allowed {noun} {', '.join(all_matched_patterns)}"
     else:
         reason_str = "command matches allowed pattern"
     return {
