@@ -64,10 +64,11 @@ KNOWN_TOOLS = frozenset({"bash"})
 
 
 class PermissionsConfig(BaseModel):
-    model_config = {"extra": "allow", "str_strip_whitespace": True}
+    model_config = {"extra": "forbid", "str_strip_whitespace": True}
 
     version: int = 1
     wildcard: PermissionLevel | None = Field(None, alias="*")
+    bash: ToolConfig | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -88,21 +89,3 @@ class PermissionsConfig(BaseModel):
                 if key not in KNOWN_TOOLS and key not in known_fields:
                     raise ValueError(f"unknown tool name: {key}")
         return data
-
-    @model_validator(mode="after")
-    def _validate_tools(self) -> PermissionsConfig:
-        """Validate each tool value against ToolConfig (Pydantic native)."""
-        extras = self.model_extra or {}
-        all_errors: list[tuple[str, object]] = []
-        for _key, value in extras.items():
-            if value is None:
-                continue  # null tool entries are fine
-            try:
-                ToolConfig.model_validate(value)
-            except ValidationError as exc:
-                for err in exc.errors():
-                    all_errors.append((_key, err))
-        if all_errors:
-            msgs = [f"tool '{k}': {e['msg']}" for k, e in all_errors]  # type: ignore[index]
-            raise ValueError("\n".join(msgs))
-        return self

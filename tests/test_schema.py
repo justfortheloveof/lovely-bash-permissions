@@ -220,8 +220,7 @@ def test_allow_deny_shorthand_rejected() -> None:
         raise AssertionError("expected ValidationError")
     except ValidationError as exc:
         errors = exc.errors()
-        assert len(errors) == 1
-        assert "Extra inputs are not permitted" in errors[0]["msg"]
+        assert any("Extra inputs are not permitted" in e["msg"] for e in errors)
 
 
 def test_tool_config_input_background_subshell_levels() -> None:
@@ -234,6 +233,11 @@ def test_tool_config_input_background_subshell_levels() -> None:
     assert config.input_redirection == PermissionLevel.allow
     assert config.background_execution == PermissionLevel.ask
     assert config.subshell == PermissionLevel.deny
+
+
+def test_known_tool_bash_accepted() -> None:
+    config = {"bash": {"permission": "allow"}}
+    PermissionsConfig.model_validate(config)
 
 
 def test_unknown_tool_name_rejected() -> None:
