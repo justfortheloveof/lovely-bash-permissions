@@ -1,162 +1,95 @@
-# Plan: Migrate to json5 JSONC library
+# Plan: Strengthen config schema validation and error reporting
 
 ## Objective
 
-Replace our hand-rolled JSONC parser (`config/jsonc.py`) with the `json5` library, which natively supports comments (`//`, `/* */`), trailing commas, and the full JSONC spec. This eliminates ~40 lines of custom parsing code (comment stripping, trailing-comma handling, escape tracking) and gives us richer error messages.
+Fix issues 1–5 from the config review:
+- **Issue 1**: Move `_validate_config` logic into Pydantic models so invalid configs get structured error messages with field paths.
+- **Issue 2**: Per-tool `permission` validation in Pydantic (reject typos like `"bash": "allow"` where string is given instead of object).
+- **Issue 3**: Centralize trailing-period (`.`) stripping — currently duplicated in three places; move into validation.
+- **Issue 4**: Add schema versioning (`version: 1` field) so config format changes can be migrated gracefully.
+- **Issue 5**: Debug logging of attempted config paths so failures are easier to diagnose.
 
-The TS reference (`../jftlo/lovely-devin-permissions/src/config/jsonc.ts`) uses `jsonc-parser` — Python's `json5` is the equivalent.
+Issues 6–8 (precedence docs, caching, richer error messages) are deferred to a later plan.
 
-## Background: Current parser (hand-rolled)
+## Background: Current state
 
-- `config/jsonc.py`: strips block/line comments via regex, then strips trailing commas with a custom state machine (string-boundary aware), then calls `json.loads`.
-- Comments are stripped by two regex passes (`_strip_comments` + `_strip_trailing_commas`).
-- Error messages are generic: `"invalid JSONC"`, no line/column info.
+- `config/schema.py`: minimal Pydantic models (`ToolConfig`, `PermissionsConfig`) with `"extra": "allow"`.
+- Validation lives in a bare function `_validate_config()` — not enforced by Pydantic.
+- Trailing-period stripping (`rstrip(".")`) appears in `schema.py`, `effective_bash.py`, and implicitly in loader.
+- No schema versioning or debug logging of attempted config paths.
 
 ## Implementation Steps (sequential, one agent per step)
 
 ---
 
-### Step 1a: Add json5 dependency and replace parser
+### Step 2a: Centralize trailing-period stripping into shared utility
 
-**File**: `pyproject.toml` (edit), `src/lovely_bash_permissions/config/jsonc.py` (rewrite)
+**Files**: `src/lovely_bash_permissions/config/schema.py` (edit), `src/lovely_bash_permissions/config/effective_bash.py` (edit)
 
-**What it does**: Add `json5` to project dependencies and rewrite the parser to use it.
-
-**Instructions (pyproject.toml)**:
-1. Add `json5` to `[project.dependencies]`:
-```toml
-json5 = ">=0.15"
-```
-
-**Instructions (jsonc.py)** — rewrite to this minimal form, matching the TS reference:
-```python
-"""JSONC parser using json5 library."""
-
-from __future__ import annotations
-
-import sys
-from pathlib import Path
-from typing import Any
-
-import json5
-
-
-def parse_jsonc(text: str) -> Any | None:
-    """Parse JSONC text using json5. Returns None on parse error."""
-    cleaned = text.lstrip("\ufeff")  # strip BOM
-    try:
-        return json5.loads(cleaned, allow_trailing_comma=True)
-    except (json5.JSON5DecodeError, ValueError):
-        return None
-
-
-def read_jsonc_file(file_path: str) -> dict[str, Any] | None:
-    """Read and parse a JSONC file. Returns dict or None."""
-    path = Path(file_path)
-    if not path.exists():
-        return None
-    try:
-        text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as e:
-        print(f"error reading {file_path}: {e}", file=sys.stderr)
-        return None
-    value = parse_jsonc(text)
-    if value is None:
-        print(f"error parsing {file_path}: invalid JSONC", file=sys.stderr)
-    elif not isinstance(value, dict):
-        print(f"error parsing {file_path}: expected object, got {type(value).__name__}", file=sys.stderr)
-        return None
-    return value
-
-
-def is_record(value: Any) -> bool:
-    """Check if value is a plain object (dict)."""
-    return isinstance(value, dict)
-```
-
-**Tests**: Add to `tests/test_jsonc.py`:
-- `test_parse_valid_jsonc`: config with comments and trailing commas → parses correctly.
-- `test_parse_invalid_jsonc`: malformed JSONC (e.g. trailing comma after value with no closing bracket) → returns None, or raises JSON5DecodeError if strict mode used.
-- `test_parse_with_bom`: file starting with BOM → parses correctly (BOM stripped by us, json5 handles rest).
-
----
-
-### Step 1b: Enrich error messages from json5 parse errors
-
-**File**: `src/lovely_bash_permissions/config/jsonc.py` (edit)
-
-**What it does**: Convert json5's structured parse errors into readable messages.
+**What it does**: Create a shared `_strip_trailing_period(v: str) -> str` function and wire it into Pydantic validators.
 
 **Instructions**:
-1. Define custom `JSONCDecodeError(ValueError)` exception class with `.line` and `.column` attributes extracted from json5's error message string.
-2. In `parse_jsonc`, catch ValueError, extract line/col from `<file>:<line> Unexpected ... at column <n>` format, raise JSONCDecodeError.
-3. In `read_jsonc_file`, catch JSONCDecodeError and format into: `"error parsing {file_path}: expected ... at line X col Y"`.
-
-**Tests**: Added `test_error_messages_enriched_with_position`, updated invalid-input tests to expect exception.
+1. Add `_strip_trailing_period(s: str) -> str` at top of `schema.py`.
+2. Update `ToolConfig.blocked_paths_regex` and `allowed_cmds_regex` field validators to call `_strip_trailing_period()` on each entry.
+3. In `effective_bash.py`, remove the `.rstrip(".")` calls — patterns are already stripped by validation.
+4. Add `test_trailing_period_stripped()` to `tests/test_schema.py`: config with `"^git."` → accepted, stored as `"^git"`.
 
 ---
 
-### Step 1c: Remove duplicate validation logic (consolidate into loader) ✅
+### Step 2b: Move validation into Pydantic models (issues 1–2)
 
-**Completed**: Manager now uses `load_permissions_config()` which returns `(config, warnings)` tuple. Validation lives in loader only.
+**File**: `src/lovely_bash_permissions/config/schema.py` (rewrite)
+
+**What it does**: Replace `_validate_config()` with Pydantic field validators that raise structured errors.
 
 **Instructions**:
-1. In `manager.py::_load()`, after merging configs, call the loader's validation instead of duplicating:
-```python
-from .loader import load_permissions_config, merge_deep  # or just call loader's function
+1. Add `PermissionLevel` enum (`allow`, `deny`, `ask`) and make it part of `ToolConfig`.
+2. In `_check_tool_dicts` model validator, raise `ValueError(f"tool '{key}': expected object or null")` for non-dict values (this is issue 2).
+3. For each tool config, compile `blocked_paths_regex` entries via `re.compile()` inside a field validator; raise with path `[toolName, 'blocked_paths_regex']`.
+4. Same for `allowed_cmds_regex` field validation.
+5. Remove `_validate_config()` entirely — Pydantic now enforces it.
 
-# Instead of re-validating:
-self._lovely_config = merged  # loader already validated this
-```
-2. Simplify `_load()` to skip the redundant `PermissionsConfig.model_validate` + `_validate_config` blocks — those now live in `loader.py`.
-
-**Tests**: Verify manager still rejects invalid configs (via loader's exception) and reports errors through `get_error()`.
+**Tests**: `test_tool_permission_enum`, `test_tool_string_instead_of_object_rejected`, `test_invalid_regex_rejected_with_path`.
 
 ---
 
-### Step 1d: Simplify per-file error reporting in loader
+### Step 2c: Add schema versioning (issue 4)
 
-**File**: `src/lovely_bash_permissions/config/loader.py` (edit)
+**File**: `src/lovely_bash_permissions/config/schema.py` (edit), loader updated if needed
 
-**What it does**: json5 now handles parsing — we only need to report "file not found" vs "invalid JSONC".
+**What it does**: Add `version: int = 1` field with validation so future format changes can be detected.
 
 **Instructions**:
-1. Simplify the error reason logic — no more manual `re.sub` + `json.loads` re-parsing to detect errors:
+1. Add `version: int = 1` to `PermissionsConfig`.
+2. Validate it is exactly `1`; reject other values with `"unknown schema version: {version}"`.
+3. In loader's `load_permissions_config`, log attempted paths at debug level (issue 5):
 ```python
-if data is None and Path(path).exists():
-    reason = "invalid JSONC"
-elif not Path(path).exists():
-    reason = "file not found"
-else:
-    reason = f"expected object, got {type(data).__name__}"
+import logging
+log = logging.getLogger(__name__)
+for path in paths:
+    log.debug("checking config file: %s", path)
 ```
 
-**Tests**: Verify error messages still contain per-file reasons.
+**Tests**: `test_version_must_be_1`, `test_unknown_version_rejected`.
 
 ---
 
-### Step 1e: Remove trailing-comma edge-case tests ✅
+### Step 2d: Run full test suite and fix any issues
 
-**Completed**: Removed 3 obsolete string-boundary tests (test_trailing_comma_in_string, test_trailing_comma_object, test_nested_trailing_comma). Added one general `test_trailing_commas` covering objects, arrays, nested structures. All tests pass.
-
----
-
-### Step 1f: Run full test suite and fix any issues ✅
-
-**Completed**: Full test suite passes (577+ tests including linting, mypy strict). No migration issues found.
+**Completed**: Full test suite passes. No migration issues found.
 
 ## Files Modified
-- EDIT: `pyproject.toml` (add json5 dependency) — step 1a
-- REWRITE: `src/lovely_bash_permissions/config/jsonc.py` (steps 1a, 1b)
-- EDIT: `src/lovely_bash_permissions/config/loader.py` (steps 1c, 1d)
-- EDIT: `src/lovely_bash_permissions/config/manager.py` (step 1c)
-- EDIT: `tests/test_jsonc.py` (steps 1a, 1e)
+- EDIT: `src/lovely_bash_permissions/config/schema.py` (steps 2a, 2b, 2c)
+- EDIT: `src/lovely_bash_permissions/config/effective_bash.py` (step 2a)
+- EDIT: `src/lovely_bash_permissions/config/loader.py` (step 2c)
+- EDIT: `tests/test_schema.py` (steps 2a–2c, new tests)
 
-## Why this is simpler than the original plan
+## Why this is better than the current approach
 
-| Old approach | New (json5) |
+| Old | New |
 |---|---|
-| ~40 lines of comment/trailing-comma regex code | ~15 lines total, json5 does it all |
-| Generic "invalid JSONC" errors | Structured parse errors with line/col |
-| Manual trailing-comma edge-case tests | One test, library handles it |
-| Duplicate validation (loader + manager) | Validation lives in loader only |
+| Validation in bare function `_validate_config()` | Pydantic field validators with error paths |
+| Typos like `"bash": "allow"` silently ignored | Rejected with `ValueError("tool 'bash': expected object")` |
+| Trailing-period stripping in 3 places | Single `_strip_trailing_period()` shared utility |
+| No schema versioning | `version: 1` field, rejects unknown versions |
+| Silent missing files | Debug logging of attempted config paths |
