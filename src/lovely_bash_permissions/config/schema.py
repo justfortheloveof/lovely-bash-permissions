@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 import re
 from enum import Enum
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
+
+log = logging.getLogger(__name__)
 
 
 class PermissionLevel(str, Enum):
@@ -31,9 +34,16 @@ class OutputRedirectionPolicy(BaseModel):
 
 
 class ToolConfig(BaseModel):
-    model_config = {"extra": "forbid"}
+    model_config = {"extra": "allow"}
 
     permission: PermissionLevel | None = None
+
+    @model_validator(mode="after")
+    def _warn_extra_fields(self) -> ToolConfig:
+        for key in self.model_extra or {}:
+            log.warning("unknown config key '%s' — unrecognized tool field or typo?", key)
+        return self
+
     wildcard: PermissionLevel | None = Field(None, alias="*")  # default permission for unmatched tools
     blocked_paths_regex: list[str] = []
     allowed_cmds_regex: list[str] = []
@@ -63,7 +73,7 @@ KNOWN_TOOLS = frozenset({"bash"})
 
 
 class PermissionsConfig(BaseModel):
-    model_config = {"extra": "forbid", "str_strip_whitespace": True}
+    model_config = {"extra": "allow", "str_strip_whitespace": True}
 
     version: int = 1
     wildcard: PermissionLevel | None = Field(None, alias="*")
@@ -78,13 +88,11 @@ class PermissionsConfig(BaseModel):
                 raise ValueError(f"unknown schema version: {v}")
         return data
 
-    @model_validator(mode="before")
-    @classmethod
-    def _check_top_level_keys(cls, data: object) -> object:
-        """Validate each tool name against KNOWN_TOOLS before pydantic processes extras."""
-        if isinstance(data, dict):
-            known_fields = {"version", "wildcard"}
-            for key in data:
-                if key not in KNOWN_TOOLS and key not in known_fields:
-                    raise ValueError(f"unknown tool name: {key}")
-        return data
+    @model_validator(mode="after")
+    def _warn_unknown_keys(self) -> "PermissionsConfig":
+        """Log warnings for unrecognized keys (typos, unknown tool names)."""
+        known = {"version", "wildcard"} | KNOWN_TOOLS
+        for key in self.model_extra or {}:
+            if key not in known:
+                log.warning("unknown config key '%s' — unrecognized tool name or typo?", key)
+        return self

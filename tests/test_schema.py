@@ -1,3 +1,4 @@
+import pytest
 from pydantic import ValidationError
 
 from lovely_bash_permissions.config.schema import (
@@ -152,27 +153,21 @@ def test_empty_pattern_acceptable() -> None:
     assert config.blocked_paths_regex == [""]
 
 
-def test_unknown_top_level_key_rejected() -> None:
-    # Unknown tool names are rejected by our validator
+def test_unknown_top_level_key_rejected(caplog: pytest.LogCaptureFixture) -> None:
+    # Unknown tool names log a warning but config still loads
     config = {"Bash": "allow"}  # unknown tool name (capital B)
-    try:
-        PermissionsConfig.model_validate(config)
-        raise AssertionError("expected ValidationError")
-    except ValidationError as exc:
-        errors = exc.errors()
-        assert len(errors) == 1
-        assert "unknown tool name: Bash" in errors[0]["msg"]
+    result = PermissionsConfig.model_validate(config)
+    assert result is not None
+    assert len(caplog.record_tuples) == 1
+    assert "unknown config key" in caplog.text
 
 
-def test_unrecognized_tool_field_warns() -> None:
+def test_unrecognized_tool_field_warns(caplog: pytest.LogCaptureFixture) -> None:
     config = {"bash": {"blocked_path_regex": ["^/tmp/"]}}  # typo: missing s
-    try:
-        PermissionsConfig.model_validate(config)
-        raise AssertionError("expected ValidationError")
-    except ValidationError as exc:
-        errors = exc.errors()
-        assert len(errors) == 1
-        assert "Extra inputs are not permitted" in errors[0]["msg"]
+    result = PermissionsConfig.model_validate(config)
+    assert result is not None
+    assert len(caplog.record_tuples) == 1
+    assert "unknown config key 'blocked_path_regex'" in caplog.text
 
 
 def test_tool_config_output_redirection_string() -> None:
@@ -212,15 +207,15 @@ def test_tool_config_output_redirection_dict() -> None:
     assert policy.stderr_to_stdout == PermissionLevel.ask
 
 
-def test_allow_deny_shorthand_rejected() -> None:
-    """Shorthand allow/deny fields are no longer recognized (explicitly removed)."""
+def test_allow_deny_shorthand_rejected(caplog: pytest.LogCaptureFixture) -> None:
+    """Shorthand allow/deny fields are unrecognized and logged as warnings."""
     config = {"bash": {"allow": ["git"], "deny": ["rm"]}}
-    try:
-        PermissionsConfig.model_validate(config)
-        raise AssertionError("expected ValidationError")
-    except ValidationError as exc:
-        errors = exc.errors()
-        assert any("Extra inputs are not permitted" in e["msg"] for e in errors)
+    result = PermissionsConfig.model_validate(config)
+    assert result is not None
+    # Both unknown keys log warnings
+    warnings = [r[2] for r in caplog.record_tuples]
+    assert any("unknown config key 'allow'" in m for m in warnings)
+    assert any("unknown config key 'deny'" in m for m in warnings)
 
 
 def test_tool_config_input_background_subshell_levels() -> None:
@@ -235,17 +230,30 @@ def test_tool_config_input_background_subshell_levels() -> None:
     assert config.subshell == PermissionLevel.deny
 
 
+def test_unknown_key_logs_warning(caplog: pytest.LogCaptureFixture) -> None:
+    config = {"git": "allow"}  # shorthand unknown tool
+    result = PermissionsConfig.model_validate(config)
+    assert result is not None
+    warnings = [r[2] for r in caplog.record_tuples]
+    assert any("unknown config key 'git'" in m for m in warnings)
+
+
+def test_typo_key_logs_warning(caplog: pytest.LogCaptureFixture) -> None:
+    config = {"blocked_path_regex": "^/tmp/"}  # typo at top level
+    result = PermissionsConfig.model_validate(config)
+    assert result is not None
+    warnings = [r[2] for r in caplog.record_tuples]
+    assert any("unknown config key 'blocked_path_regex'" in m for m in warnings)
+
+
 def test_known_tool_bash_accepted() -> None:
     config = {"bash": {"permission": "allow"}}
     PermissionsConfig.model_validate(config)
 
 
-def test_unknown_tool_name_rejected() -> None:
+def test_unknown_tool_name_rejected(caplog: pytest.LogCaptureFixture) -> None:
     config = {"git": {"permission": "allow"}}
-    try:
-        PermissionsConfig.model_validate(config)
-        raise AssertionError("expected ValidationError")
-    except ValidationError as exc:
-        errors = exc.errors()
-        assert len(errors) == 1
-        assert "unknown tool name: git" in errors[0]["msg"]
+    result = PermissionsConfig.model_validate(config)
+    assert result is not None
+    assert len(caplog.record_tuples) == 1
+    assert "unknown config key 'git'" in caplog.text
