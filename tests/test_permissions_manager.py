@@ -30,12 +30,12 @@ class TestPermissionsManagerConstruction:
 
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(config_path, "w") as f:
-            json.dump({"read": {"permission": "ask"}}, f)
+            json.dump({"bash": {"permission": "ask"}}, f)
 
         manager = PermissionsManager(str(mock_project))
 
         assert manager.is_valid()
-        assert manager.get_lovely_config() == {"read": {"permission": "ask"}}
+        assert manager.get_lovely_config() == {"bash": {"permission": "ask"}}
         assert manager.get_devin_exec_regexes() == []
 
     def test_defaults_when_loader_throws(self, mock_project: Path) -> None:
@@ -82,7 +82,7 @@ class TestPermissionsManagerReload:
 
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(config_path, "w") as f:
-            json.dump({"read": {"permission": "ask"}}, f)
+            json.dump({"bash": {"permission": "ask"}}, f)
 
         manager = PermissionsManager(str(mock_project))
 
@@ -109,7 +109,7 @@ class TestPermissionsManagerReload:
 
         # Now write valid config and reload
         with open(config_path, "w") as f:
-            json.dump({"read": {"permission": "ask"}}, f)
+            json.dump({"bash": {"permission": "ask"}}, f)
 
         manager.reload()
 
@@ -117,11 +117,11 @@ class TestPermissionsManagerReload:
             f"reload failed: error={manager.get_error()}, config keys={list(manager.get_lovely_config().keys())}"
         )
         assert manager.get_error() is None
-        assert "read" in manager.get_lovely_config()
+        assert "bash" in manager.get_lovely_config()
 
         # Now write valid config and reload
         with open(config_path, "w") as f:
-            json.dump({"read": {"permission": "ask"}}, f)
+            json.dump({"bash": {"permission": "ask"}}, f)
 
         manager.reload()
 
@@ -129,7 +129,7 @@ class TestPermissionsManagerReload:
             f"reload failed: error={manager.get_error()}, config keys={list(manager.get_lovely_config().keys())}"
         )
         assert manager.get_error() is None
-        assert "read" in manager.get_lovely_config()
+        assert "bash" in manager.get_lovely_config()
 
     def test_reload_captures_new_errors(self, mock_project: Path) -> None:
         """reload() should capture new errors."""
@@ -138,7 +138,7 @@ class TestPermissionsManagerReload:
 
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(config_path, "w") as f:
-            json.dump({"read": {"permission": "ask"}}, f)
+            json.dump({"bash": {"permission": "ask"}}, f)
 
         manager = PermissionsManager(str(mock_project))
         assert manager.is_valid()
@@ -164,10 +164,10 @@ class TestPermissionsManagerReload:
 
         # Change file and reload
         with open(config_path, "w") as f:
-            json.dump({"npm": {"permission": "ask"}}, f)
+            json.dump({"bash": {"permission": "ask"}}, f)
 
         manager.reload()
-        assert "npm" in manager.get_lovely_config()
+        assert "bash" in manager.get_lovely_config()
 
 
 class TestPermissionsManagerGetMethods:
@@ -215,7 +215,7 @@ class TestPermissionsManagerGetMethods:
 
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(config_path, "w") as f:
-            json.dump({"read": {"permission": "ask"}}, f)
+            json.dump({"bash": {"permission": "ask"}}, f)
 
         manager = PermissionsManager(str(mock_project))
         assert manager.is_valid()
@@ -262,7 +262,7 @@ class TestPermissionsManagerWarnings:
         # Create all three config files as valid
         global_config = Path(devin_global) / "lovely-permissions.jsonc"
         with open(global_config, "w") as f:
-            json.dump({"read": {"permission": "ask"}}, f)
+            json.dump({"bash": {"blocked_paths_regex": ["^/tmp/"]}}, f)
 
         project_config = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(project_config, "w") as f:

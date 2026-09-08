@@ -60,6 +60,9 @@ class ToolConfig(BaseModel):
         return result
 
 
+KNOWN_TOOLS = frozenset({"bash"})
+
+
 class PermissionsConfig(BaseModel):
     model_config = {"extra": "allow", "str_strip_whitespace": True}
 
@@ -78,7 +81,12 @@ class PermissionsConfig(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _check_top_level_keys(cls, data: object) -> object:
-        """Accept any extra key as a tool name; value validation is delegated to _validate_tools."""
+        """Validate each tool name against KNOWN_TOOLS before pydantic processes extras."""
+        if isinstance(data, dict):
+            known_fields = {"version", "wildcard"}
+            for key in data:
+                if key not in KNOWN_TOOLS and key not in known_fields:
+                    raise ValueError(f"unknown tool name: {key}")
         return data
 
     @model_validator(mode="after")

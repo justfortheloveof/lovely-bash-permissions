@@ -21,6 +21,7 @@ def test_invalid_permission_value() -> None:
     config = {"bash": {"permission": "alow"}}
     try:
         PermissionsConfig.model_validate(config)
+        raise AssertionError("expected ValidationError")
     except ValidationError as exc:
         errors = exc.errors()
         assert len(errors) == 1
@@ -52,6 +53,7 @@ def test_invalid_regex() -> None:
     config = {"bash": {"blocked_paths_regex": ["["]}}
     try:
         PermissionsConfig.model_validate(config)
+        raise AssertionError("expected ValidationError")
     except ValidationError as exc:
         errors = exc.errors()
         assert len(errors) == 1
@@ -151,15 +153,15 @@ def test_empty_pattern_acceptable() -> None:
 
 
 def test_unknown_top_level_key_rejected() -> None:
-    # Non-dict extra values are rejected (tool names accept any key, but value must be dict/null)
-    config = {"Bash": "allow"}  # string value instead of dict
+    # Unknown tool names are rejected by our validator
+    config = {"Bash": "allow"}  # unknown tool name (capital B)
     try:
         PermissionsConfig.model_validate(config)
         raise AssertionError("expected ValidationError")
     except ValidationError as exc:
         errors = exc.errors()
         assert len(errors) == 1
-        assert "valid dictionary" in errors[0]["msg"]
+        assert "unknown tool name: Bash" in errors[0]["msg"]
 
 
 def test_unrecognized_tool_field_warns() -> None:
@@ -232,3 +234,19 @@ def test_tool_config_input_background_subshell_levels() -> None:
     assert config.input_redirection == PermissionLevel.allow
     assert config.background_execution == PermissionLevel.ask
     assert config.subshell == PermissionLevel.deny
+
+
+def test_unknown_tool_name_rejected() -> None:
+    config = {"git": {"permission": "allow"}}
+    try:
+        PermissionsConfig.model_validate(config)
+        raise AssertionError("expected ValidationError")
+    except ValidationError as exc:
+        errors = exc.errors()
+        assert len(errors) == 1
+        assert "unknown tool name: git" in errors[0]["msg"]
+
+
+def test_known_tool_bash_accepted() -> None:
+    config = {"bash": {"permission": "allow"}}
+    PermissionsConfig.model_validate(config)
