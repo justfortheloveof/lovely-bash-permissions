@@ -106,6 +106,20 @@ def test_permissions_config_model_invalid() -> None:
         assert len(errors) == 1
 
 
+def test_version_must_be_1() -> None:
+    config = PermissionsConfig.model_validate({"version": 1})
+    assert config.version == 1
+
+
+def test_unknown_version_rejected() -> None:
+    try:
+        PermissionsConfig.model_validate({"version": 2})
+    except ValidationError as exc:
+        errors = exc.errors()
+        assert len(errors) == 1
+        assert "unknown schema version: 2" in errors[0]["msg"]
+
+
 def test_trailing_period_stripped() -> None:
     config = ToolConfig(allowed_cmds_regex=["^git."], blocked_paths_regex=["^/tmp/"])
     assert config.allowed_cmds_regex == ["^git"]

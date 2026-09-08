@@ -8,6 +8,7 @@ Loads and merges configuration from three locations (highest precedence last):
 Uses deep merge: objects merged recursively, arrays concatenated, scalars override.
 """
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,7 @@ from .devin import get_devin_global_config_dir
 from .jsonc import is_record, read_jsonc_file
 from .schema import PermissionsConfig
 
+log = logging.getLogger(__name__)
 PROJECT_CONFIG_FILE = "lovely-permissions.jsonc"
 
 
@@ -60,6 +62,7 @@ def load_permissions_config(project_dir: str) -> tuple[dict[str, Any], list[str]
     loaded_any = False
     parse_errors: list[tuple[str, str]] = []
     for path in paths:
+        log.debug("checking config file: %s", path)
         data = read_jsonc_file(path)
         if data is not None and isinstance(data, dict):
             configs.append(data)

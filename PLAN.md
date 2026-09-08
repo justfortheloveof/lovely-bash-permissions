@@ -30,24 +30,19 @@ Issues 6–8 (precedence docs, caching, richer error messages) are deferred to a
 
 ### Step 2b: Move validation into Pydantic models (issues 1–2)
 
-**File**: `src/lovely_bash_permissions/config/schema.py` (rewrite)
+**Completed**: Added `PermissionLevel` enum. Extended field validator to compile regexes and raise on invalid patterns. Added model_validator in PermissionsConfig validating each tool dict via ToolConfig.model_validate(). Removed `_validate_config()` entirely. Fixed ruff TRY004 lint warning.
 
-**What it does**: Replace `_validate_config()` with Pydantic field validators that raise structured errors.
+**Files modified**: `src/lovely_bash_permissions/config/schema.py`, `src/lovely_bash_permissions/config/loader.py`, `tests/test_schema.py`, `tests/test_config_loader.py`
 
-**Instructions**:
-1. Add `PermissionLevel` enum (`allow`, `deny`, `ask`) and make it part of `ToolConfig`.
-2. In `_check_tool_dicts` model validator, raise `ValueError(f"tool '{key}': expected object or null")` for non-dict values (this is issue 2).
-3. For each tool config, compile `blocked_paths_regex` entries via `re.compile()` inside a field validator; raise with path `[toolName, 'blocked_paths_regex']`.
-4. Same for `allowed_cmds_regex` field validation.
-5. Remove `_validate_config()` entirely — Pydantic now enforces it.
-
-**Tests**: `test_tool_permission_enum`, `test_tool_string_instead_of_object_rejected`, `test_invalid_regex_rejected_with_path`.
+**Tests added**: `test_tool_permission_enum`, `test_tool_string_instead_of_object_rejected`, `test_invalid_regex_rejected_with_path`
 
 ---
 
 ### Step 2c: Add schema versioning (issue 4)
 
-**File**: `src/lovely_bash_permissions/config/schema.py` (edit), loader updated if needed
+**Completed**: Added `version: int = 1` field to PermissionsConfig with a model_validator that rejects unknown versions. Added debug logging of config file paths in loader.py (`log.debug("checking config file: %s", path)`). Tests added: `test_version_must_be_1`, `test_unknown_version_rejected`.
+
+**Files modified**: `src/lovely_bash_permissions/config/schema.py`, `src/lovely_bash_permissions/config/loader.py`, `tests/test_schema.py`
 
 **What it does**: Add `version: int = 1` field with validation so future format changes can be detected.
 

@@ -30,11 +30,24 @@ class ToolConfig(BaseModel):
 class PermissionsConfig(BaseModel):
     model_config = {"extra": "allow", "str_strip_whitespace": True}
 
+    version: int = 1
+
+    @model_validator(mode="before")
+    @classmethod
+    def _check_version(cls, data: object) -> object:
+        if isinstance(data, dict):
+            v = data.get("version")
+            if v is not None and v != 1:
+                raise ValueError(f"unknown schema version: {v}")
+        return data
+
     @model_validator(mode="before")
     @classmethod
     def _check_tool_dicts(cls, data: object) -> object:
         if isinstance(data, dict):
             for key, value in data.items():
+                if key == "version":
+                    continue
                 if value is None:
                     continue
                 if not isinstance(value, dict):
