@@ -29,21 +29,40 @@ def get_permissions_config_file_paths(project_dir: str) -> list[str]:
     ]
 
 
-def merge_deep(target: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
+def _warn_conflict(key: str, level1: str, level2: str, warnings: list[str]) -> None:
+    """Append a warning string when the same key is defined in two levels."""
+    warnings.append(f"key '{key}' defined in {level2} config overrides {level1}")
+
+
+def merge_deep(
+    target: dict[str, Any], source: dict[str, Any], warnings: list[str] | None = None
+) -> tuple[dict[str, Any], list[str]]:
     """Deep merge source into target.
 
     Objects are merged recursively, arrays are concatenated, scalars override.
+
+    Returns:
+        Tuple of (merged dict, list of conflict warning strings).
     """
-    result = dict(target)
+    if warnings is None:
+        warnings = []
+
+    result: dict[str, Any] = {}
+    for key, value in target.items():
+        result[key] = value
+
     for key, value in source.items():
         existing: dict[str, Any] | None = result.get(key)
         if existing is not None and is_record(existing) and is_record(value):
-            result[key] = merge_deep(existing, value)
+            merged_child, _ = merge_deep(existing, value, warnings)
+            result[key] = merged_child
         elif isinstance(existing, list) and isinstance(value, list):
             result[key] = existing + value
         else:
+            if key in target and existing != value:
+                _warn_conflict(key, "global", "project", warnings)
             result[key] = value
-    return result
+    return result, warnings
 
 
 def load_permissions_config(project_dir: str) -> tuple[dict[str, Any], list[str]]:
@@ -83,7 +102,8 @@ def load_permissions_config(project_dir: str) -> tuple[dict[str, Any], list[str]
     # Merge in order: global < project < local
     merged: dict[str, Any] = {}
     for cfg in configs:
-        merged = merge_deep(merged, cfg)
+        merged, merge_warnings = merge_deep(merged, cfg)
+        warnings.extend(merge_warnings)
 
     # Validate merged config — Pydantic enforces schema (typos, invalid patterns)
     try:

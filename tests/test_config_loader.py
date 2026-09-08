@@ -21,56 +21,66 @@ class TestMergeDeep:
     """Tests for the deep merge function."""
 
     def test_empty_inputs(self) -> None:
-        assert merge_deep({}, {}) == {}
+        merged, warnings = merge_deep({}, {})
+        assert merged == {}
+        assert warnings == []
 
     def test_scalar_override(self) -> None:
-        result = merge_deep({"a": 1}, {"a": 2})
-        assert result == {"a": 2}
+        merged, warnings = merge_deep({"a": 1}, {"a": 2})
+        assert merged == {"a": 2}
+        assert len(warnings) == 1
 
     def test_new_keys_added(self) -> None:
-        result = merge_deep({"a": 1}, {"b": 2})
-        assert result == {"a": 1, "b": 2}
+        merged, warnings = merge_deep({"a": 1}, {"b": 2})
+        assert merged == {"a": 1, "b": 2}
+        assert warnings == []
 
     def test_nested_objects_merged(self) -> None:
         target = {"outer": {"inner": 1}}
         source = {"outer": {"inner2": 2}}
-        result = merge_deep(target, source)
-        assert result == {"outer": {"inner": 1, "inner2": 2}}
+        merged, warnings = merge_deep(target, source)
+        assert merged == {"outer": {"inner": 1, "inner2": 2}}
+        assert warnings == []
 
     def test_nested_objects_override(self) -> None:
         target = {"tool": {"perm": "deny"}}
         source = {"tool": {"perm": "allow"}}
-        result = merge_deep(target, source)
-        assert result == {"tool": {"perm": "allow"}}
+        merged, warnings = merge_deep(target, source)
+        assert merged == {"tool": {"perm": "allow"}}
+        assert len(warnings) == 1
 
     def test_deeply_nested_objects(self) -> None:
         target = {"a": {"b": {"c": 1}}}
         source = {"a": {"b": {"d": 2}}}
-        result = merge_deep(target, source)
-        assert result == {"a": {"b": {"c": 1, "d": 2}}}
+        merged, warnings = merge_deep(target, source)
+        assert merged == {"a": {"b": {"c": 1, "d": 2}}}
+        assert warnings == []
 
     def test_arrays_concatenated(self) -> None:
         target = {"items": [1, 2]}
         source = {"items": [3, 4]}
-        result = merge_deep(target, source)
-        assert result == {"items": [1, 2, 3, 4]}
+        merged, warnings = merge_deep(target, source)
+        assert merged == {"items": [1, 2, 3, 4]}
+        assert warnings == []
 
     def test_mixed_types(self) -> None:
         target = {"scalar": "a", "obj": {"x": 1}, "arr": [1]}
         source = {"scalar": "b", "obj": {"y": 2}, "arr": [2]}
-        result = merge_deep(target, source)
-        assert result == {
+        merged, warnings = merge_deep(target, source)
+        assert merged == {
             "scalar": "b",
             "obj": {"x": 1, "y": 2},
             "arr": [1, 2],
         }
+        assert len(warnings) == 1
 
     def test_none_values_override(self) -> None:
         target = {"tool": {"perm": "deny"}}
         source = {"tool": None}
         # None is not an object, so it overrides
-        result = merge_deep(target, source)
-        assert result == {"tool": None}
+        merged, warnings = merge_deep(target, source)
+        assert merged == {"tool": None}
+        assert len(warnings) == 1
 
     def test_original_dicts_not_mutated(self) -> None:
         target = {"a": 1, "obj": {"x": 1}}

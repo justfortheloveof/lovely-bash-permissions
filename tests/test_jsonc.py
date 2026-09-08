@@ -159,19 +159,19 @@ class TestReadJsoncFile:
         path = _write_temp_file('{"key": "value"}')
         try:
             result = read_jsonc_file(path)
-            assert result == {"key": "value"}
+            assert result.value == {"key": "value"}
         finally:
             _clean_temp_file(path)
 
     def test_missing_file(self) -> None:
         result = read_jsonc_file("/nonexistent/path.jsonc")
-        assert result is None
+        assert result.value is None
 
     def test_empty_file(self) -> None:
         path = _write_temp_file("")
         try:
             result = read_jsonc_file(path)
-            assert result is None
+            assert result.value is None
         finally:
             _clean_temp_file(path)
 
@@ -179,7 +179,7 @@ class TestReadJsoncFile:
         path = _write_temp_file("   \n\t  ")
         try:
             result = read_jsonc_file(path)
-            assert result is None
+            assert result.value is None
         finally:
             _clean_temp_file(path)
 
@@ -187,7 +187,7 @@ class TestReadJsoncFile:
         path = _write_temp_file("{invalid}")
         try:
             result = read_jsonc_file(path)
-            assert result is None
+            assert result.value is None
         finally:
             _clean_temp_file(path)
 
@@ -201,7 +201,7 @@ class TestReadJsoncFile:
 """)
         try:
             result = read_jsonc_file(path)
-            assert result == {"key": "value"}
+            assert result.value == {"key": "value"}
         finally:
             _clean_temp_file(path)
 
@@ -209,7 +209,7 @@ class TestReadJsoncFile:
         path = _write_temp_file('{"key": "value",}')
         try:
             result = read_jsonc_file(path)
-            assert result == {"key": "value"}
+            assert result.value == {"key": "value"}
         finally:
             _clean_temp_file(path)
 
@@ -217,7 +217,7 @@ class TestReadJsoncFile:
         path = _write_temp_file('{"valid": "json"}', suffix=".json")
         try:
             result = read_jsonc_file(path)
-            assert result == {"valid": "json"}
+            assert result.value == {"valid": "json"}
         finally:
             _clean_temp_file(path)
 
@@ -226,7 +226,7 @@ class TestReadJsoncFile:
         path = _write_temp_file("{invalid json here}")
         try:
             result = read_jsonc_file(path)
-            assert result is None
+            assert result.value is None
         finally:
             _clean_temp_file(path)
         outerr = capsys.readouterr()
@@ -238,7 +238,7 @@ class TestReadJsoncFile:
         path = _write_temp_file("[1, 2, 3]")
         try:
             result = read_jsonc_file(path)
-            assert result is None
+            assert result.value is None
         finally:
             _clean_temp_file(path)
         outerr = capsys.readouterr()
@@ -250,7 +250,7 @@ class TestReadJsoncFile:
         path = _write_temp_file('"hello world"')
         try:
             result = read_jsonc_file(path)
-            assert result is None
+            assert result.value is None
         finally:
             _clean_temp_file(path)
         outerr = capsys.readouterr()
@@ -262,7 +262,7 @@ class TestReadJsoncFile:
         path = _write_temp_file("42")
         try:
             result = read_jsonc_file(path)
-            assert result is None
+            assert result.value is None
         finally:
             _clean_temp_file(path)
         outerr = capsys.readouterr()
@@ -274,7 +274,7 @@ class TestReadJsoncFile:
         path = _write_temp_file("true")
         try:
             result = read_jsonc_file(path)
-            assert result is None
+            assert result.value is None
         finally:
             _clean_temp_file(path)
         outerr = capsys.readouterr()
@@ -293,7 +293,7 @@ class TestReadJsoncFile:
             with os.fdopen(fd, "wb") as f:
                 f.write(b"{\xff\xfe invalid utf-8}")
             result = read_jsonc_file(path)
-            assert result is None
+            assert result.value is None
         finally:
             _clean_temp_file(path)
         outerr = capsys.readouterr()
