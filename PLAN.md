@@ -96,11 +96,9 @@ def is_record(value: Any) -> bool:
 
 ---
 
-### Step 1c: Remove duplicate validation logic (consolidate into loader)
+### Step 1c: Remove duplicate validation logic (consolidate into loader) ✅
 
-**File**: `src/lovely_bash_permissions/config/manager.py` (edit)
-
-**What it does**: The manager currently re-validates config after loading (`PermissionsConfig.model_validate` + `_validate_config`). Since `loader.py::load_permissions_config()` already validates and raises on error, the manager's validation is dead code.
+**Completed**: Manager now uses `load_permissions_config()` which returns `(config, warnings)` tuple. Validation lives in loader only.
 
 **Instructions**:
 1. In `manager.py::_load()`, after merging configs, call the loader's validation instead of duplicating:

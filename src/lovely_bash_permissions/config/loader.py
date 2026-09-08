@@ -8,8 +8,6 @@ Loads and merges configuration from three locations (highest precedence last):
 Uses deep merge: objects merged recursively, arrays concatenated, scalars override.
 """
 
-import json
-import re
 from pathlib import Path
 from typing import Any
 
@@ -68,31 +66,14 @@ def load_permissions_config(project_dir: str) -> tuple[dict[str, Any], list[str]
             loaded_any = True
         else:
             configs.append({})
-            # Determine specific reason for parse failure
             p = Path(path)
-            if not p.exists():
+            if data is None and p.exists():
+                reason = "invalid JSONC"
+            elif not p.exists():
                 reason = "file not found"
-                parse_errors.append((path, reason))
             else:
-                try:
-                    text = p.read_text(encoding="utf-8")
-                except (OSError, UnicodeDecodeError):
-                    reason = "file not found"
-                    parse_errors.append((path, reason))
-                    continue
-                stripped2 = text.lstrip("\ufeff")
-                if not stripped2 or not stripped2.strip():
-                    reason = "invalid JSONC"
-                else:
-                    stripped2 = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
-                    stripped2 = re.sub(r"//[^\n]*", "", stripped2)
-                    stripped2 = re.sub(r",(\s*[}\]])", r"\1", stripped2)
-                    try:
-                        value = json.loads(stripped2)
-                        reason = f"expected object, got {type(value).__name__}"
-                    except json.JSONDecodeError:
-                        reason = "invalid JSONC"
-                parse_errors.append((path, reason))
+                reason = f"expected object, got {type(data).__name__}"
+            parse_errors.append((path, reason))
 
     if not loaded_any:
         details = "\n".join(f"  {p}: {r}" for p, r in parse_errors)
