@@ -72,7 +72,7 @@ def load_permissions_config(project_dir: str) -> tuple[dict[str, Any], list[str]
         Tuple of (merged config dict, list of warning strings for skipped files).
 
     Raises:
-        FileNotFoundError: if none of the config files exist or all are invalid.
+        FileNotFoundError: if none of the config files exist (all missing).
     """
     paths = get_permissions_config_file_paths(project_dir)
 
@@ -109,6 +109,6 @@ def load_permissions_config(project_dir: str) -> tuple[dict[str, Any], list[str]
     try:
         PermissionsConfig.model_validate(merged)
     except ValueError as exc:
-        raise FileNotFoundError(f"no valid lovely-permissions config found\n  {exc}") from exc
+        warnings.append(f"config validation error: {exc}")
 
     return merged, warnings

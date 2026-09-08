@@ -4,7 +4,6 @@ Processes hook events from agent tools to decide whether to allow,
 ask, block, or skip command execution.
 """
 
-import sys
 from typing import Any
 
 from .config.effective_bash import get_effective_bash_config
@@ -113,14 +112,14 @@ def process_hook_event(event: dict[str, Any]) -> dict[str, Any]:
         manager = PermissionsManager(project_dir)
         raw_config = manager.get_lovely_config()
     except (FileNotFoundError, OSError):
-        print("error: permissions config load failed", file=sys.stderr)
-        return {"action": "block", "reason": "permissions config load failed"}
+        reason = manager.get_error() or "permissions config load failed"
+        return {"action": "ask", "reason": f"config error (fallback to ask): {reason}"}
 
     try:
         config = get_effective_bash_config(raw_config.get("bash"), project_dir)
     except (ValueError, FileNotFoundError, OSError):
-        print("error: effective bash config load failed", file=sys.stderr)
-        return {"action": "block", "reason": "effective bash config load failed"}
+        reason = manager.get_error() or "effective bash config load failed"
+        return {"action": "ask", "reason": f"config error (fallback to ask): {reason}"}
 
     result = evaluate_bash_command(command, config)
     status = result.get("status", "ask")

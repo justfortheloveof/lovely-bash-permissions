@@ -384,8 +384,10 @@ class TestLoadPermissionsConfig:
         for path in paths:
             assert path in error_msg
 
-    def test_invalid_permission_raises(self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]) -> None:
-        """Typo in permission value raises FileNotFoundError with explanation."""
+    def test_invalid_permission_returns_warning(
+        self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
+    ) -> None:
+        """Typo in permission value is returned as a warning, not raised."""
         tmpdir = tempfile.mkdtemp()
         config_dir = Path(tmpdir) / ".config" / "devin"
         config_dir.mkdir(parents=True)
@@ -395,12 +397,12 @@ class TestLoadPermissionsConfig:
         )
         project_file = temp_project[1] / "lovely-permissions.jsonc"
         self._write_jsonc(project_file, {"bash": {"permission": "alow"}})
-        with pytest.raises(FileNotFoundError) as exc_info:
-            load_permissions_config(str(temp_project[0]))
-        assert "alow" in str(exc_info.value).lower()
+        _, warnings = load_permissions_config(str(temp_project[0]))
+        assert len(warnings) >= 1
+        assert any("alow" in w.lower() for w in warnings)
 
-    def test_bad_regex_raises(self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]) -> None:
-        """Invalid regex pattern raises FileNotFoundError mentioning the field."""
+    def test_bad_regex_returns_warning(self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]) -> None:
+        """Invalid regex pattern is returned as a warning mentioning the field."""
         tmpdir = tempfile.mkdtemp()
         config_dir = Path(tmpdir) / ".config" / "devin"
         config_dir.mkdir(parents=True)
@@ -410,15 +412,15 @@ class TestLoadPermissionsConfig:
         )
         project_file = temp_project[1] / "lovely-permissions.jsonc"
         self._write_jsonc(project_file, {"bash": {"blocked_paths_regex": ["["]}})
-        with pytest.raises(FileNotFoundError) as exc_info:
-            load_permissions_config(str(temp_project[0]))
-        error_msg = str(exc_info.value)
-        assert "blocked_paths_regex" in error_msg
+        _, warnings = load_permissions_config(str(temp_project[0]))
+        assert len(warnings) >= 1
+        combined = " ".join(warnings)
+        assert "blocked_paths_regex" in combined
 
     def test_multiple_errors_all_reported(
         self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
     ) -> None:
-        """Multiple issues produce error lines (pydantic reports first)."""
+        """Multiple issues are returned as warnings."""
         tmpdir = tempfile.mkdtemp()
         config_dir = Path(tmpdir) / ".config" / "devin"
         config_dir.mkdir(parents=True)
@@ -431,12 +433,10 @@ class TestLoadPermissionsConfig:
             project_file,
             {"bash": {"permission": "alow", "blocked_paths_regex": ["["]}},
         )
-        with pytest.raises(FileNotFoundError) as exc_info:
-            load_permissions_config(str(temp_project[0]))
-        error_msg = str(exc_info.value)
-        # Errors should appear: at least one bash line
-        lines = error_msg.split("\n")
-        tool_lines = [line for line in lines if "bash" in line]
+        _, warnings = load_permissions_config(str(temp_project[0]))
+        assert len(warnings) >= 1
+        # At least one warning should mention bash
+        tool_lines = [w for w in warnings if "bash" in w]
         assert len(tool_lines) >= 1
 
     def test_json_with_comments_works(self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]) -> None:

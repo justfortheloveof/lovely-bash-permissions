@@ -32,6 +32,7 @@ class PermissionsManager:
             self._warnings.extend(warn_list)
             self._lovely_error = None
         except FileNotFoundError as exc:
+            # Config file missing — fall back to ask mode (safe default)
             self._warnings.append(str(exc))
             self._lovely_config = {}
             self._lovely_error = "no valid lovely-permissions config found"
@@ -41,6 +42,7 @@ class PermissionsManager:
             self._devin_regexes = load_devin_exec_regexes(self._project_dir)
             self._devin_error = None
         except Exception as e:  # noqa: BLE001
+            self._warnings.append(str(e))
             self._devin_regexes = []
             self._devin_error = str(e)
 
