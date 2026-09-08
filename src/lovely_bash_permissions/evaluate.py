@@ -160,7 +160,6 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     all_matched_patterns: list[str] = []
     segment_results: list[dict[str, Any]] = []
 
-
     for i, segment in enumerate(segments):
         cmd_name = segment.get("command", "")
         args = segment.get("arguments", [])
@@ -210,8 +209,6 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
             segment_result["blocked"] = False
 
         segment_results.append(segment_result)
-
-
 
         # Collect matched patterns as approval reasons (only shown when status is allow).
         # NOTE: approval_reason must be built AFTER _walk() so it includes nested command matches.
@@ -374,7 +371,8 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         noun = "pattern" if len(all_matched_patterns) == 1 else "patterns"
         reason_str = f"command matches allowed {noun} {', '.join(all_matched_patterns)}"
     else:
-        reason_str = "command matches allowed pattern"
+        _wp = config.get("*", "ask")
+        reason_str = f"allowed by wildcard policy ({_wp})"
     return {
         "status": overall_status,
         "reason": reason_str,
