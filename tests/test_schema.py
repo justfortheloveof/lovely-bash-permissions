@@ -124,3 +124,18 @@ def test_trailing_period_stripped() -> None:
     config = ToolConfig(allowed_cmds_regex=["^git."], blocked_paths_regex=["^/tmp/"])
     assert config.allowed_cmds_regex == ["^git"]
     assert config.blocked_paths_regex == ["^/tmp/"]
+
+
+def test_invalid_regex_rejected_at_load() -> None:
+    config = {"bash": {"blocked_paths_regex": ["["]}}
+    try:
+        PermissionsConfig.model_validate(config)
+    except ValidationError as exc:
+        errors = exc.errors()
+        assert len(errors) == 1
+        assert "invalid regex" in errors[0]["msg"]
+
+
+def test_empty_pattern_acceptable() -> None:
+    config = ToolConfig(blocked_paths_regex=[""])
+    assert config.blocked_paths_regex == [""]

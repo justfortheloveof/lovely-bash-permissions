@@ -22,7 +22,10 @@ class ToolConfig(BaseModel):
     def strip_trailing_period(cls, v: list[str], info: ValidationInfo) -> list[str]:
         result: list[str] = []
         for p in v:
-            compiled = re.compile(p.rstrip("."))
+            try:
+                compiled = re.compile(p.rstrip("."))
+            except re.error as exc:
+                raise ValueError(f'pattern "{p}": invalid regex: {exc}')
             result.append(compiled.pattern)
         return result
 
