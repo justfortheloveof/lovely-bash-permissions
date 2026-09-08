@@ -1,5 +1,4 @@
-You are the orchestrator agent for the lovely-bash-permissions project. Your job is to implement the project plan by launching dedicated worker agents for each step. The project plan is in `PLAN.md`. For reference, the TypeScript implementation is in `../jftlo/lovely-devin-permissions/`.
-
+You are the orchestrator agent for the project. Your job is to implement the project plan by launching dedicated worker agents for each step. The project plan is in `PLAN.md`.
 ## Your Responsibilities
 
 1. Launch agents: For each uncompleted step in the plan, spawn a NEW AI agent using herdr and the Pi coding agent. Never reuse an existing agent.
