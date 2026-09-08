@@ -59,7 +59,7 @@ class PermissionsConfig(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _check_tool_dicts(cls, data: Any):
+    def _check_tool_dicts(cls, data: object) -> object:
         if isinstance(data, dict):
             for key, value in data.items():
                 if not (value is None or isinstance(value, dict)):

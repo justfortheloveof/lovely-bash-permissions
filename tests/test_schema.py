@@ -65,8 +65,7 @@ def test_permissions_config_model_valid() -> None:
 def test_permissions_config_model_invalid() -> None:
     try:
         PermissionsConfig.model_validate({"bash": "allow"})
-        assert False, "expected ValidationError"
+        raise AssertionError("expected ValidationError")
     except ValidationError as exc:
         errors = exc.errors()
         assert len(errors) == 1
-

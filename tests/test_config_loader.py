@@ -374,6 +374,62 @@ class TestLoadPermissionsConfig:
         for path in paths:
             assert path in error_msg
 
+    def test_invalid_permission_raises(self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]) -> None:
+        """Typo in permission value raises FileNotFoundError with explanation."""
+        tmpdir = tempfile.mkdtemp()
+        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir.mkdir(parents=True)
+        monkeypatch.setattr(
+            "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+            lambda: config_dir,
+        )
+        project_file = temp_project[1] / "lovely-permissions.jsonc"
+        self._write_jsonc(project_file, {"bash": {"permission": "alow"}})
+        with pytest.raises(FileNotFoundError) as exc_info:
+            load_permissions_config(str(temp_project[0]))
+        assert "allow" in str(exc_info.value).lower()
+
+    def test_bad_regex_raises(self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]) -> None:
+        """Invalid regex pattern raises FileNotFoundError mentioning pattern."""
+        tmpdir = tempfile.mkdtemp()
+        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir.mkdir(parents=True)
+        monkeypatch.setattr(
+            "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+            lambda: config_dir,
+        )
+        project_file = temp_project[1] / "lovely-permissions.jsonc"
+        self._write_jsonc(project_file, {"bash": {"blocked_paths_regex": ["["]}})
+        with pytest.raises(FileNotFoundError) as exc_info:
+            load_permissions_config(str(temp_project[0]))
+        error_msg = str(exc_info.value)
+        assert "pattern" in error_msg.lower()
+
+    def test_multiple_errors_all_reported(
+        self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
+    ) -> None:
+        """Both a typo permission AND bad regex produce two error lines."""
+        tmpdir = tempfile.mkdtemp()
+        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir.mkdir(parents=True)
+        monkeypatch.setattr(
+            "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+            lambda: config_dir,
+        )
+        project_file = temp_project[1] / "lovely-permissions.jsonc"
+        self._write_jsonc(
+            project_file,
+            {"bash": {"permission": "alow", "blocked_paths_regex": ["["]}},
+        )
+        with pytest.raises(FileNotFoundError) as exc_info:
+            load_permissions_config(str(temp_project[0]))
+        error_msg = str(exc_info.value)
+        # Both errors should appear: allow typo + invalid pattern
+        lines = error_msg.split("\n")
+        # Filter to the two "tool 'bash'" error lines (skip header)
+        tool_lines = [line for line in lines if "bash" in line]
+        assert len(tool_lines) >= 2
+
     def test_json_with_comments_works(self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]) -> None:
         """JSONC files with comments parse correctly."""
         tmpdir = tempfile.mkdtemp()

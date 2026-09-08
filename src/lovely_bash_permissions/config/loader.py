@@ -13,6 +13,7 @@ from typing import Any
 
 from .devin import get_devin_global_config_dir
 from .jsonc import is_record, read_jsonc_file
+from .schema import PermissionsConfig, _validate_config
 
 PROJECT_CONFIG_FILE = "lovely-permissions.jsonc"
 
@@ -77,5 +78,15 @@ def load_permissions_config(project_dir: str) -> dict[str, Any]:
     merged: dict[str, Any] = {}
     for cfg in configs:
         merged = merge_deep(merged, cfg)
+
+    # Validate merged config — catch typos and invalid patterns early
+    try:
+        PermissionsConfig.model_validate(merged)
+    except ValueError as exc:
+        raise FileNotFoundError(f"no valid lovely-permissions config found\n  {exc}") from exc
+
+    validation_errors = _validate_config(merged)
+    if validation_errors:
+        raise FileNotFoundError("no valid lovely-permissions config found\n" + "\n  ".join(validation_errors))
 
     return merged

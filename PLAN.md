@@ -80,7 +80,7 @@ class ToolConfig(BaseModel):
 
 ---
 
-### Step 1b: Add pydantic models for the full permissions config dict
+### Step 1b: Add pydantic models for the full permissions config dict ✅
 
 **File**: `src/lovely_bash_permissions/config/schema.py` (append)
 
