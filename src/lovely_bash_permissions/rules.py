@@ -312,8 +312,9 @@ def check_output_redirection(tree: dict[str, Any], rules: dict[str, Any]) -> dic
 def _resolve_output_level(kinds: list[str], policy: dict[str, Any]) -> str:
     """Resolve output redirection level using per-kind policy keys.
 
-    Any-asks semantics: if ANY redirect resolves to deny, return deny;
-    if any resolve to ask (and none deny), return ask; else allow.
+    Deny-first escalation: deny takes priority over ask, which beats allow.
+    If ANY redirect resolves to deny → return deny; if any resolve to ask
+    (and none deny) → return ask; else allow.
     Kind-specific keys are checked first, falling back to wildcard "*".
     Non-special kinds ("other") fall back to the wildcard level.
 

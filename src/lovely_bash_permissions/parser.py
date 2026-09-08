@@ -14,7 +14,6 @@ Example:
 
 from __future__ import annotations
 
-import functools
 import json
 import os
 import shutil
@@ -82,14 +81,12 @@ def parse(command: str, dialect: str = "bash") -> dict[str, Any]:
         ) from e
 
 
-@functools.lru_cache(maxsize=1)
-def find_shfmt() -> str:
-    """
-    Locate the shfmt binary on the system.
+_shfmt_cache: str | None = None
 
-    The result is cached for the lifetime of the process.  If the binary
-    is moved or removed after the first successful lookup, the stale path
-    will be returned.  Call ``find_shfmt.cache_clear()`` to reset.
+
+def _find_shfmt_uncached() -> str:
+    """
+    Locate the shfmt binary on the system (uncached).
 
     Searches the following locations in order:
         1. ``$VIRTUAL_ENV/bin/shfmt`` (if the env var is set)
@@ -127,6 +124,21 @@ def find_shfmt() -> str:
         return system_shfmt
 
     raise FileNotFoundError("shfmt binary not found. Please ensure shfmt-py is installed.")
+
+
+def find_shfmt() -> str:
+    """
+    Locate the shfmt binary on the system.
+
+    The result is cached for the lifetime of the process.  If the binary
+    is moved or removed after the first successful lookup, a warning is
+    emitted and the cache is cleared before re-searching.
+    """
+    global _shfmt_cache
+    if _shfmt_cache is not None and Path(_shfmt_cache).is_file():
+        return _shfmt_cache
+    _shfmt_cache = _find_shfmt_uncached()
+    return _shfmt_cache
 
 
 class ParseError(Exception):
