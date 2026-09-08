@@ -76,6 +76,7 @@ class PermissionsConfig(BaseModel):
     model_config = {"extra": "allow", "str_strip_whitespace": True}
 
     version: int = 1
+    wildcard: PermissionLevel | None = Field(None, alias="*")
 
     @model_validator(mode="before")
     @classmethod
@@ -94,7 +95,7 @@ class PermissionsConfig(BaseModel):
             for key in data:
                 if key == "version":
                     continue
-                if key == "*":
+                if key == "*" or key == "wildcard":
                     continue
                 if data[key] is None:
                     continue  # null tool entries are valid, handled by _check_tool_dicts

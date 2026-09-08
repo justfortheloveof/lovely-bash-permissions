@@ -145,3 +145,24 @@ class TestGetEffectiveBashConfig:
 
         assert "^curl$" not in result["allowed_cmds_regex"]
         assert "^curl$" in result["blocked_paths_regex"]
+
+    def test_wildcard_allow(self) -> None:
+        """Config with '*' = 'allow' produces effective '*' == 'allow'."""
+        raw = {"*": "allow"}
+        result = get_effective_bash_config(raw, "/project")
+
+        assert result["*"] == "allow"
+
+    def test_wildcard_deny(self) -> None:
+        """Config with '*' = 'deny' produces effective '*' == 'deny'."""
+        raw = {"*": "deny"}
+        result = get_effective_bash_config(raw, "/project")
+
+        assert result["*"] == "deny"
+
+    def test_wildcard_ask(self) -> None:
+        """Config with '*' = 'ask' produces effective '*' == 'ask'."""
+        raw = {"*": "ask"}
+        result = get_effective_bash_config(raw, "/project")
+
+        assert result["*"] == "ask"
