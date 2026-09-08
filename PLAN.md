@@ -71,7 +71,7 @@ No code changes needed — this step is just confirming existing behavior and le
 
 ---
 
-## Step 2: Per-kind output redirection policy resolution (issue #5)
+- [x] ## Step 2: Per-kind output redirection policy resolution (issue #5)
 
 **File:** `src/lovely_bash_permissions/rules.py`
 **Test file:** `tests/test_rules.py` (or add to it)
@@ -142,7 +142,7 @@ This is mostly the same code — key difference: **each kind independently check
 
 ---
 
-## Step 3: Test hook.py config consumption integration (#10a)
+- [x] ## Step 3: Test hook.py config consumption integration (#10a)
 
 **Test file:** `tests/test_hook_integration.py` (new file)
 
