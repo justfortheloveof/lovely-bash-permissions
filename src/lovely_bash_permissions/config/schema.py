@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import re
 from enum import Enum
-from typing import Any
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, ValidationInfo, field_validator, model_validator
 
 
 class PermissionLevel(str, Enum):
@@ -20,38 +19,12 @@ class ToolConfig(BaseModel):
 
     @field_validator("blocked_paths_regex", "allowed_cmds_regex", mode="before")
     @classmethod
-    def strip_trailing_period(cls, v: list[str]) -> list[str]:
-        return [p.rstrip(".") for p in v]
-
-
-def _validate_config(config: dict[str, Any]) -> list[str]:
-    errors: list[str] = []
-
-    for key, value in config.items():
-        if value is None:
-            continue
-
-        if isinstance(value, dict):
-            try:
-                ToolConfig.model_validate(value)
-            except ValueError as exc:
-                msg = str(exc)
-                if "Input should be" in msg and "'allow'" in msg:
-                    errors.append("tool '" + key + "': must be allow, deny, or ask")
-                else:
-                    errors.append("tool '" + key + "': " + msg)
-
-            try:
-                for field_name in ("blocked_paths_regex", "allowed_cmds_regex"):
-                    entries = value.get(field_name, [])
-                    for entry in entries:
-                        re.compile(entry)
-            except re.error as exc:
-                errors.append(f"tool '{key}': {field_name} pattern '{entry}' is invalid — {exc}")
-        else:
-            errors.append(f"tool '{key}': expected object or null, got {type(value).__name__}")
-
-    return errors
+    def strip_trailing_period(cls, v: list[str], info: ValidationInfo) -> list[str]:
+        result: list[str] = []
+        for p in v:
+            compiled = re.compile(p.rstrip("."))
+            result.append(compiled.pattern)
+        return result
 
 
 class PermissionsConfig(BaseModel):
@@ -62,6 +35,12 @@ class PermissionsConfig(BaseModel):
     def _check_tool_dicts(cls, data: object) -> object:
         if isinstance(data, dict):
             for key, value in data.items():
-                if not (value is None or isinstance(value, dict)):
-                    raise ValueError(f"tool '{key}': expected object or null")
+                if value is None:
+                    continue
+                if not isinstance(value, dict):
+                    raise ValueError(f"tool '{key}': expected object or null")  # noqa: TRY004
+                try:
+                    ToolConfig.model_validate(value)
+                except (ValueError, re.error) as exc:
+                    raise ValueError(f"tool '{key}': {exc}") from exc
         return data

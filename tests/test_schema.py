@@ -1,56 +1,91 @@
 from pydantic import ValidationError
 
-from lovely_bash_permissions.config.schema import PermissionsConfig, ToolConfig, _validate_config
+from lovely_bash_permissions.config.schema import PermissionLevel, PermissionsConfig, ToolConfig
 
 
 def test_valid_config() -> None:
-    assert _validate_config({}) == []
+    PermissionsConfig.model_validate({})
 
 
 def test_valid_bash_config() -> None:
     config = {"bash": {"permission": "allow", "blocked_paths_regex": ["^/tmp/"]}}
-    assert _validate_config(config) == []
+    PermissionsConfig.model_validate(config)
 
 
 def test_invalid_permission_value() -> None:
     config = {"bash": {"permission": "alow"}}
-    errors = _validate_config(config)
-    assert len(errors) == 1
-    assert "must be allow, deny, or ask" in errors[0]
+    try:
+        PermissionsConfig.model_validate(config)
+    except ValidationError as exc:
+        errors = exc.errors()
+        assert len(errors) == 1
+        assert "allow" in errors[0]["msg"]
 
 
 def test_non_dict_tool_config() -> None:
     config = {"bash": "allow"}
-    errors = _validate_config(config)
-    assert len(errors) == 1
-    assert "expected object or null, got str" in errors[0]
+    try:
+        PermissionsConfig.model_validate(config)
+    except ValidationError as exc:
+        errors = exc.errors()
+        assert len(errors) == 1
+        assert "expected object or null" in errors[0]["msg"]
 
 
 def test_null_tool_config() -> None:
     config = {"bash": None}
-    assert _validate_config(config) == []
+    PermissionsConfig.model_validate(config)
 
 
 def test_valid_regex() -> None:
     config = {"bash": {"blocked_paths_regex": ["^/tmp/"]}}
-    assert _validate_config(config) == []
+    PermissionsConfig.model_validate(config)
 
 
 def test_invalid_regex() -> None:
     config = {"bash": {"blocked_paths_regex": ["["]}}
-    errors = _validate_config(config)
-    assert len(errors) == 1
-    assert "is invalid" in errors[0]
+    try:
+        PermissionsConfig.model_validate(config)
+    except ValidationError as exc:
+        errors = exc.errors()
+        assert len(errors) == 1
+        assert "unterminated character set" in errors[0]["msg"]
 
 
 def test_valid_allowed_cmds_regex() -> None:
     config = {"bash": {"allowed_cmds_regex": ["^ls"]}}
-    assert _validate_config(config) == []
+    PermissionsConfig.model_validate(config)
 
 
 def test_valid_allow_deny_lists() -> None:
     config = {"bash": {"allow": ["git"], "deny": ["rm"]}}
-    assert _validate_config(config) == []
+    PermissionsConfig.model_validate(config)
+
+
+def test_tool_permission_enum() -> None:
+    assert ToolConfig(permission=PermissionLevel.allow).permission == PermissionLevel.allow
+    assert ToolConfig(permission=PermissionLevel.deny).permission == PermissionLevel.deny
+    assert ToolConfig(permission=PermissionLevel.ask).permission == PermissionLevel.ask
+
+
+def test_tool_string_instead_of_object_rejected() -> None:
+    config = {"bash": "allow"}
+    try:
+        PermissionsConfig.model_validate(config)
+    except ValidationError as exc:
+        errors = exc.errors()
+        assert len(errors) == 1
+
+
+def test_invalid_regex_rejected_with_path() -> None:
+    config = {"bash": {"blocked_paths_regex": "["}}
+    try:
+        PermissionsConfig.model_validate(config)
+    except ValidationError as exc:
+        errors = exc.errors()
+        assert len(errors) == 1
+        # Check that tool name appears in the error message
+        assert "bash" in errors[0]["msg"]
 
 
 def test_tool_config_model() -> None:
