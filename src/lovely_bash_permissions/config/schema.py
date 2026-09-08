@@ -25,7 +25,7 @@ class OutputRedirectionPolicy(BaseModel):
     - ``stderr_to_stdout`` — level for ``2>&1``-style fd duplication
     """
 
-    star: PermissionLevel | None = Field(None, alias="*")
+    wildcard: PermissionLevel | None = Field(None, alias="*")
     stdout_to_dev_null: PermissionLevel | None = None
     stderr_to_dev_null: PermissionLevel | None = None
     stderr_to_stdout: PermissionLevel | None = None
@@ -35,7 +35,7 @@ class ToolConfig(BaseModel):
     model_config = {"extra": "forbid"}
 
     permission: PermissionLevel | None = None
-    star: PermissionLevel | None = Field(None, alias="*")  # allow "*" inside tool configs
+    wildcard: PermissionLevel | None = Field(None, alias="*")  # default permission for unmatched tools
     blocked_paths_regex: list[str] = []
     allowed_cmds_regex: list[str] = []
     output_redirection: OutputRedirectionPolicy | PermissionLevel | None = None

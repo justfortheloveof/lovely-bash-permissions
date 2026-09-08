@@ -204,7 +204,7 @@ def test_tool_config_output_redirection_dict() -> None:
     )  # type: ignore[call-arg]
     policy = config.output_redirection
     assert isinstance(policy, OutputRedirectionPolicy)
-    assert policy.star == PermissionLevel.allow
+    assert policy.wildcard == PermissionLevel.allow
     assert policy.stdout_to_dev_null == PermissionLevel.deny
     assert policy.stderr_to_dev_null is None
     assert policy.stderr_to_stdout == PermissionLevel.ask
