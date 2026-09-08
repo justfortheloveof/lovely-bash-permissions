@@ -125,7 +125,7 @@ if validation_errors:
 
 ---
 
-### Step 1d: Enrich per-file parse error messages in loader
+### Step 1d: Enrich per-file parse error messages in loader ✅
 
 **File**: `src/lovely_bash_permissions/config/loader.py` (edit)
 

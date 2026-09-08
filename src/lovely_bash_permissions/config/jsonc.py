@@ -22,11 +22,40 @@ def _strip_comments(text: str) -> str:
 
 
 def _strip_trailing_commas(text: str) -> str:
-    """Remove trailing commas before closing brackets."""
-    # Trailing comma in objects: {"a": 1,}
-    text = re.sub(r",(\s*[}\]])", r"\1", text)
-    # Trailing comma in arrays: [1, 2,]
-    return text
+    """Remove trailing commas before closing brackets, respecting string boundaries."""
+    result = []
+    in_string = False
+    escape_next = False
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if escape_next:
+            result.append(ch)
+            escape_next = False
+            i += 1
+            continue
+        if ch == chr(92):
+            escape_next = True
+            result.append(ch)
+            i += 1
+            continue
+        if ch == chr(34):
+            in_string = not in_string
+            result.append(ch)
+            i += 1
+            continue
+        if not in_string and ch == chr(44) and i + 1 < len(text):
+            next_non_ws = ""
+            for j in range(i + 1, len(text)):
+                if text[j] not in " \t\n\r":
+                    next_non_ws = text[j]
+                    break
+            if next_non_ws in "}]":
+                i += 1
+                continue
+        result.append(ch)
+        i += 1
+    return "".join(result)
 
 
 def parse_jsonc(text: str) -> dict[str, Any] | list[Any] | str | int | float | bool | None:

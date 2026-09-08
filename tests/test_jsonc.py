@@ -73,6 +73,33 @@ class TestParseJsonc:
         result = parse_jsonc("[1, 2, 3,]")
         assert result == [1, 2, 3]
 
+    def test_trailing_comma_in_string(self) -> None:
+        result = parse_jsonc(chr(123) + chr(34) + "a" + chr(34) + chr(58) + " " + chr(34) + "1," + chr(34) + chr(125))
+        assert result == {"a": "1,"}
+
+    def test_trailing_comma_object(self) -> None:
+        result = parse_jsonc(chr(123) + chr(34) + "a" + chr(34) + chr(58) + " 1," + chr(125))
+        assert result == {"a": 1}
+
+    def test_nested_trailing_comma(self) -> None:
+        result = parse_jsonc(
+            chr(123)
+            + chr(34)
+            + "a"
+            + chr(34)
+            + chr(58)
+            + " "
+            + chr(123)
+            + chr(34)
+            + "b"
+            + chr(34)
+            + chr(58)
+            + " 1,"
+            + chr(125)
+            + chr(125)
+        )
+        assert result == {"a": {"b": 1}}
+
     def test_bom_prefix(self) -> None:
         result = parse_jsonc('\ufeff{"a": 1}')
         assert result == {"a": 1}
