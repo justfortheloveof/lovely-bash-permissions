@@ -135,21 +135,15 @@ else:
 
 ---
 
-### Step 1e: Remove trailing-comma edge-case tests
+### Step 1e: Remove trailing-comma edge-case tests ✅
 
-**File**: `tests/test_jsonc.py` (edit)
-
-**What it does**: Tests for trailing-comma-in-string edge cases (`test_trailing_comma_in_string`, etc.) are now obsolete — `json5` handles them. Remove the old edge-case tests and add one general "trailing commas work" test.
-
-**Instructions**:
-1. Remove tests that verified our hand-rolled trailing-comma logic (string-boundary awareness).
-2. Add one test: `test_trailing_commas`: config with trailing commas → parses correctly via json5.
+**Completed**: Removed 3 obsolete string-boundary tests (test_trailing_comma_in_string, test_trailing_comma_object, test_nested_trailing_comma). Added one general `test_trailing_commas` covering objects, arrays, nested structures. All tests pass.
 
 ---
 
-### Step 1f: Run full test suite and fix any issues
+### Step 1f: Run full test suite and fix any issues ✅
 
-**Instructions**: Run `uv run pytest` end-to-end. Fix any failures from json5 migration (e.g., error message formats, edge-case behavior differences between our parser and json5). Commit all changes.
+**Completed**: Full test suite passes (577+ tests including linting, mypy strict). No migration issues found.
 
 ## Files Modified
 - EDIT: `pyproject.toml` (add json5 dependency) — step 1a
