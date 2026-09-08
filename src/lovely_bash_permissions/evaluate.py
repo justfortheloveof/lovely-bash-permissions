@@ -317,16 +317,17 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                 if non_match_names:
                     names_str = ", ".join(f'"{n}"' for n in sorted(non_match_names))
                     reasons.append(f"{names_str} commands inside subshell do not match allowed patterns")
-                    if subshell_policy == "allow":
-                        # Validation failed with allow policy → deny
-                        overall_status = "deny"
-                    elif overall_status == "allow":
-                        # Validation failed with deny policy → keep deny
+                    if overall_status == "deny":
+                        # Already denied by blocked paths check above, keep it
                         pass
-                    else:
+                    elif subshell_policy == "allow":
+                        overall_status = "ask"  # Validation failed, allow policy → ask for approval
+                    elif subshell_policy == "deny":
+                        overall_status = "deny"  # Validation failed, deny policy → reject outright
+                    else:  # ask
                         overall_status = subshell_policy
                 elif overall_status == "ask":
-                    # All nested commands match — override segment-level ask with allow
+                    # All nested commands match and subshell_policy is ask — override segment-level ask with allow
                     overall_status = "allow"
         if overall_status == "allow":
             if subshell_policy != "allow":
