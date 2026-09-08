@@ -176,7 +176,7 @@ def get_lovely_config(self) -> dict[str, Any]:
 
 ---
 
-## Step 3b: Warn about unknown keys instead of silent drop (schema.py) ⏳ NOT STARTED
+## Step 3b: Warn about unknown keys instead of silent drop (schema.py) ✅ COMPLETED
 
 **File:** `src/lovely_bash_permissions/config/schema.py`
 **Test file:** `tests/test_schema.py`

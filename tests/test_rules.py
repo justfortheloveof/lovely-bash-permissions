@@ -1,7 +1,12 @@
 """Tests for permission rules engine."""
 
+import re
+
+import pytest
+
 from lovely_bash_permissions.parser import parse
 from lovely_bash_permissions.rules import (
+    _compile_pattern,
     check_allowed_patterns,
     check_background_execution,
     check_blocked_patterns,
@@ -43,6 +48,22 @@ def test_wildcard_pattern() -> None:
     """Wildcard pattern matches any character."""
     assert check_allowed_patterns("ls", ["^l.*"]) is True
     assert check_allowed_patterns("ls", ["^g.*"]) is False
+
+
+# Tests for _compile_pattern
+
+
+def test_compile_pattern_caches() -> None:
+    """Same pattern compiled twice returns the same cached object."""
+    p1 = _compile_pattern("^hello$")
+    p2 = _compile_pattern("^hello$")
+    assert p1 is p2
+
+
+def test_compile_pattern_invalid_raises() -> None:
+    """Invalid regex pattern raises re.error."""
+    with pytest.raises(re.error):
+        _compile_pattern("[invalid")
 
 
 # Tests for check_blocked_patterns

@@ -8,6 +8,7 @@ against bash command segments.
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from typing import Any
 
 WRITE_REDIRECT_OPS: frozenset[str] = frozenset({">", ">>", "&>", ">&", "&>>"})
@@ -55,9 +56,18 @@ def deny_item_to_pattern(item: str) -> str:
     return _item_to_anchored_pattern(item)
 
 
+@lru_cache(maxsize=512)
+def _compile_pattern(pattern: str) -> re.Pattern[str]:
+    """Compile and cache a regex pattern. Raises re.error on invalid pattern."""
+    return re.compile(pattern)
+
+
 def _match_pattern(value: str, pattern: str) -> bool:
     """Check a single value against one pattern (unanchored search)."""
-    return bool(re.search(pattern, value))
+    try:
+        return bool(_compile_pattern(pattern).search(value))
+    except re.error:
+        return False
 
 
 def _find_blocked_path(value: str, blocked_patterns: list[str]) -> tuple[bool, str]:
@@ -162,7 +172,7 @@ def _find_background_flags(node: dict[str, Any]) -> list[str]:
 def check_allowed_patterns(command_name: str, allowed_patterns: list[str]) -> bool:
     """Test command name against allowed_cmds_regex patterns.
 
-    Uses re.search() for regex matching. Returns True if the command
+    Uses cached regex compilation via _compile_pattern(). Returns True if the command
     name matches any pattern, False otherwise.
 
     Args:
@@ -173,7 +183,7 @@ def check_allowed_patterns(command_name: str, allowed_patterns: list[str]) -> bo
         True if command matches ANY pattern, False if matches none
         or patterns list is empty.
     """
-    return any(re.search(pattern, command_name) for pattern in allowed_patterns)
+    return any(_compile_pattern(p).search(command_name) for p in allowed_patterns)
 
 
 def check_blocked_patterns(
