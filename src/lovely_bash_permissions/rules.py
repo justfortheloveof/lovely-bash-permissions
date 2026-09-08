@@ -327,25 +327,23 @@ def check_output_redirection(tree: dict[str, Any], rules: dict[str, Any]) -> dic
 def _resolve_output_level(kinds: list[str], policy: dict[str, Any]) -> str:
     """Resolve output redirection level using per-kind policy keys.
 
-    Deny-first escalation: deny takes priority over ask, which beats allow.
-    If ANY redirect resolves to deny → return deny; if any resolve to ask
-    (and none deny) → return ask; else allow.
-    Kind-specific keys are checked first, falling back to wildcard "*".
-    Non-special kinds ("other") fall back to the wildcard level.
+    Each kind is checked independently against its own policy key,
+    falling back to wildcard "*".  Deny takes priority over ask.
 
     Args:
         kinds: List of redirection kind strings from classify_output_redirection.
         policy: Dict-form output_redirection policy.
 
     Returns:
-        The resolved level string (allow/ask/deny).
+        "allow", "ask", or "deny".
     """
     wildcard_level = policy.get("*", "allow")
 
     has_deny = False
     has_ask = False
     for kind in kinds:
-        level = wildcard_level if kind == "other" else policy.get(kind, wildcard_level)
+        # Each kind gets its own level lookup, independent of others
+        level = policy.get(kind, wildcard_level)
         if level == "deny":
             has_deny = True
         elif level == "ask":

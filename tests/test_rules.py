@@ -244,6 +244,38 @@ def test_per_kind_multiple_redirs_mixed() -> None:
     assert result["status"] == "ask"
 
 
+def test_output_redirection_per_kind_independent() -> None:
+    """Two redirections of different kinds: ask+allow resolves to ask."""
+    tree = parse("echo hi > /dev/null 2>&1")
+    rules = {"output_redirection": {"*": "allow", "stdout_to_dev_null": "allow", "stderr_to_stdout": "ask"}}
+    result = check_output_redirection(tree, rules)
+    assert result["status"] == "ask"
+
+
+def test_output_redirection_kind_deny_overrides() -> None:
+    """One kind allow, another deny → overall deny."""
+    tree = parse("echo hi > /dev/null 2>&1")
+    rules = {"output_redirection": {"*": "allow", "stdout_to_dev_null": "deny", "stderr_to_stdout": "allow"}}
+    result = check_output_redirection(tree, rules)
+    assert result["status"] == "deny"
+
+
+def test_output_redirection_all_allow() -> None:
+    """All kinds allow → overall allow."""
+    tree = parse("echo hi > /dev/null 2>&1")
+    rules = {"output_redirection": {"*": "allow"}}
+    result = check_output_redirection(tree, rules)
+    assert result["status"] == "allow"
+
+
+def test_output_redirection_wildcard_fallback() -> None:
+    """Kind not in policy keys falls back to wildcard level."""
+    tree = parse("echo hi > /tmp/out.txt")
+    rules = {"output_redirection": {"*": "ask", "stdout_to_dev_null": "allow"}}
+    result = check_output_redirection(tree, rules)
+    assert result["status"] == "ask"
+
+
 def test_per_kind_input_redirection_wildcard() -> None:
     """Input redirection with object policy uses wildcard key."""
     tree = parse("cat < /tmp/in.txt")
