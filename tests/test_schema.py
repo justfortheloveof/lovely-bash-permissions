@@ -69,3 +69,9 @@ def test_permissions_config_model_invalid() -> None:
     except ValidationError as exc:
         errors = exc.errors()
         assert len(errors) == 1
+
+
+def test_trailing_period_stripped() -> None:
+    config = ToolConfig(allowed_cmds_regex=["^git."], blocked_paths_regex=["^/tmp/"])
+    assert config.allowed_cmds_regex == ["^git"]
+    assert config.blocked_paths_regex == ["^/tmp/"]
