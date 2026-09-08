@@ -52,7 +52,14 @@ lovely-bash-permissions devin-cli ❯ uv run lovely-devin-permissions -t 'echo $
 
 ### Number 6
 
-**TODO** Bare `except Exception` with noqa suppression — multiple files catch all exceptions (`hook.py`, `manager.py`, `devin_cli.py`). Should catch specific exceptions (FileNotFoundError, ValueError).
+**DONE (2e0571b)** Replaced bare except Exception with specific exception types.
+
+- jsonc.py: OSError, UnicodeDecodeError for file read operations
+- manager.py: kept broad Exception with noqa (intentional error-handling code)
+- devin_cli.py: OSError for file write, ValueError/FileNotFoundError/OSError for config loading
+- hook.py: FileNotFoundError/OSError for config load, same plus ValueError for bash config
+- All noqa: BLE001 suppressions removed where specific exceptions used
+- 542 tests pass
 
 ### Number 7
 
