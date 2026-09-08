@@ -15,7 +15,7 @@ Replace ad-hoc dict acceptance in the lovely-permissions config system with pyda
 
 ---
 
-### Step 1a: Create pydantic models and `_validate_config` function
+### Step 1a: Create pydantic models and `_validate_config` function ✅
 
 **Files**: `src/lovely_bash_permissions/config/schema.py` (NEW), `tests/test_schema.py` (NEW)
 
@@ -36,8 +36,8 @@ from pydantic import BaseModel, field_validator, model_validator
 ```python
 class PermissionLevel(str, Enum):
     allow = "allow"
-    deny  = "deny"
-    ask   = "ask"
+    deny = "deny"
+    ask = "ask"
 ```
 
 3. Define single flat config model (module-level):
@@ -114,8 +114,7 @@ from .schema import _validate_config, PermissionsConfig
 validation_errors = _validate_config(merged)
 if validation_errors:
     raise FileNotFoundError(
-        f"no valid lovely-permissions config found\n  "
-        f"{chr(10).join('  ' + e for e in validation_errors)}"
+        f"no valid lovely-permissions config found\n  {chr(10).join('  ' + e for e in validation_errors)}"
     )
 ```
 
@@ -176,7 +175,7 @@ def _strip_trailing_commas(text: str) -> str:
             result.append(ch)
             i += 1
             continue
-        if not in_string and ch == ',' and i + 1 < len(text):
+        if not in_string and ch == "," and i + 1 < len(text):
             next_non_ws = ""
             for j in range(i + 1, len(text)):
                 if text[j] not in " \t\n\r":

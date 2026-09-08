@@ -20,6 +20,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
+    "pydantic>=2.13.5",
     "shfmt-py>=4.1.0",
 ]
 
