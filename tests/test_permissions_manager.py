@@ -337,3 +337,47 @@ class TestPermissionsManagerEndToEnd:
         assert len(paths) == 3
         assert str(mock_project) in paths[1]
         assert str(mock_project) in paths[2]
+
+    def test_precedence_local_wins(self, mock_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Highest-precedence config wins when same key set in all three files."""
+        devin_global = tempfile.mkdtemp()
+        monkeypatch.setenv("DEVIN_GLOBAL_CONFIG_DIR", devin_global)
+
+        global_config = Path(devin_global) / "lovely-permissions.jsonc"
+        with open(global_config, "w") as f:
+            json.dump({"bash": {"permission": "allow"}}, f)
+
+        project_config = mock_project / ".devin" / "lovely-permissions.jsonc"
+        with open(project_config, "w") as f:
+            json.dump({"bash": {"permission": "ask"}}, f)
+
+        local_config = mock_project / ".devin" / "lovely-permissions.local.jsonc"
+        with open(local_config, "w") as f:
+            json.dump({"bash": {"permission": "deny"}}, f)
+
+        manager = PermissionsManager(str(mock_project))
+
+        assert manager.is_valid()
+        bash_cfg = manager.get_lovely_config()["bash"]
+        assert bash_cfg["permission"] == "deny", f"expected local precedence (deny), got {bash_cfg['permission']}"
+
+    def test_cross_level_merge_both_keys(self, mock_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Keys from global and local both survive when they are different keys (step 3b deep-merge fix)."""
+        devin_global = tempfile.mkdtemp()
+        monkeypatch.setenv("DEVIN_GLOBAL_CONFIG_DIR", devin_global)
+
+        global_config = Path(devin_global) / "lovely-permissions.jsonc"
+        with open(global_config, "w") as f:
+            json.dump({"bash": {"permission": "allow", "allowed_cmds_regex": ["^git"]}}, f)
+
+        local_config = mock_project / ".devin" / "lovely-permissions.local.jsonc"
+        with open(local_config, "w") as f:
+            json.dump({"bash": {"blocked_paths_regex": ["/etc"]}}, f)
+
+        manager = PermissionsManager(str(mock_project))
+
+        assert manager.is_valid()
+        bash_cfg = manager.get_lovely_config()["bash"]
+        assert bash_cfg["permission"] == "allow"
+        assert bash_cfg["allowed_cmds_regex"] == ["^git"]
+        assert bash_cfg["blocked_paths_regex"] == ["/etc"]

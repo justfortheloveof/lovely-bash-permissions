@@ -80,7 +80,7 @@ Issues 2, 4, 8 (per-tool inheritance docs, caching/TTL, config file existence ch
 
 ### Step 3e: Add precedence-ordering e2e tests (issue 6)
 
-**Goal**: Verify that global < project < local precedence ordering actually works.
+**Completed**: Added test_precedence_local_wins (three-file conflict, local wins) and test_cross_level_merge_both_keys (global allowed_cmds_regex + local blocked_paths_regex both survive). All 589 tests pass including linting.
 
 **Changes**:
 1. In `tests/test_permissions_manager.py`, add test writing all three config files with conflicting values for the same tool key.
