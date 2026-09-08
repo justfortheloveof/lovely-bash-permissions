@@ -18,6 +18,8 @@ Two related bugs in `evaluate_bash_command()` (src/lovely_bash_permissions/evalu
 
 ## Step 1: Fix empty-segment commands to use wildcard policy (evaluate.py)
 
+**Status**: ✅ Implemented and committed.
+
 **Goal**: When `parse_segments()` returns an empty list and allowed patterns exist, treat the command as non-matching → apply wildcard policy instead of auto-approving.
 
 **Changes in `evaluate_bash_command()`**:
@@ -47,6 +49,8 @@ Note: move the "commands not matching allowed patterns" block (`if allowed_patte
 5. `test_empty_segments_reason_message` — reason contains "wildcard policy" text
 
 ## Step 2: Fix generic "command matches allowed pattern" reason string (evaluate.py)
+
+**Status**: ✅ Implemented and committed.
 
 **Goal**: When status=allow and there are matched patterns, show them. When status=allow but no patterns matched (empty segments), show the wildcard-policy reason instead of generic message.
 
@@ -102,6 +106,8 @@ if len(reasons) == 1:
 
 ## Step 3: Verify existing tests pass and add regression test for reported commands
 
+**Status**: ✅ Implemented and committed. All 73 tests pass (including 10 new regression tests).
+
 **Goal**: Confirm all existing tests still pass, and add a regression test covering the exact reported commands.
 
 **Tests to add (`tests/test_evaluate.py`):**
@@ -114,9 +120,9 @@ Then run `uv run pytest -v` to confirm all tests pass.
 ---
 
 ## Order of execution
-1. **Step 1** — empty-segment wildcard fallback (core fix)
-2. **Step 2** — reason string cleanup (dependent on step 1's reasons list)
-3. **Step 3** — verification + regression tests
+1. **Step 1** — empty-segment wildcard fallback (core fix) ✅
+2. **Step 2** — reason string cleanup (dependent on step 1's reasons list) ✅
+3. **Step 3** — verification + regression tests ✅
 
 ## Commit messages
 - "Step 1: Empty-segment commands use wildcard policy instead of auto-approve"
