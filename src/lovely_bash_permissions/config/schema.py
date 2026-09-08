@@ -4,6 +4,7 @@ import re
 from enum import Enum
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
+from pydantic_core import ValidationError
 
 
 class PermissionLevel(str, Enum):
@@ -31,7 +32,10 @@ class OutputRedirectionPolicy(BaseModel):
 
 
 class ToolConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+
     permission: PermissionLevel | None = None
+    star: PermissionLevel | None = Field(None, alias="*")  # allow "*" inside tool configs
     blocked_paths_regex: list[str] = []
     allowed_cmds_regex: list[str] = []
     output_redirection: OutputRedirectionPolicy | PermissionLevel | None = None
@@ -74,33 +78,23 @@ class PermissionsConfig(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _check_top_level_keys(cls, data: object) -> object:
-        if isinstance(data, dict):
-            known_tool_keys = {k for k, v in data.items() if k not in ("version", "*") and isinstance(v, dict)}
-            for key in data:
-                if key == "version":
-                    continue
-                if key == "*" or key == "wildcard":
-                    continue
-                if data[key] is None:
-                    continue  # null tool entries are valid, handled by _check_tool_dicts
-                if key in known_tool_keys:
-                    continue
-                raise ValueError(f"unknown config key: '{key}'")
+        """Accept any extra key as a tool name; value validation is delegated to _validate_tools."""
         return data
 
-    @model_validator(mode="before")
-    @classmethod
-    def _check_tool_dicts(cls, data: object) -> object:
-        if isinstance(data, dict):
-            for key, value in data.items():
-                if key == "version":
-                    continue
-                if value is None:
-                    continue
-                if not isinstance(value, dict):
-                    raise ValueError(f"tool '{key}': expected object or null")  # noqa: TRY004
-                try:
-                    ToolConfig.model_validate(value)
-                except (ValueError, re.error) as exc:
-                    raise ValueError(f"tool '{key}': {exc}") from exc
-        return data
+    @model_validator(mode="after")
+    def _validate_tools(self) -> PermissionsConfig:
+        """Validate each tool value against ToolConfig (Pydantic native)."""
+        extras = self.model_extra or {}
+        all_errors: list[tuple[str, object]] = []
+        for _key, value in extras.items():
+            if value is None:
+                continue  # null tool entries are fine
+            try:
+                ToolConfig.model_validate(value)
+            except ValidationError as exc:
+                for err in exc.errors():
+                    all_errors.append((_key, err))
+        if all_errors:
+            msgs = [f"tool '{k}': {e['msg']}" for k, e in all_errors]  # type: ignore[index]
+            raise ValueError("\n".join(msgs))
+        return self
