@@ -24,9 +24,7 @@ Issues 6–8 (precedence docs, caching, richer error messages) are deferred to a
 
 ### Step 2a: Centralize trailing-period stripping into shared utility
 
-**Files**: `src/lovely_bash_permissions/config/schema.py` (edit), `src/lovely_bash_permissions/config/effective_bash.py` (edit)
-
-**What it does**: Create a shared `_strip_trailing_period(v: str) -> str` function and wire it into Pydantic validators.
+**Completed**: Field validator `strip_trailing_period` in ToolConfig strips trailing periods. Removed `.rstrip(".")` from effective_bash.py loops. Added `test_trailing_period_stripped()`.
 
 **Instructions**:
 1. Add `_strip_trailing_period(s: str) -> str` at top of `schema.py`.
@@ -65,6 +63,7 @@ Issues 6–8 (precedence docs, caching, richer error messages) are deferred to a
 3. In loader's `load_permissions_config`, log attempted paths at debug level (issue 5):
 ```python
 import logging
+
 log = logging.getLogger(__name__)
 for path in paths:
     log.debug("checking config file: %s", path)
