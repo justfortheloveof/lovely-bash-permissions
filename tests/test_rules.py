@@ -10,7 +10,6 @@ from lovely_bash_permissions.rules import (
     check_allowed_patterns,
     check_background_execution,
     check_blocked_patterns,
-    _item_to_anchored_pattern,
     check_input_redirection,
     check_output_redirection,
 )
@@ -69,7 +68,6 @@ def test_compile_pattern_invalid_raises() -> None:
 
 def test_compile_pattern_invalid_raises_message() -> None:
     """Invalid regex pattern ValueError message includes pattern and error."""
-    import re as _re
 
     exc = pytest.raises(ValueError, lambda: _compile_pattern("[invalid"))
     assert "invalid pattern" in str(exc.value)

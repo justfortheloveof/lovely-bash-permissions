@@ -89,7 +89,7 @@ class PermissionsConfig(BaseModel):
         return data
 
     @model_validator(mode="after")
-    def _warn_unknown_keys(self) -> "PermissionsConfig":
+    def _warn_unknown_keys(self) -> PermissionsConfig:
         """Log warnings for unrecognized keys (typos, unknown tool names)."""
         known = {"version", "wildcard"} | KNOWN_TOOLS
         for key in self.model_extra or {}:
