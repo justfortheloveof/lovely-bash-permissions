@@ -139,3 +139,23 @@ def test_invalid_regex_rejected_at_load() -> None:
 def test_empty_pattern_acceptable() -> None:
     config = ToolConfig(blocked_paths_regex=[""])
     assert config.blocked_paths_regex == [""]
+
+
+def test_unknown_top_level_key_rejected() -> None:
+    config = {"Bash": {"permission": "allow"}}  # capital B typo
+    try:
+        PermissionsConfig.model_validate(config)
+    except ValidationError as exc:
+        errors = exc.errors()
+        assert len(errors) == 1
+        assert "unknown config key" in errors[0]["msg"]
+
+
+def test_unrecognized_tool_field_warns() -> None:
+    config = {"bash": {"blocked_path_regex": ["^/tmp/"]}}  # typo: missing s
+    try:
+        PermissionsConfig.model_validate(config)
+    except ValidationError as exc:
+        errors = exc.errors()
+        assert len(errors) == 1
+        assert "unrecognized fields" in errors[0]["msg"]
