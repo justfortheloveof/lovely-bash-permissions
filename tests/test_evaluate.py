@@ -569,3 +569,64 @@ class TestResultStructure:
             {"*": "ask", "input_redirection": "deny"},
         )
         assert result["status"] == "deny"
+
+    def test_empty_segments_with_allowed_patterns_asks(self) -> None:
+        """Empty segments with allowed patterns → ask (bug 1 fix)."""
+        result = evaluate_bash_command("export BOGUS=true bogus", make_config(allowed=["^ls"]))
+        assert result["status"] == "ask"
+
+    def test_empty_segments_wildcard_allow(self) -> None:
+        """Empty segments with wildcard=allow → allow."""
+        result = evaluate_bash_command(
+            "export BOGUS=true bogus", make_config(allowed=["^ls"], wildcard="allow")
+        )
+        assert result["status"] == "allow"
+
+    def test_empty_segments_wildcard_deny(self) -> None:
+        """Empty segments with wildcard=deny → deny."""
+        result = evaluate_bash_command(
+            "export BOGUS=true bogus", make_config(allowed=["^ls"], wildcard="deny")
+        )
+        assert result["status"] == "deny"
+
+    def test_empty_segments_no_patterns_allows(self) -> None:
+        """Empty segments, no patterns → allow (existing behavior preserved)."""
+        result = evaluate_bash_command("export BOGUS=true bogus", make_config())
+        assert result["status"] == "allow"
+
+    def test_empty_segments_reason_message(self) -> None:
+        """Empty segments reason contains 'wildcard policy'."""
+        result = evaluate_bash_command("export BOGUS=true bogus", make_config(allowed=["^ls"]))
+        assert "wildcard policy" in result["reason"]
+
+    def test_allow_reason_shows_patterns(self) -> None:
+        """Matching command reason contains actual pattern(s)."""
+        result = evaluate_bash_command("ls -la", make_config(allowed=["^ls", "^-la$"]))
+        assert "pattern" in result["reason"] or "patterns" in result["reason"]
+
+    def test_empty_segment_reason_not_generic(self) -> None:
+        """Empty segments reason NOT generic 'matches allowed pattern'."""
+        result = evaluate_bash_command("export BOGUS=true bogus", make_config(allowed=["^ls"]))
+        assert "matches allowed pattern" not in result["reason"]
+
+    def test_bogus_command_rejected(self) -> None:
+        """'bogus' with allowed patterns → ask (existing behavior)."""
+        result = evaluate_bash_command("bogus", make_config(allowed=["^ls"]))
+        assert result["status"] == "ask"
+
+    def test_export_bogus_rejected(self) -> None:
+        """'export BOGUS=true bogus' → ask (regression for bug 1: empty segments wildcard policy)."""
+        result = evaluate_bash_command(
+            "export BOGUS=true bogus", make_config(allowed=["^ls"])
+        )
+        assert result["status"] == "ask"
+
+    def test_export_bogus_reason_not_auto_approved(self) -> None:
+        """Reason should NOT contain 'auto-approved' or 'matches allowed pattern' (regression for bug 2)."""
+        result = evaluate_bash_command(
+            "export BOGUS=true bogus", make_config(allowed=["^ls"])
+        )
+        reason = result["reason"].lower()
+        assert "auto-approved" not in reason, f"Reason should not contain 'auto-approved': {reason}"
+        assert "matches allowed pattern" not in reason, f"Reason should not contain 'matches allowed pattern': {reason}"
+        assert "wildcard policy" in reason, f"Reason should contain 'wildcard policy': {reason}"

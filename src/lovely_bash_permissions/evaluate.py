@@ -138,10 +138,11 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     # Extract segments
     segments = parse_segments(command)
 
-    # Handle empty-segment case: if no segments found and allowed_patterns exist,
-    # treat as non-matching so wildcard policy applies instead of auto-approving.
-    if not segments and allowed_patterns:
+    # Handle empty-segment case: if no segments found, apply wildcard policy.
+    if not segments:
         _wildcard = config.get("*", "ask")
+        if not allowed_patterns and not blocked_patterns:
+            _wildcard = "allow"
         return {
             "status": _wildcard,
             "reason": f"<empty command> produced no parseable segments — defaulting to wildcard policy ({_wildcard}).",
@@ -154,6 +155,11 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     overall_status = "allow"
     reasons = []
     any_segment_not_allowed = False
+
+    # Default values for redirection results (initialized before loop so they're always defined).
+    output_result: dict = {"status": "allow", "reason": "no output redirection"}
+    input_result: dict = {"status": "allow", "reason": "no input redirection"}
+    bg_result: dict = {"status": "allow", "reason": "no background execution"}
 
     # Collect all matched patterns across ALL segments (joined into one reason, like TS)
 
