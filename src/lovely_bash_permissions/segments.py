@@ -17,6 +17,8 @@ If parsing fails, an empty list is returned.
 
 from __future__ import annotations
 
+import logging
+
 from typing import Any
 
 from .ast import (
@@ -39,6 +41,8 @@ from .ast import (
 from .converter import node_from_json
 from .inspect import _word_raw, _word_value
 from .parser import ParseError, parse
+
+_logger = logging.getLogger(__name__)
 
 #: Default shell dialect used for parsing
 DEFAULT_DIALECT = "bash"
@@ -188,6 +192,9 @@ def _extract_segments(node: object, redirs: list[Redir] | None = None) -> list[d
         # File: extract from all statements
         for stmt in node.stmts:
             segments.extend(_extract_segments(stmt))
+
+    else:
+        _logger.warning("Unhandled AST node type '%s' — returning 0 segments", type(node).__name__)
 
     return segments
 
