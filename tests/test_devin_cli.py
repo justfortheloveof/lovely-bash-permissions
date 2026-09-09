@@ -11,6 +11,7 @@ import sys
 from contextlib import redirect_stdout, suppress
 from io import StringIO
 from pathlib import Path
+from typing import Any, ClassVar
 
 import pytest
 
@@ -348,6 +349,126 @@ class TestCliTest:
         )
         # Should complete without error
         assert result.returncode in [0, 2]
+
+
+class TestCliTestNodeCoverage:
+    """Exercise AST node handlers (DeclClause, conditionals, tests) via --test/-t.
+
+    Config is created dynamically per-test in a temp project, and
+    DEVIN_GLOBAL_CONFIG_DIR is pointed at an isolated temp dir so no local or
+    global config is read — results are fully deterministic. The extracted
+    per-segment reason text lists each segment's command name that does not
+    match an allowed pattern, proving each handler ran end-to-end.
+    """
+
+    _CONFIG: ClassVar[dict[str, dict[str, list[str]]]] = {
+        "bash": {
+            "allowed_cmds_regex": ["^ls$", "^true$", "^cat$"],
+            "blocked_paths_regex": ["curl"],
+        }
+    }
+
+    def _write_config(self, project_dir: Path, config: dict[str, Any] | None = None) -> None:
+        devin_dir = project_dir / ".devin"
+        devin_dir.mkdir(exist_ok=True)
+        cfg = config if config is not None else self._CONFIG
+        for fn in ("config.json", "lovely-permissions.jsonc", "lovely-permissions.local.jsonc"):
+            (devin_dir / fn).write_text(json.dumps(cfg))
+
+    def _test(
+        self, command: str, project_dir: Path, global_dir: Path, *, flag: str = "--test"
+    ) -> subprocess.CompletedProcess[str]:
+        return run_cli(
+            flag,
+            command,
+            env={"DEVIN_PROJECT_DIR": str(project_dir), "DEVIN_GLOBAL_CONFIG_DIR": str(global_dir)},
+        )
+
+    def _label(self, result: subprocess.CompletedProcess[str]) -> str:
+        """Extract the reason text after the '[♡ perms: <status>] ...' label."""
+        response = json.loads(result.stdout)
+        cmd = str(response["hookSpecificOutput"]["updatedInput"]["command"])
+        # Find the '♡' marker and gather everything after the closing ']'.
+        marker = cmd.index("♡")
+        b = cmd.index("]", marker)
+        return cmd[b + 1 :].strip()
+
+    def test_declclause_naked_name_segment(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/-t: export FOO=bar x extracts only the naked name x, not the value bar."""
+        global_dir = tmp_path / "global"
+        global_dir.mkdir()
+        self._write_config(tmp_project)
+        result = self._test("export FOO=bar x", tmp_project, global_dir, flag="-t")
+        label = self._label(result)
+        assert '"x"' in label
+        assert '"bar"' not in label
+
+    def test_declclause_assignment_value_not_a_command(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/--test: export FOO=bar produces no segments (assignment, not a command)."""
+        global_dir = tmp_path / "global"
+        global_dir.mkdir()
+        self._write_config(tmp_project)
+        result = self._test("export FOO=bar", tmp_project, global_dir)
+        label = self._label(result)
+        assert "no parseable segments" in label
+        assert '"bar"' not in label
+
+    def test_declclause_cmdsubst_extracted(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/--test: command substitution inside an assignment value is extracted."""
+        global_dir = tmp_path / "global"
+        global_dir.mkdir()
+        self._write_config(tmp_project)
+        result = self._test("export FOO=$(cat x)", tmp_project, global_dir)
+        label = self._label(result)
+        assert '"cat"' in label
+
+    def test_if_then_and_cond_segments(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/-t: if cond; then ls; fi extracts both the cond and then-branch ls."""
+        global_dir = tmp_path / "global"
+        global_dir.mkdir()
+        self._write_config(tmp_project)
+        result = self._test("if true; then ls; fi", tmp_project, global_dir, flag="-t")
+        label = self._label(result)
+        assert "^true" in label
+        assert "^ls" in label
+
+    def test_if_elif_else_segments(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/--test: elif condition and else branch are extracted alongside then."""
+        global_dir = tmp_path / "global"
+        global_dir.mkdir()
+        self._write_config(tmp_project)
+        result = self._test("if true; then ls; elif false; then cat x; else pwd; fi", tmp_project, global_dir)
+        label = self._label(result)
+        assert '"false"' in label
+        assert '"pwd"' in label
+
+    def test_while_cond_segment_extracted(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/-t: while cond; do ls; done extracts the while-condition."""
+        global_dir = tmp_path / "global"
+        global_dir.mkdir()
+        self._write_config(tmp_project)
+        result = self._test("while false; do ls; done", tmp_project, global_dir, flag="-t")
+        label = self._label(result)
+        assert '"false"' in label
+
+    def test_unary_test_no_phantom_command(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/--test: [[ -d /tmp ]] produces no phantom 'tmp' segment."""
+        global_dir = tmp_path / "global"
+        global_dir.mkdir()
+        self._write_config(tmp_project)
+        result = self._test("[[ -d /tmp ]]", tmp_project, global_dir)
+        label = self._label(result)
+        assert "no parseable segments" in label
+        assert '"tmp"' not in label
+
+    def test_unary_test_cmdsubst_extracted(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/-t: [[ -d $(cat x) ]] extracts the inner command substitution."""
+        global_dir = tmp_path / "global"
+        global_dir.mkdir()
+        self._write_config(tmp_project)
+        result = self._test("[[ -d $(cat x) ]]", tmp_project, global_dir, flag="-t")
+        label = self._label(result)
+        assert '"cat"' in label
 
 
 class TestCliShowConfig:
