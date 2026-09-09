@@ -88,8 +88,11 @@ class TestHasPipe:
     def test_multiple_pipes(self) -> None:
         assert has_pipe(parse_ast("cat file.txt | grep pattern | sort | uniq"))
 
-    def test_nested_commands(self) -> None:
-        assert not has_pipe(parse_ast("ls\\ngrep pattern"))
+    def test_statements_on_separate_lines_without_pipe(self) -> None:
+        tree = parse_ast("ls\ngrep pattern")
+        # Two separate statements across a newline, no pipe operator.
+        assert len(tree.stmts) == 2
+        assert not has_pipe(tree)
 
     def test_redirection_without_pipe(self) -> None:
         assert not has_pipe(parse_ast("cat file.txt > output.txt"))
