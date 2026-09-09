@@ -477,10 +477,51 @@ class TestEdgeCases:
         assert result["status"] == "allow"
 
     def test_quoted_arguments(self) -> None:
-        """Quoted arguments (full command match)."""
+        """Quoted arguments match after quote stripping (full command match)."""
         result = evaluate_bash_command(
             "echo 'hello world'",
-            make_config(allowed=["^echo\\s+'hello\\s+world'"]),
+            make_config(allowed=["^echo\\s+hello\\s+world$"]),
+        )
+        assert result["status"] == "allow"
+
+    def test_single_quoted_flag_bypasses_negative_lookahead(self) -> None:
+        """find '-exec' must NOT bypass the ^find(...-(exec|delete|ok)...) pattern."""
+        result = evaluate_bash_command(
+            "find . '-exec' rm {} +",
+            make_config(allowed=["^find(?!.*\\s-(exec|delete|ok)(\\s|;|$)).*$"]),
+        )
+        # The negative lookahead should block this (it would be unquoted -exec)
+        assert result["status"] != "allow"
+
+    def test_double_quoted_flag_bypasses_negative_lookahead(self) -> None:
+        """sort "-o" must NOT bypass the ^sort(?!\\s+(-o|--output)\\b).*$ pattern."""
+        result = evaluate_bash_command(
+            'sort "-o" /tmp/out /tmp/in',
+            make_config(allowed=["^sort(?!\\s+(-o|--output)\\b).*$"]),
+        )
+        assert result["status"] != "allow"
+
+    def test_single_quoted_fd_flag_bypasses_negative_lookahead(self) -> None:
+        """fd '-X' must NOT bypass the ^fd(?!.*\\s+(-x|-X)).*$ pattern."""
+        result = evaluate_bash_command(
+            "fd '-X' rm {}",
+            make_config(allowed=["^fd(?!.*\\s+(-x|-X)).*$"]),
+        )
+        assert result["status"] != "allow"
+
+    def test_unquoted_blocked_flags_still_caught(self) -> None:
+        """Unquoted blocked flags must still be caught by negative lookaheads."""
+        result = evaluate_bash_command(
+            "find . -exec rm {} +",
+            make_config(allowed=["^find(?!.*\\s-(exec|delete|ok)(\\s|;|$)).*$"]),
+        )
+        assert result["status"] != "allow"
+
+    def test_single_quoted_safe_command_still_allowed(self) -> None:
+        """Single-quoted arguments that don't match negative lookaheads should be allowed."""
+        result = evaluate_bash_command(
+            "find . -name '*.txt'",
+            make_config(allowed=["^find(?!.*\\s-(exec|delete|ok)(\\s|;|$)).*$"]),
         )
         assert result["status"] == "allow"
 

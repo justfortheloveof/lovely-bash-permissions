@@ -84,6 +84,20 @@ def _has_cmd_subst(tree: dict[str, Any]) -> bool:
     return False
 
 
+def _strip_quotes(s: str) -> str:
+    """Strip matching outer quotes from a string.
+
+    Bash treats ``echo 'hello'`` and ``echo hello`` identically from a
+    security perspective.  Stripping quotes before pattern matching
+    ensures that negative-lookahead patterns (e.g.
+    ``^sort(?!\\s+(-o|--output)\\b).*$``) match correctly even when
+    the argument is quoted.
+    """
+    if len(s) >= 2 and s[0] in ("'", '"') and s[-1] == s[0]:
+        return s[1:-1]
+    return s
+
+
 def _command_string(name: str, args: list[str]) -> str:
     """Build the full command string used for allowed-pattern matching.
 
@@ -91,8 +105,9 @@ def _command_string(name: str, args: list[str]) -> str:
     real value (not a ``$(...)`` placeholder), the whole command line is
     matched; otherwise only the command name is.
     """
-    if any("$(...)" not in a for a in args):
-        return name if not args else " ".join([name, *args])
+    cleaned = [_strip_quotes(a) for a in args]
+    if any("$(...)" not in a for a in cleaned):
+        return name if not cleaned else " ".join([name, *cleaned])
     return name
 
 
