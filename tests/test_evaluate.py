@@ -120,6 +120,14 @@ class TestAllowedPatterns:
         )
         assert result["status"] == "allow"  # 'ls' inside parens matches pattern
 
+    def test_cstyle_loop_extracted(self) -> None:
+        """C-style for loop body commands are extracted."""
+        result = evaluate_bash_command(
+            "for ((i=0;i<10;i++)); do echo x; done",
+            make_config(allowed=["^echo\\s+x$"]),
+        )
+        assert result["status"] == "allow"  # 'echo x' matches pattern
+
 
 class TestBlockedPatterns:
     """Tests for blocked_paths_regex evaluation."""

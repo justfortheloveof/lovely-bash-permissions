@@ -27,6 +27,7 @@ from .ast import (
     CallExpr,
     CaseClause,
     CmdSubst,
+    CStyleLoop,
     DeclClause,
     File,
     ForClause,
@@ -177,7 +178,7 @@ def _extract_segments(node: object, redirs: list[Redir] | None = None) -> list[d
                     for stmt in branch.body:
                         segments.extend(_extract_segments(stmt))
 
-    elif isinstance(node, ForClause):
+    elif isinstance(node, (ForClause, CStyleLoop)):
         # Extract commands from loop body
         if hasattr(node, "body") and node.body:
             for stmt in node.body:
