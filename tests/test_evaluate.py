@@ -109,11 +109,16 @@ class TestAllowedPatterns:
 
     def test_for_clause_extracted(self) -> None:
         """For loop body commands should be extracted."""
-        result = evaluate_bash_command(
-            "for i in 1 2; do echo; done",
-            make_config(allowed=["^echo$"])
-        )
+        result = evaluate_bash_command("for i in 1 2; do echo; done", make_config(allowed=["^echo$"]))
         assert result["status"] == "allow"  # 'echo' matches pattern
+
+    def test_subshell_extracted(self) -> None:
+        """Commands inside parentheses (...) are extracted."""
+        result = evaluate_bash_command(
+            "( ls )",
+            make_config(allowed=["^ls$"]),
+        )
+        assert result["status"] == "allow"  # 'ls' inside parens matches pattern
 
 
 class TestBlockedPatterns:

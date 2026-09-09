@@ -25,19 +25,19 @@ from .ast import (
     BinaryCmd,
     Block,
     CallExpr,
-    CaseBranch,
     CaseClause,
     CmdSubst,
     DeclClause,
     File,
-    FuncDecl,
     ForClause,
+    FuncDecl,
     IfClause,
     Lit,
     OrCmd,
     ProcSubst,
     Redir,
     Stmt,
+    Subshell,
     WhileClause,
     Word,
 )
@@ -158,25 +158,17 @@ def _extract_segments(node: object, redirs: list[Redir] | None = None) -> list[d
     elif isinstance(node, DeclClause):
         # export/unset with naked words: those are real command names
         if node.variant in ("export", "unset"):
-            naked_assigns = [
-                a for a in (node.assigns or []) if getattr(a, "naked", False)
-            ]
+            naked_assigns = [a for a in (node.assigns or []) if getattr(a, "naked", False)]
             if naked_assigns:
                 name = naked_assigns[0].name
                 cmd_name = name.value if name else ""
                 if cmd_name:
-                    segments.append(
-                        {"command": cmd_name, "arguments": [], "redirections": []}
-                    )
+                    segments.append({"command": cmd_name, "arguments": [], "redirections": []})
             elif node.args:
                 # Fallback: use first arg value (works for unset without assigns)
                 cmd_name = _word_value(node.args[0])
-                segments.append(
-                    {"command": cmd_name, "arguments": [], "redirections": []}
-                )
-                segments.append(
-                    {"command": cmd_name, "arguments": [], "redirections": []}
-                )
+                segments.append({"command": cmd_name, "arguments": [], "redirections": []})
+                segments.append({"command": cmd_name, "arguments": [], "redirections": []})
     elif isinstance(node, CaseClause):
         # case/switch: extract commands from each branch body
         if hasattr(node, "branches") and node.branches:
@@ -189,6 +181,12 @@ def _extract_segments(node: object, redirs: list[Redir] | None = None) -> list[d
         # Extract commands from loop body
         if hasattr(node, "body") and node.body:
             for stmt in node.body:
+                segments.extend(_extract_segments(stmt))
+
+    elif isinstance(node, Subshell):
+        # Recurse into subshell body (...)
+        if hasattr(node, "stmts") and node.stmts:
+            for stmt in node.stmts:
                 segments.extend(_extract_segments(stmt))
 
     elif isinstance(node, (IfClause, WhileClause)):
