@@ -335,6 +335,42 @@ class TestTestClauses:
         assert "ls" in commands
 
 
+class TestNestedSubstitutionExtraction:
+    """Nested command/process substitutions inside parts are extracted (issue #2)."""
+
+    def test_cmdsubst_in_output_redirect_target(self) -> None:
+        segs = parse_segments("echo hi > $(cat /etc/shells)")
+        assert [s["command"] for s in segs] == ["echo", "cat"]
+
+    def test_cmdsubst_in_input_redirect_target(self) -> None:
+        segs = parse_segments("grep x < $(echo file.txt)")
+        assert [s["command"] for s in segs] == ["grep", "echo"]
+
+    def test_procsubst_in_output_redirect_target(self) -> None:
+        segs = parse_segments("echo hi > >(grep foo)")
+        assert [s["command"] for s in segs] == ["echo", "grep"]
+
+    def test_cmdsubst_inside_double_quotes(self) -> None:
+        segs = parse_segments('echo "$(whoami)"')
+        assert [s["command"] for s in segs] == ["echo", "whoami"]
+
+    def test_cmdsubst_in_param_exp_default(self) -> None:
+        segs = parse_segments("echo ${x:-$(ls)}")
+        assert [s["command"] for s in segs] == ["echo", "ls"]
+
+    def test_cmdsubst_inside_arithmetic(self) -> None:
+        segs = parse_segments("echo $(( $(ls) + 1 ))")
+        assert [s["command"] for s in segs] == ["echo", "ls"]
+
+    def test_cmdsubst_in_braced_index(self) -> None:
+        segs = parse_segments("echo ${arr[$(cat idx)]}")
+        assert [s["command"] for s in segs] == ["echo", "cat"]
+
+    def test_plain_parts_in_redirect_target_still_normal(self) -> None:
+        segs = parse_segments("ls > /tmp/out")
+        assert [s["command"] for s in segs] == ["ls"]
+
+
 class TestErrorHandling:
     """Tests for error handling."""
 

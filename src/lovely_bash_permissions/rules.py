@@ -321,6 +321,17 @@ def check_output_redirection(tree: dict[str, Any], rules: dict[str, Any]) -> dic
             targets.append(parts[0].get("Value", ""))
         kinds.extend(classify_output_redirection(redir))
 
+    # Check redirect targets against blocked paths (security check, applies to all policies).
+    blocked_patterns = rules.get("blocked_paths_regex", [])
+    if blocked_patterns:
+        for target in targets:
+            matched, pattern = _find_blocked_path(target, blocked_patterns)
+            if matched:
+                return {
+                    "status": "deny",
+                    "reason": f'Redirect target "{target}" matches blocked path pattern {pattern}',
+                }
+
     level = _resolve_output_level(kinds, policy) if isinstance(policy, dict) else policy
 
     if level == "allow":
@@ -491,6 +502,17 @@ def _check_segments_output_redirs(segments: list[dict[str, Any]], rules: dict[st
         if parts:
             targets.append(parts[0].get("Value", ""))
         kinds.extend(classify_output_redirection(redir))
+
+    # Check redirect targets against blocked paths (security check, applies to all policies).
+    blocked_patterns = rules.get("blocked_paths_regex", [])
+    if blocked_patterns:
+        for target in targets:
+            matched, pattern = _find_blocked_path(target, blocked_patterns)
+            if matched:
+                return {
+                    "status": "deny",
+                    "reason": f'Redirect target "{target}" matches blocked path pattern {pattern}',
+                }
 
     level = _resolve_output_level(kinds, policy) if isinstance(policy, dict) else policy
 

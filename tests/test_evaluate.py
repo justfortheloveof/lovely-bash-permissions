@@ -604,6 +604,71 @@ class TestResultStructure:
         )
         assert result["status"] == "deny"
 
+    def test_output_redirect_to_blocked_path_denied(self) -> None:
+        """Output redirection to a blocked path is denied (issue #1)."""
+        result = evaluate_bash_command(
+            "echo hi > /etc/passwd",
+            make_config(blocked=["^/etc/"]),
+        )
+        assert result["status"] == "deny"
+        assert "blocked path pattern" in result["reason"]
+
+    def test_output_redirect_append_to_blocked_path_denied(self) -> None:
+        """Append output redirection to a blocked path is denied."""
+        result = evaluate_bash_command(
+            "echo hi >> /etc/shells",
+            make_config(blocked=["/etc/shells"]),
+        )
+        assert result["status"] == "deny"
+
+    def test_output_redirect_to_blocked_path_denied_even_when_policy_ask(self) -> None:
+        """Blocked output targets deny regardless of the redirection policy."""
+        result = evaluate_bash_command(
+            "echo hi > /etc/passwd",
+            make_config(blocked=["^/etc/"], output="ask"),
+        )
+        assert result["status"] == "deny"
+
+    def test_output_redirect_to_unblocked_path_allowed(self) -> None:
+        """Output redirection to a non-blocked path is not denied."""
+        result = evaluate_bash_command(
+            "echo hi > /tmp/out.txt",
+            {"*": "allow", "output_redirection": "allow", "blocked_paths_regex": ["^/etc/"]},
+        )
+        assert result["status"] == "allow"
+
+    def test_output_redirect_no_target_not_blocked(self) -> None:
+        """FD-clobbering redirects without a target path are not affected."""
+        result = evaluate_bash_command(
+            "echo hi 2>&1",
+            {"*": "allow", "output_redirection": "allow", "blocked_paths_regex": ["^/etc/"]},
+        )
+        assert result["status"] == "allow"
+
+    def test_block_output_redirection_denied(self) -> None:
+        """Block-level output redirection to a blocked path denies (issue #1)."""
+        result = evaluate_bash_command(
+            "{ echo hi; } > /etc/passwd",
+            make_config(blocked=["^/etc/"]),
+        )
+        assert result["status"] == "deny"
+
+    def test_subshell_output_redirection_denied(self) -> None:
+        """Subshell output redirection to a blocked path denies."""
+        result = evaluate_bash_command(
+            "( echo hi ) > /etc/passwd",
+            make_config(blocked=["^/etc/"]),
+        )
+        assert result["status"] == "deny"
+
+    def test_pipe_output_redirection_to_blocked_path_denied(self) -> None:
+        """Pipe with a trailing output redirection to a blocked path denies."""
+        result = evaluate_bash_command(
+            "echo hi | cat > /etc/passwd",
+            make_config(blocked=["^/etc/"]),
+        )
+        assert result["status"] == "deny"
+
     def test_empty_segments_with_allowed_patterns_asks(self) -> None:
         """Empty segments with allowed patterns → ask (bug 1 fix)."""
         result = evaluate_bash_command("export BOGUS=true bogus", make_config(allowed=["^ls"]))

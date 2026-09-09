@@ -23,30 +23,40 @@ from typing import Any
 from .ast import (
     AndCmd,
     ArithmCmd,
+    ArithmExp,
+    BinaryArithm,
     BinaryCmd,
     BinaryTest,
     Block,
+    BraceExp,
     CallExpr,
     CaseClause,
     CmdSubst,
     CoprocClause,
     CStyleLoop,
+    DblQuoted,
     DeclClause,
     ElifBranch,
+    ExtGlob,
     File,
+    FlagsArithm,
     ForClause,
     FuncDecl,
     IfClause,
     LetClause,
     Lit,
     OrCmd,
+    ParamExp,
+    ParenArithm,
     ParenTest,
     ProcSubst,
     Redir,
+    SglQuoted,
     Stmt,
     Subshell,
     TestClause,
     TimeClause,
+    UnaryArithm,
     UnaryTest,
     WhileClause,
     Word,
@@ -103,35 +113,41 @@ def _extract_segments(
     # Handle Python AST nodes
     if isinstance(node, BinaryCmd):
         # Pipe commands: each side becomes a separate segment.
-        # Redirections live on the BinaryCmd's per-side fields.
-        left_redirs = _extract_redirs(node.left) if node.left else []
-        right_redirs = _extract_redirs(node.right) if node.right else []
-        # If the BinaryCmd itself carries per-side redirs, merge them in
+        # Redirections live on the BinaryCmd's per-side fields; also inherit
+        # any redirections from a parent compound (e.g. `{ a | b; } > file`).
+        left_redirs = list(redirs or [])
+        right_redirs = list(redirs or [])
+        left_redirs += _extract_redirs(node.left) if node.left else []
+        right_redirs += _extract_redirs(node.right) if node.right else []
         if node.left_redirs:
-            left_redirs = list(node.left_redirs) + left_redirs
+            left_redirs = left_redirs + list(node.left_redirs)
         if node.right_redirs:
-            right_redirs = list(node.right_redirs) + right_redirs
+            right_redirs = right_redirs + list(node.right_redirs)
         segments.extend(_extract_segments(node.left, left_redirs))
         segments.extend(_extract_segments(node.right, right_redirs))
 
     elif isinstance(node, AndCmd):
         # Logical AND: each side becomes a separate segment
-        left_redirs = _extract_redirs(node.left) if node.left else []
-        right_redirs = _extract_redirs(node.right) if node.right else []
+        left_redirs = list(redirs or [])
+        right_redirs = list(redirs or [])
+        left_redirs += _extract_redirs(node.left) if node.left else []
+        right_redirs += _extract_redirs(node.right) if node.right else []
         segments.extend(_extract_segments(node.left, left_redirs))
         segments.extend(_extract_segments(node.right, right_redirs))
 
     elif isinstance(node, OrCmd):
         # Logical OR: each side becomes a separate segment
-        left_redirs = _extract_redirs(node.left) if node.left else []
-        right_redirs = _extract_redirs(node.right) if node.right else []
+        left_redirs = list(redirs or [])
+        right_redirs = list(redirs or [])
+        left_redirs += _extract_redirs(node.left) if node.left else []
+        right_redirs += _extract_redirs(node.right) if node.right else []
         segments.extend(_extract_segments(node.left, left_redirs))
         segments.extend(_extract_segments(node.right, right_redirs))
 
     elif isinstance(node, Stmt):
-        # Statement: redirections live on the statement itself.
-        # Pass them down so each command segment inherits them.
-        inherited = list(node.redirs)
+        # Statement: merge redirections inherited from a parent compound
+        # command (e.g. `{ ...; } > file`) with the statement's own.
+        inherited = list(redirs or []) + list(node.redirs)
         if node.cmd:
             segments.extend(_extract_segments(node.cmd, inherited))
 
@@ -166,6 +182,11 @@ def _extract_segments(
             # Recurse into arguments to find nested CmdSubst/ProcSubst redirections
             for arg in node.args[1:]:
                 segments.extend(_extract_segments(arg, redirs))
+            # Recurse into redirection target words so nested command/process
+            # substitutions are extracted (e.g. `cmd > $(generate_name)`).
+            for r in redirs or []:
+                if r.word is not None:
+                    segments.extend(_extract_segments(r.word))
 
     elif isinstance(node, DeclClause):
         # Declaration builtins (export/unset). Only *naked* names are real
@@ -184,19 +205,19 @@ def _extract_segments(
             for branch in node.branches:
                 if hasattr(branch, "body") and branch.body:
                     for stmt in branch.body:
-                        segments.extend(_extract_segments(stmt))
+                        segments.extend(_extract_segments(stmt, redirs))
 
     elif isinstance(node, (ForClause, CStyleLoop)):
         # Extract commands from loop body
         if hasattr(node, "body") and node.body:
             for stmt in node.body:
-                segments.extend(_extract_segments(stmt))
+                segments.extend(_extract_segments(stmt, redirs))
 
     elif isinstance(node, Subshell):
         # Recurse into subshell body (...)
         if hasattr(node, "stmts") and node.stmts:
             for stmt in node.stmts:
-                segments.extend(_extract_segments(stmt))
+                segments.extend(_extract_segments(stmt, redirs))
 
     elif isinstance(node, TestClause):
         # Recurse into test expression — UnaryTest/BinaryTest may contain commands in args
@@ -238,25 +259,25 @@ def _extract_segments(
     elif isinstance(node, IfClause):
         # Conditions and every branch body are real executions.
         for stmt in node.cond_stmts:
-            segments.extend(_extract_segments(stmt))
+            segments.extend(_extract_segments(stmt, redirs))
         for stmt in node.then_stmts:
-            segments.extend(_extract_segments(stmt))
+            segments.extend(_extract_segments(stmt, redirs))
         for elif_branch in node.elif_branches:
-            segments.extend(_extract_segments(elif_branch))
+            segments.extend(_extract_segments(elif_branch, redirs))
         for stmt in node.else_stmts:
-            segments.extend(_extract_segments(stmt))
+            segments.extend(_extract_segments(stmt, redirs))
 
     elif isinstance(node, ElifBranch):
         for stmt in node.cond:
-            segments.extend(_extract_segments(stmt))
+            segments.extend(_extract_segments(stmt, redirs))
         for stmt in node.body:
-            segments.extend(_extract_segments(stmt))
+            segments.extend(_extract_segments(stmt, redirs))
 
     elif isinstance(node, WhileClause):
         for stmt in node.cond_stmts:
-            segments.extend(_extract_segments(stmt))
+            segments.extend(_extract_segments(stmt, redirs))
         for stmt in node.body:
-            segments.extend(_extract_segments(stmt))
+            segments.extend(_extract_segments(stmt, redirs))
 
     elif isinstance(node, Word):
         # Word nodes (arguments) may contain CmdSubst/ProcSubst in their parts.
@@ -273,6 +294,65 @@ def _extract_segments(
         if _in_test_expr:
             segments.append({"command": node.value, "arguments": [], "redirections": []})
 
+    elif isinstance(node, SglQuoted):
+        # Single-quoted literal: no substitutions possible inside. It is a
+        # command name only inside test expressions (like a bare literal).
+        if _in_test_expr and node.value:
+            segments.append({"command": node.value, "arguments": [], "redirections": []})
+
+    elif isinstance(node, DblQuoted):
+        # Double-quoted text may embed CmdSubst/ProcSubst/ParamExp parts.
+        if _in_test_expr:
+            if node.value:
+                segments.append({"command": node.value, "arguments": [], "redirections": []})
+        else:
+            for part in node.parts:
+                segments.extend(_extract_segments(part))
+
+    elif isinstance(node, ParamExp):
+        # Parameter expansion (${x:-default}, ${arr[i]}, ...) may embed nested
+        # command substitutions in its default-value or index expressions.
+        if not _in_test_expr:
+            if node.index is not None:
+                segments.extend(_extract_segments(node.index))
+            exp = node.exp
+            if isinstance(exp, dict):
+                inner_word = exp.get("Word")
+                if isinstance(inner_word, dict):
+                    for part_raw in inner_word.get("Parts", []):
+                        raw_part_node = node_from_json(part_raw)
+                        if raw_part_node is not None:
+                            segments.extend(_extract_segments(raw_part_node))
+
+    elif isinstance(node, ArithmExp):
+        # Arithmetic expansion ($(( ... ))) may embed a command substitution
+        # (bash runs $( cmd ) inside $(( ))).
+        if node.x is not None:
+            segments.extend(_extract_segments(node.x))
+
+    elif isinstance(node, (BinaryArithm, UnaryArithm, ParenArithm, FlagsArithm)):
+        # Arithmetic sub-expressions: recurse into operands so command
+        # substitutions such as `$(( N + $(cmd) ))` are still extracted.
+        if not _in_test_expr:
+            for child in (
+                getattr(node, "left", None),
+                getattr(node, "right", None),
+                getattr(node, "x", None),
+                getattr(node, "body", None),
+            ):
+                if child is not None:
+                    segments.extend(_extract_segments(child))
+
+    elif isinstance(node, BraceExp):
+        # Brace expansion elements may contain substitutions ({a,$(cmd)}).
+        if not _in_test_expr:
+            for elem in node.elems:
+                segments.extend(_extract_segments(elem))
+
+    elif isinstance(node, ExtGlob):
+        # Extended glob pattern is a literal pattern — no substitutions inside.
+        pass
+
     elif isinstance(node, (CmdSubst, ProcSubst)):
         # Command/process substitution: recurse into each stmt, passing inherited redirs.
         if hasattr(node, "stmts") and node.stmts:
@@ -280,13 +360,15 @@ def _extract_segments(
             for stmt in node.stmts:
                 segments.extend(_extract_segments(stmt, inherited))
 
-    elif isinstance(node, (FuncDecl, Block)):
-        # Function body / block: recurse into contained stmts
-        if hasattr(node, "body") and node.body:
-            segments.extend(_extract_segments(node.body))
-        elif hasattr(node, "stmts"):
-            for stmt in node.stmts:
-                segments.extend(_extract_segments(stmt))
+    elif isinstance(node, FuncDecl):
+        # Function body / block: recurse into contained stmts, inheriting any
+        # redirections that apply to the whole block (e.g. `f() { ...; } > file`).
+        segments.extend(_extract_segments(node.body, redirs))
+
+    elif isinstance(node, Block):
+        # Curly-brace block: redirections apply to every contained statement.
+        for stmt in node.stmts:
+            segments.extend(_extract_segments(stmt, redirs))
 
     elif isinstance(node, File):
         # File: extract from all statements

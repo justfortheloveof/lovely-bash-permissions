@@ -1553,15 +1553,17 @@ class TestExtGlobNodes:
         )
         assert proc.returncode != 0
 
-    def test_unhandled_extglob_warning_logged(self, caplog: pytest.LogCaptureFixture) -> None:
-        """The segment parser logs an 'Unhandled ExtGlob' warning.
+    def test_extglob_no_unhandled_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """ExtGlob patterns are handled explicitly and never emit a segment.
 
-        Guards the note in the class docstring: `_extract_segments` has
-        no branch for ExtGlob nodes yet, so it logs a warning instead of
-        emitting a segment. This is a known gap, not a silent success.
+        Guards the fix for the extraction gap: `_extract_segments` has a
+        branch for ExtGlob nodes now (extended glob patterns are literal and
+        contain no substitutions), so no 'Unhandled AST node type' warning is
+        logged and no phantom command segment is produced.
         """
-        parse_segments("ls *.@(txt|md)")
-        assert any("Unhandled AST node type 'ExtGlob'" in message for _logger, _level, message in caplog.record_tuples)
+        segs = parse_segments("ls *.@(txt|md)")
+        assert [s["command"] for s in segs] == ["ls"]
+        assert not any("Unhandled AST node type" in message for _logger, _level, message in caplog.record_tuples)
 
     def test_extglob_position_info(self) -> None:
         """Verify ExtGlob nodes have position information from shfmt."""

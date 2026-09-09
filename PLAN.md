@@ -2,24 +2,24 @@
 
 ## Status of prior work
 - Steps 1–3 (empty-segment wildcard policy + generic reason fix) are ✅ implemented and committed. All 640 tests pass.
-- The remaining work is adding handler cases to `_extract_segments()` (segments.py) so that currently-unhandled AST node types produce segments instead of silently returning `[]`.
+- Step 4 (deferred `parse_segments()` node-type coverage) is ✅ fully implemented and committed. All 649 tests pass.
 
 ## Unsupported node types (from audit)
 | Node type | Example | Currently returns |
 |---|---|---|
-| DeclClause | `export/unset/alias` | 0 segments |
-| CaseClause | `case x in a) cmd;; esac` | 0 segments |
-| ForClause | `for i in ...; do done` | 0 segments |
-| **CStyleLoop** | `for ((i=0;i<10;i++)); do echo x; done` | **0 segments** |
-| Subshell | `( ls )` | 0 segments |
-| **TestClause** (`[[ ]]`) | `[[ -d foo && -e bar ]]` | **0 segments** (note: `[ ]` works) |
-| TimeClause | `time sleep 1` | 0 segments |
-| ArithmCmd / LetClause | `(())`, `let x=1` | 0 segments |
-| CoprocClause | `coproc mycmd` | 0 segments |
+| DeclClause | `export/unset/alias` | ✅ handled (Step 4b) |
+| CaseClause | `case x in a) cmd;; esac` | ✅ handled (Step 4c) |
+| ForClause | `for i in ...; do done` | ✅ handled (Step 4d) |
+| **CStyleLoop** | `for ((i=0;i<10;i++)); do echo x; done` | **✅ handled (Step 4e2)** |
+| Subshell | `( ls )` | ✅ handled (Step 4e) |
+| **TestClause** (`[[ ]]`) | `[[ -d foo && -e bar ]]` | **✅ handled (Step 4e3)** |
+| TimeClause | `time sleep 1` | ✅ handled (Step 4f) |
+| ArithmCmd / LetClause | `(())`, `let x=1` | ✅ handled (Step 4f) |
+| CoprocClause | `coproc mycmd` | ✅ handled (Step 4f) |
 
 ---
 
-## Step 4a: Add logging import and unhandled-node warning to `_extract_segments()` (segments.py)
+## Step 4a: Add logging import and unhandled-node warning to `_extract_segments()` (segments.py) ✅
 
 **Goal**: For any node type not matched by existing `if/elif` branches, log a warning identifying the type — better than silent fallback to wildcard policy.
 
@@ -40,7 +40,7 @@ else:
 
 ---
 
-## Step 4b: Add DeclClause handler to `_extract_segments()` (segments.py)
+## Step 4b: Add DeclClause handler to `_extract_segments()` (segments.py) ✅
 
 **Goal**: Extract command name from `export/unset/alias` statements so they produce segments instead of 0.
 
@@ -67,7 +67,7 @@ def test_declclause_export_segment_extracted(self):
 
 ---
 
-## Step 4c: Add CaseClause handler to `_extract_segments()` (segments.py)
+## Step 4c: Add CaseClause handler to `_extract_segments()` (segments.py) ✅
 
 **Goal**: Extract commands from case branches.
 
@@ -92,7 +92,7 @@ def test_case_clause_extracted(self):
 
 ---
 
-## Step 4d: Add ForClause handler to `_extract_segments()` (segments.py)
+## Step 4d: Add ForClause handler to `_extract_segments()` (segments.py) ✅
 
 **Goal**: Extract commands from loop bodies.
 
@@ -115,7 +115,7 @@ def test_for_clause_extracted(self):
 
 ---
 
-## Step 4e: Add Subshell handler to `_extract_segments()` (segments.py)
+## Step 4e: Add Subshell handler to `_extract_segments()` (segments.py) ✅
 
 **Goal**: Recurse into subshell body `(...)` — note: brace groups `{ }` (Block) already work.
 
@@ -133,7 +133,7 @@ elif isinstance(node, Subshell):
 
 ---
 
-## Step 4e2: Add CStyleLoop handler (segments.py)
+## Step 4e2: Add CStyleLoop handler (segments.py) ✅
 
 **Goal**: Handle c-style for loops `for ((i=0; i<10; i++)); do ... done`.
 
@@ -156,9 +156,9 @@ def test_cstyle_loop_extracted(self):
 
 ---
 
-## Step 4e3: Add TestClause handler (segments.py)
+## Step 4e3: Add TestClause handler (segments.py) ✅
 
-**Goal**: Handle `[[ ... ]]` tests — note `[ ]` (bracket form) already works via CallExpr, but `[[ ]]` parses as TestClause.
+**Goal**: Handle `[[ ... ]]` tests — note `[ ]` (bracket form) already works via CallExpr, but `[[ ]]` parses as TestClause. Also added handlers for BinaryTest/UnaryTest/ParenTest/Lit so literals inside tests become command names.
 
 **How TestClause nodes look**: has `test_expr` (UnaryTest/BinaryTest/ParenTest) and possibly a body. For simple tests like `[[ -d foo ]]` there's no body — skip (no command to extract). For test-with-body forms, recurse.
 
@@ -184,7 +184,7 @@ def test_subshell_extracted(self):
 
 ---
 
-## Step 4f: Add remaining handlers (TimeClause, ArithmCmd/LetClause, CoprocClause) (segments.py)
+## Step 4f: Add remaining handlers (TimeClause, ArithmCmd/LetClause, CoprocClause) (segments.py) ✅
 
 **Goal**: Cover the last three unsupported node types.
 
@@ -218,11 +218,11 @@ def test_coproc_extracted(self):
 
 ---
 
-## Step 4g: Run full test suite and commit
+## Step 4g: Run full test suite and commit ✅
 
 **Goal**: Confirm all existing tests still pass plus new regression tests.
 
-Run `uv run pytest -v` (expect 640+ passing). Commit each step separately:
+Run `uv run pytest -v` → 649 passed, 0 failures. All steps committed separately.
 - "Step 4a: Warn on unhandled AST node types in `_extract_segments()`"
 - "Step 4b: Handle DeclClause (export/unset/alias) in `_extract_segments()`"
 - "Step 4c: Handle CaseClause (case statements) in `_extract_segments()`"
