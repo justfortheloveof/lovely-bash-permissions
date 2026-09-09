@@ -15,6 +15,7 @@ def make_config(
     background: str = "allow",
     subshell: str = "ask",
     wildcard: str = "ask",
+    variable_assignment: str | None = None,
 ) -> dict[str, list[str] | str]:
     """Helper to create test configuration."""
     config: dict[str, list[str] | str] = {"*": wildcard}
@@ -30,6 +31,8 @@ def make_config(
         config["background_execution"] = background
     if subshell != "ask":
         config["subshell"] = subshell
+    if variable_assignment is not None:
+        config["variable_assignment"] = variable_assignment
     return config
 
 
@@ -401,6 +404,7 @@ class TestSubshellHandling:
             make_config(
                 allowed=[r"^echo(\s+.*)?$", r"^ls(\s+.*)?$", r"^cat(\s+.*)?$"],
                 subshell="allow",
+                variable_assignment="allow",
             ),
         )
         assert result["status"] == "allow"
@@ -867,5 +871,121 @@ class TestResultStructure:
         result = evaluate_bash_command(
             "coproc mycmd arg",
             make_config(allowed=["^mycmd\\s+arg$"]),
+        )
+        assert result["status"] == "allow"
+
+
+class TestVariableAssignment:
+    """Tests for variable_assignment policy (standalone vs command-prefixed assignments)."""
+
+    def test_standalone_variable_assignment_requires_approval(self) -> None:
+        """Standalone variable assignment (FOO=bar) requires approval by default."""
+        result = evaluate_bash_command("FOO=bar", make_config())
+        assert result["status"] == "ask"
+        assert "variable assignment" in result["reason"]
+
+    def test_variable_assignment_before_command_requires_approval(self) -> None:
+        """Variable assignment before command (FOO=bar ls) requires approval by default."""
+        result = evaluate_bash_command("FOO=bar ls", make_config())
+        assert result["status"] == "ask"
+        assert "variable assignment" in result["reason"]
+
+    def test_variable_assignment_before_command_and_command_both_need_approval(self) -> None:
+        """FOO=bar ls with only ls allowed still asks due to variable_assignment."""
+        result = evaluate_bash_command(
+            "FOO=bar ls",
+            make_config(allowed=["^ls$"]),
+        )
+        # variable_assignment is default "ask", so this should ask
+        assert result["status"] == "ask"
+
+    def test_variable_assignment_allow_policy(self) -> None:
+        """variable_assignment=allow auto-approves standalone assignments."""
+        result = evaluate_bash_command(
+            "FOO=bar",
+            make_config(variable_assignment="allow"),
+        )
+        assert result["status"] == "allow"
+
+    def test_variable_assignment_deny_policy(self) -> None:
+        """variable_assignment=deny auto-denies standalone assignments."""
+        result = evaluate_bash_command(
+            "FOO=bar",
+            make_config(variable_assignment="deny"),
+        )
+        assert result["status"] == "deny"
+
+    def test_variable_assignment_before_command_with_allow(self) -> None:
+        """variable_assignment=allow auto-approves FOO=bar ls (both segments)."""
+        result = evaluate_bash_command(
+            "FOO=bar ls",
+            make_config(allowed=["^ls$"], variable_assignment="allow"),
+        )
+        assert result["status"] == "allow"
+
+    def test_variable_assignment_before_command_with_deny(self) -> None:
+        """variable_assignment=deny denies FOO=bar ls even if ls is allowed."""
+        result = evaluate_bash_command(
+            "FOO=bar ls",
+            make_config(allowed=["^ls$"], variable_assignment="deny"),
+        )
+        assert result["status"] == "deny"
+
+    def test_variable_assignment_and_command_separate_segments(self) -> None:
+        """FOO=bar ls produces two segments: variable assignment + command."""
+        result = evaluate_bash_command(
+            "FOO=bar ls",
+            make_config(allowed=["^ls$"], variable_assignment="ask"),
+        )
+        # Should be ask due to variable_assignment, not due to ls being unknown
+        assert result["status"] == "ask"
+
+    def test_variable_assignment_in_separate_statement(self) -> None:
+        """FOO=bar ; ls produces two separate statements."""
+        result = evaluate_bash_command(
+            "FOO=bar ; ls",
+            make_config(allowed=["^ls$"], variable_assignment="allow"),
+        )
+        assert result["status"] == "allow"
+
+    def test_export_still_treated_as_command(self) -> None:
+        """export FOO=bar is a command (export), not a variable assignment."""
+        result = evaluate_bash_command(
+            "export FOO=bar",
+            make_config(allowed=[r"^export(\s+.*)?$"], variable_assignment="deny"),
+        )
+        # export is allowed, so it should pass regardless of variable_assignment
+        assert result["status"] == "allow"
+
+    def test_local_still_treated_as_command(self) -> None:
+        """local FOO=bar is a command (local), not a variable assignment."""
+        result = evaluate_bash_command(
+            "local FOO=bar",
+            make_config(allowed=[r"^local(\s+.*)?$"], variable_assignment="deny"),
+        )
+        # local is allowed, so it should pass regardless of variable_assignment
+        assert result["status"] == "allow"
+
+    def test_multiple_variable_assignments_before_command(self) -> None:
+        """Multiple variable assignments before command all get checked."""
+        result = evaluate_bash_command(
+            "FOO=bar BAZ=qux ls",
+            make_config(allowed=["^ls$"], variable_assignment="allow"),
+        )
+        assert result["status"] == "allow"
+
+    def test_variable_assignment_with_command_substitution_deny(self) -> None:
+        """x=$(cmd) is a variable assignment — variable_assignment=deny should deny it."""
+        result = evaluate_bash_command(
+            "x=$(cat file.txt)",
+            make_config(allowed=["^cat$"], subshell="allow", variable_assignment="deny"),
+        )
+        assert result["status"] == "deny"
+
+    def test_variable_assignment_with_command_substitution_allow(self) -> None:
+        """x=$(cmd) with variable_assignment=allow and subshell=allow auto-approves."""
+        result = evaluate_bash_command(
+            "x=$(cat file.txt)",
+            make_config(allowed=[r"^cat(\s+.*)?$"], subshell="allow", variable_assignment="allow"),
         )
         assert result["status"] == "allow"

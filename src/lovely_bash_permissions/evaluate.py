@@ -155,6 +155,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         "input_redirection": config.get("input_redirection", "ask"),
         "background_execution": config.get("background_execution", "ask"),
         "subshell": config.get("subshell", "ask"),
+        "variable_assignment": config.get("variable_assignment", "ask"),
         "blocked_paths_regex": blocked_patterns,
     }
 
@@ -190,6 +191,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     overall_status = "allow"
     reasons = []
     any_segment_not_allowed = False
+    variable_assignment_policy = rules.get("variable_assignment", "ask")
 
     # Default values for redirection results (initialized before loop so they're always defined).
     output_result: dict[str, Any] = {"status": "allow", "reason": "no output redirection"}
@@ -230,10 +232,25 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         args = segment.get("arguments", [])
         segment_result = {"index": i, "command": cmd_name, "arguments": args}
 
-        # Check allowed patterns against command name.
-        # If arguments contain real values (not "$(...)" placeholders),
-        # check full command line so ^ls$ rejects "ls -la".
-        if allowed_patterns:
+        # Handle standalone variable assignments (no command name, only assignments)
+        if cmd_name == "" and args:
+            if variable_assignment_policy == "allow":
+                segment_result["allowed"] = True
+                # If variable_assignment is explicitly "allow", don't override with wildcard policy
+                if not allowed_patterns:
+                    overall_status = "allow"
+            elif variable_assignment_policy == "deny":
+                segment_result["allowed"] = False
+                overall_status = "deny"
+                reasons.append(f"variable assignment denied: {args}")
+            else:  # ask (default)
+                segment_result["allowed"] = False
+                overall_status = "ask"
+                reasons.append(f"variable assignment requires approval: {args}")
+        elif allowed_patterns:
+            # Check allowed patterns against command name.
+            # If arguments contain real values (not "$(...)" placeholders),
+            # check full command line so ^ls$ rejects "ls -la".
             matched_patterns = _match_allowed_patterns(cmd_name, args, allowed_patterns)
 
             if matched_patterns:
@@ -347,15 +364,18 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
             else:
                 _subshell_allowed = True
     # If no specific rules matched and nothing else triggered ask/deny, apply wildcard policy
+    # But don't override variable_assignment decisions (variable_assignment is more specific)
     _redir_matched = output_result["reason"] != "no output redirection"
     _input_matched = input_result["reason"] != "no input redirection"
     _bg_matched = bg_result["reason"] != "no background execution"
+    _va_applied = variable_assignment_policy != "ask"
     if (
         not allowed_patterns
         and not blocked_patterns
         and overall_status == "allow"
         and wildcard != "allow"
         and not _subshell_allowed
+        and not _va_applied
     ):
         if _redir_matched or _input_matched or _bg_matched:
             pass  # specific rules matched; don't override with wildcard

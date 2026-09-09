@@ -156,6 +156,55 @@ def _extract_segments(
     elif isinstance(node, CallExpr):
         # Simple command: extract command, arguments, and inherited redirections
         if node.args:
+            # Check for variable assignments alongside the command (FOO=bar ls)
+            # But NOT if the assignment value contains a command substitution (x=$(cmd)).
+            # Those are "capture output" operations, evaluated via subshell policy, not
+            # variable_assignment. Only pure variable assignments (plain literal values)
+            # should be extracted as separate variable assignment segments.
+            if node.assigns:
+                has_cmdsubst = False
+                for a in node.assigns:
+                    if a.value is not None:
+                        for part in a.value.parts:
+                            if isinstance(part, (CmdSubst, ProcSubst)):
+                                has_cmdsubst = True
+                                break
+                    if has_cmdsubst:
+                        break
+                if not has_cmdsubst:
+
+                    def _part_value(p: object) -> str:
+                        if isinstance(p, Lit):
+                            return p.value
+                        elif hasattr(p, "value"):
+                            v = getattr(p, "value", None)
+                            return v if isinstance(v, str) else ""
+                        return ""
+
+                var_assign_args = []
+                for a in node.assigns:
+                    name = a.name.value if a.name is not None and a.name.value else ""
+                    if a.naked:
+                        if name:
+                            var_assign_args.append(name)
+                        elif a.value is not None:
+                            var_assign_args.append(_word_raw(a.value))
+                    elif name:
+                        if a.append:
+                            var_assign_args.append(
+                                f"{name}+={_word_raw(a.value)}" if a.value is not None else f"{name}+="
+                            )
+                        elif a.value is not None:
+                            var_assign_args.append(f"{name}={_word_raw(a.value)}")
+                        elif a.array is not None:
+                            var_assign_args.append(f"{name}=(...)")
+                        else:
+                            var_assign_args.append(name)
+                    elif a.value is not None:
+                        var_assign_args.append(_word_raw(a.value))
+                if var_assign_args:
+                    # Add variable assignment segment before the command segment
+                    segments.append({"command": "", "arguments": var_assign_args, "redirections": []})
 
             def _part_value(p: object) -> str:
                 """Extract string value from a Word part node."""
@@ -189,6 +238,45 @@ def _extract_segments(
             for r in redirs or []:
                 if r.word is not None:
                     segments.extend(_extract_segments(r.word))
+        elif node.assigns:
+            # Standalone variable assignment (no Args, only Assigns)
+            # Create a segment so it can be evaluated against allowed patterns.
+            def _part_value(p: object) -> str:
+                if isinstance(p, Lit):
+                    return p.value
+                elif hasattr(p, "value"):
+                    v = getattr(p, "value", None)
+                    return v if isinstance(v, str) else ""
+                return ""
+
+            redir_dicts = [
+                {
+                    "Op": r.op,
+                    "N": {"Value": str(r.n)} if r.n is not None else {},
+                    "Word": {"Parts": [{"Value": _part_value(p)} for p in (r.word.parts if r.word else [])]},
+                }
+                for r in (redirs or [])
+            ]
+            args = []
+            for a in node.assigns:
+                name = a.name.value if a.name is not None and a.name.value else ""
+                if a.naked:
+                    if name:
+                        args.append(name)
+                    elif a.value is not None:
+                        args.append(_word_raw(a.value))
+                elif name:
+                    if a.append:
+                        args.append(f"{name}+={_word_raw(a.value)}" if a.value is not None else f"{name}+=")
+                    elif a.value is not None:
+                        args.append(f"{name}={_word_raw(a.value)}")
+                    elif a.array is not None:
+                        args.append(f"{name}=(...)")
+                    else:
+                        args.append(name)
+                elif a.value is not None:
+                    args.append(_word_raw(a.value))
+            segments.append({"command": "", "arguments": args, "redirections": redir_dicts})
 
     elif isinstance(node, DeclClause):
         # Declaration builtins (export/readonly/local/declare/typeset) are
