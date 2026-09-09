@@ -600,6 +600,14 @@ class TestPerKindOutputRedirection:
         )
         assert result["status"] == "ask"
 
+    def test_clobber_redirection_ask(self) -> None:
+        """>| /tmp/out triggers output redirection ask (same as >)."""
+        result = evaluate_bash_command(
+            "echo hi >| /tmp/out.txt",
+            {"*": "ask", "output_redirection": {"*": "ask"}},
+        )
+        assert result["status"] == "ask"
+
     def test_multiple_redirs_all_allow(self) -> None:
         """Wildcard ask, specific kinds allow -> any-asks returns ask."""
         result = evaluate_bash_command(

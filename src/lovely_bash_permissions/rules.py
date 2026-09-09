@@ -11,7 +11,7 @@ import re
 from functools import lru_cache
 from typing import Any
 
-WRITE_REDIRECT_OPS: frozenset[str] = frozenset({">", ">>", "&>", ">&", "&>>"})
+WRITE_REDIRECT_OPS: frozenset[str] = frozenset({">", ">>", ">|", "&>", ">&", "&>>"})
 COMBINED_OPS: frozenset[str] = frozenset({">&", "&>", "&>>"})
 DEV_NULL: str = "/dev/null"
 
@@ -303,7 +303,7 @@ def check_output_redirection(tree: dict[str, Any], rules: dict[str, Any]) -> dic
     redirections = []
     for redir in redirs:
         op = redir.get("Op", "")
-        if op in (">", ">>", "&>", ">&", "&>>"):
+        if op in WRITE_REDIRECT_OPS:
             redirections.append(redir)
 
     if not redirections:

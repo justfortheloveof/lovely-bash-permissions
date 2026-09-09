@@ -182,6 +182,14 @@ def test_append_redirection_denied() -> None:
     assert "/tmp/out.txt" in result["reason"]
 
 
+def test_clobber_redirection_denied() -> None:
+    """Clobber redirect (>|) is denied when policy is deny."""
+    tree = parse("echo hello >| /tmp/out.txt")
+    result = check_output_redirection(tree, {"output_redirection": "deny"})
+    assert result["status"] == "deny"
+    assert "/tmp/out.txt" in result["reason"]
+
+
 def test_mixed_rules_some_allow_some_deny() -> None:
     """Mixed redirections: allow policy lets all through, deny blocks all."""
     # With allow policy
