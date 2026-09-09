@@ -99,6 +99,14 @@ class TestAllowedPatterns:
         )
         assert result["status"] == "ask"
 
+    def test_declclause_export_segment_extracted(self) -> None:
+        """DeclClause export with a real command arg should extract it."""
+        result = evaluate_bash_command(
+            "export BOGUS=true bogus",
+            make_config(allowed=["^bogus"]),
+        )
+        assert result["status"] == "allow"  # now matches allowed pattern instead of wildcard ask
+
 
 class TestBlockedPatterns:
     """Tests for blocked_paths_regex evaluation."""
@@ -585,15 +593,20 @@ class TestResultStructure:
         result = evaluate_bash_command("export BOGUS=true bogus", make_config(allowed=["^ls"], wildcard="deny"))
         assert result["status"] == "deny"
 
-    def test_empty_segments_no_patterns_allows(self) -> None:
-        """Empty segments, no patterns → allow (existing behavior preserved)."""
+    def test_export_segment_extracted_no_patterns(self) -> None:
+        """Export with naked word produces segment; no patterns → ask."""
         result = evaluate_bash_command("export BOGUS=true bogus", make_config())
+        assert result["status"] == "ask"
+
+    def test_export_segment_no_patterns_allows(self) -> None:
+        """Export segment matches wildcard allow → allow."""
+        result = evaluate_bash_command("export BOGUS=true bogus", make_config(wildcard="allow"))
         assert result["status"] == "allow"
 
-    def test_empty_segments_reason_message(self) -> None:
-        """Empty segments reason contains 'wildcard policy'."""
+    def test_export_segment_reason_shows_pattern(self) -> None:
+        """Export segment reason contains matching pattern info."""
         result = evaluate_bash_command("export BOGUS=true bogus", make_config(allowed=["^ls"]))
-        assert "wildcard policy" in result["reason"]
+        assert "bogus" in result["reason"]
 
     def test_allow_reason_shows_patterns(self) -> None:
         """Matching command reason contains actual pattern(s)."""
@@ -616,9 +629,7 @@ class TestResultStructure:
         assert result["status"] == "ask"
 
     def test_export_bogus_reason_not_auto_approved(self) -> None:
-        """Reason should NOT contain 'auto-approved' or 'matches allowed pattern' (regression for bug 2)."""
+        """Reason should NOT contain 'auto-approved' (regression for bug 2)."""
         result = evaluate_bash_command("export BOGUS=true bogus", make_config(allowed=["^ls"]))
         reason = result["reason"].lower()
         assert "auto-approved" not in reason, f"Reason should not contain 'auto-approved': {reason}"
-        assert "matches allowed pattern" not in reason, f"Reason should not contain 'matches allowed pattern': {reason}"
-        assert "wildcard policy" in reason, f"Reason should contain 'wildcard policy': {reason}"

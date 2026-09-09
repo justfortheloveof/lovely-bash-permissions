@@ -18,7 +18,6 @@ If parsing fails, an empty list is returned.
 from __future__ import annotations
 
 import logging
-
 from typing import Any
 
 from .ast import (
@@ -27,6 +26,7 @@ from .ast import (
     Block,
     CallExpr,
     CmdSubst,
+    DeclClause,
     File,
     FuncDecl,
     IfClause,
@@ -152,6 +152,28 @@ def _extract_segments(node: object, redirs: list[Redir] | None = None) -> list[d
             for arg in node.args[1:]:
                 segments.extend(_extract_segments(arg, redirs))
 
+    elif isinstance(node, DeclClause):
+        # export/unset with naked words: those are real command names
+        if node.variant in ("export", "unset"):
+            naked_assigns = [
+                a for a in (node.assigns or []) if getattr(a, "naked", False)
+            ]
+            if naked_assigns:
+                name = naked_assigns[0].name
+                cmd_name = name.value if name else ""
+                if cmd_name:
+                    segments.append(
+                        {"command": cmd_name, "arguments": [], "redirections": []}
+                    )
+            elif node.args:
+                # Fallback: use first arg value (works for unset without assigns)
+                cmd_name = _word_value(node.args[0])
+                segments.append(
+                    {"command": cmd_name, "arguments": [], "redirections": []}
+                )
+                segments.append(
+                    {"command": cmd_name, "arguments": [], "redirections": []}
+                )
     elif isinstance(node, (IfClause, WhileClause)):
         # Handle conditional blocks: extract from each branch.
         # cond_stmts / body are lists of Stmt (each carries its own redirs).
