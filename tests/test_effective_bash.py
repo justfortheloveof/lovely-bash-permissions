@@ -4,11 +4,15 @@ Verifies that blocked_paths_regex from config is loaded correctly,
 including merging with deny list items.
 """
 
+import pytest
+
 from lovely_bash_permissions.config.effective_bash import (
     HOOK_LABEL_REGEX,
     get_effective_bash_config,
 )
 from lovely_bash_permissions.rules import deny_item_to_pattern
+
+pytestmark = pytest.mark.usefixtures("devin_global_config_dir")
 
 
 class TestDenyItemToPattern:

@@ -13,19 +13,7 @@ from lovely_bash_permissions.config.devin import (
     load_devin_exec_regexes,
 )
 
-
-def _write_temp_file(content: str, suffix: str = ".json") -> str:
-    """Write content to a temporary file and return its path."""
-    fd, path = tempfile.mkstemp(suffix=suffix)
-    with os.fdopen(fd, "w") as f:
-        f.write(content)
-    return path
-
-
-def _clean_temp_file(path: str) -> None:
-    """Remove a temporary file."""
-    if os.path.exists(path):
-        os.remove(path)
+pytestmark = pytest.mark.usefixtures("devin_global_config_dir")
 
 
 def _create_project_with_configs(
@@ -81,17 +69,10 @@ class TestLoadDevinExecPermissions:
     """Tests for load_devin_exec_permissions function."""
 
     def test_no_config_files(self) -> None:
-        with (
-            tempfile.TemporaryDirectory() as project,
-            tempfile.TemporaryDirectory() as devin_global,
-        ):
-            os.environ["DEVIN_GLOBAL_CONFIG_DIR"] = devin_global
-            try:
-                result = load_devin_exec_permissions(project)
-                assert result["permissions"] == []
-                assert result["errors"] == []
-            finally:
-                del os.environ["DEVIN_GLOBAL_CONFIG_DIR"]
+        with tempfile.TemporaryDirectory() as project:
+            result = load_devin_exec_permissions(project)
+            assert result["permissions"] == []
+            assert result["errors"] == []
 
     def test_global_config_only(self) -> None:
         with tempfile.TemporaryDirectory() as project:
@@ -99,13 +80,10 @@ class TestLoadDevinExecPermissions:
                 project,
                 global_config={"permissions": {"allow": ["Exec(git)", "Read(**)"]}},
             )
-            try:
-                result = load_devin_exec_permissions(project)
-                assert len(result["permissions"]) == 1
-                assert result["permissions"][0]["regex"] == "^git(\\s|$)"
-                assert result["errors"] == []
-            finally:
-                _clean_temp_file(os.path.join(get_devin_global_config_dir(), "config.json"))
+            result = load_devin_exec_permissions(project)
+            assert len(result["permissions"]) == 1
+            assert result["permissions"][0]["regex"] == "^git(\\s|$)"
+            assert result["errors"] == []
 
     def test_project_config_only(self) -> None:
         with tempfile.TemporaryDirectory() as project:
@@ -137,15 +115,12 @@ class TestLoadDevinExecPermissions:
                 project_config={"permissions": {"allow": ["Exec(npm run)"]}},
                 local_config={"permissions": {"allow": ["Exec(docker compose)"]}},
             )
-            try:
-                result = load_devin_exec_permissions(project)
-                assert len(result["permissions"]) == 3
-                regexes = [p["regex"] for p in result["permissions"]]
-                assert "^git(\\s|$)" in regexes
-                assert "^npm run(\\s|$)" in regexes
-                assert "^docker compose(\\s|$)" in regexes
-            finally:
-                _clean_temp_file(os.path.join(get_devin_global_config_dir(), "config.json"))
+            result = load_devin_exec_permissions(project)
+            assert len(result["permissions"]) == 3
+            regexes = [p["regex"] for p in result["permissions"]]
+            assert "^git(\\s|$)" in regexes
+            assert "^npm run(\\s|$)" in regexes
+            assert "^docker compose(\\s|$)" in regexes
 
     def test_ignores_non_exec_entries(self) -> None:
         with tempfile.TemporaryDirectory() as project:

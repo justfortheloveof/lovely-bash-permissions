@@ -1,7 +1,6 @@
 """Tests for PermissionsManager."""
 
 import json
-import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -9,6 +8,8 @@ import pytest
 
 from lovely_bash_permissions.config.loader import get_permissions_config_file_paths
 from lovely_bash_permissions.config.manager import PermissionsManager
+
+pytestmark = pytest.mark.usefixtures("devin_global_config_dir")
 
 
 @pytest.fixture
@@ -27,9 +28,6 @@ class TestPermissionsManagerConstruction:
 
     def test_loads_during_construction(self, mock_project: Path) -> None:
         """Manager should load config during construction."""
-        # Disable global config so only project file is loaded
-        monkeypatch = pytest.MonkeyPatch()
-        monkeypatch.setenv("DEVIN_GLOBAL_CONFIG_DIR", tempfile.mkdtemp())
 
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(config_path, "w") as f:
@@ -43,9 +41,6 @@ class TestPermissionsManagerConstruction:
 
     def test_defaults_when_loader_throws(self, mock_project: Path) -> None:
         """When loader throws (file invalid), config should be empty and manager invalid."""
-        # Disable global config so only project file is loaded
-        monkeypatch = pytest.MonkeyPatch()
-        monkeypatch.setenv("DEVIN_GLOBAL_CONFIG_DIR", tempfile.mkdtemp())
 
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(config_path, "w") as f:
@@ -59,8 +54,6 @@ class TestPermissionsManagerConstruction:
 
     def test_handles_invalid_file(self, mock_project: Path) -> None:
         """Manager should handle invalid file gracefully."""
-        monkeypatch = pytest.MonkeyPatch()
-        monkeypatch.setenv("DEVIN_GLOBAL_CONFIG_DIR", tempfile.mkdtemp())
 
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(config_path, "w") as f:
@@ -78,8 +71,6 @@ class TestPermissionsManagerReload:
 
     def test_reload_loads_fresh_config(self, mock_project: Path) -> None:
         """reload() should load fresh config from disk."""
-        monkeypatch = pytest.MonkeyPatch()
-        monkeypatch.setenv("DEVIN_GLOBAL_CONFIG_DIR", tempfile.mkdtemp())
 
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(config_path, "w") as f:
@@ -98,8 +89,6 @@ class TestPermissionsManagerReload:
 
     def test_reload_clears_errors(self, mock_project: Path) -> None:
         """reload() clears previous errors if config loads successfully."""
-        monkeypatch = pytest.MonkeyPatch()
-        monkeypatch.setenv("DEVIN_GLOBAL_CONFIG_DIR", tempfile.mkdtemp())
 
         # Start with invalid file
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
@@ -123,8 +112,6 @@ class TestPermissionsManagerReload:
 
     def test_reload_captures_new_errors(self, mock_project: Path) -> None:
         """reload() captures new errors."""
-        monkeypatch = pytest.MonkeyPatch()
-        monkeypatch.setenv("DEVIN_GLOBAL_CONFIG_DIR", tempfile.mkdtemp())
 
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(config_path, "w") as f:
@@ -198,8 +185,6 @@ class TestPermissionsManagerGetMethods:
 
     def test_is_valid_and_get_error(self, mock_project: Path) -> None:
         """is_valid() and get_error() should be consistent."""
-        monkeypatch = pytest.MonkeyPatch()
-        monkeypatch.setenv("DEVIN_GLOBAL_CONFIG_DIR", tempfile.mkdtemp())
 
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(config_path, "w") as f:
@@ -222,10 +207,8 @@ class TestPermissionsManagerGetMethods:
 class TestPermissionsManagerWarnings:
     """Test warnings are tracked when config files are skipped."""
 
-    def test_warnings_on_invalid_file(self, mock_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_warnings_on_invalid_file(self, mock_project: Path) -> None:
         """One file invalid but others load — warnings list has entry, config still loads."""
-        devin_global = tempfile.mkdtemp()
-        monkeypatch.setenv("DEVIN_GLOBAL_CONFIG_DIR", devin_global)
 
         # Project config exists and is valid; global/local don't (will be skipped with warnings)
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
@@ -242,13 +225,11 @@ class TestPermissionsManagerWarnings:
         assert len(warnings) >= 1
         assert any("skipped invalid config file:" in w for w in warnings)
 
-    def test_no_warnings_when_all_valid(self, mock_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_no_warnings_when_all_valid(self, mock_project: Path, devin_global_config_dir: str) -> None:
         """All files valid — no warnings."""
-        devin_global = tempfile.mkdtemp()
-        monkeypatch.setenv("DEVIN_GLOBAL_CONFIG_DIR", devin_global)
 
         # Create all three config files as valid
-        global_config = Path(devin_global) / "lovely-permissions.jsonc"
+        global_config = Path(devin_global_config_dir) / "lovely-permissions.jsonc"
         with open(global_config, "w") as f:
             json.dump({"bash": {"blocked_paths_regex": ["^/tmp/"]}}, f)
 
@@ -266,10 +247,8 @@ class TestPermissionsManagerWarnings:
         assert manager.is_valid()
         assert manager.get_warnings() == []
 
-    def test_reload_clears_warnings(self, mock_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_reload_clears_warnings(self, mock_project: Path) -> None:
         """reload() clears previous warnings."""
-        devin_global = tempfile.mkdtemp()
-        monkeypatch.setenv("DEVIN_GLOBAL_CONFIG_DIR", devin_global)
 
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(config_path, "w") as f:
@@ -286,10 +265,8 @@ class TestPermissionsManagerWarnings:
 class TestPermissionsManagerEndToEnd:
     """End-to-end tests with real config files."""
 
-    def test_empty_project(self, mock_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_empty_project(self, mock_project: Path) -> None:
         """Empty project (no config files) raises when all loaders fail."""
-        devin_global = tempfile.mkdtemp()
-        monkeypatch.setenv("DEVIN_GLOBAL_CONFIG_DIR", devin_global)
 
         with patch(
             "lovely_bash_permissions.config.manager.load_devin_exec_regexes",
@@ -299,8 +276,7 @@ class TestPermissionsManagerEndToEnd:
 
         # fixture creates local config, so valid=True now
         assert manager.is_valid()
-        devin_global = tempfile.mkdtemp()
-        monkeypatch.setenv("DEVIN_GLOBAL_CONFIG_DIR", devin_global)
+
         # Create project lovely-permissions.jsonc
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
         config_data = {"bash": {"permission": "allow", "allowed_cmds_regex": ["^git"]}}
@@ -322,12 +298,10 @@ class TestPermissionsManagerEndToEnd:
         assert str(mock_project) in paths[1]
         assert str(mock_project) in paths[2]
 
-    def test_precedence_local_wins(self, mock_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_precedence_local_wins(self, mock_project: Path, devin_global_config_dir: str) -> None:
         """Highest-precedence config wins when same key set in all three files."""
-        devin_global = tempfile.mkdtemp()
-        monkeypatch.setenv("DEVIN_GLOBAL_CONFIG_DIR", devin_global)
 
-        global_config = Path(devin_global) / "lovely-permissions.jsonc"
+        global_config = Path(devin_global_config_dir) / "lovely-permissions.jsonc"
         with open(global_config, "w") as f:
             json.dump({"bash": {"permission": "allow"}}, f)
 
@@ -345,12 +319,10 @@ class TestPermissionsManagerEndToEnd:
         bash_cfg = manager.get_lovely_config()["bash"]
         assert bash_cfg["permission"] == "deny", f"expected local precedence (deny), got {bash_cfg['permission']}"
 
-    def test_cross_level_merge_both_keys(self, mock_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_cross_level_merge_both_keys(self, mock_project: Path, devin_global_config_dir: str) -> None:
         """Keys from global and local both survive when they are different keys (step 3b deep-merge fix)."""
-        devin_global = tempfile.mkdtemp()
-        monkeypatch.setenv("DEVIN_GLOBAL_CONFIG_DIR", devin_global)
 
-        global_config = Path(devin_global) / "lovely-permissions.jsonc"
+        global_config = Path(devin_global_config_dir) / "lovely-permissions.jsonc"
         with open(global_config, "w") as f:
             json.dump({"bash": {"permission": "allow", "allowed_cmds_regex": ["^git"]}}, f)
 
