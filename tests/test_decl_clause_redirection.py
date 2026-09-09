@@ -13,7 +13,7 @@ class TestDeclClauseRedirectionInheritance:
 
     def test_export_with_output_redirection(self) -> None:
         """export with output redirection should carry the redirection in its segment."""
-        segs = parse_segments("export FOO=\"bar\" > /tmp/out.txt")
+        segs = parse_segments('export FOO="bar" > /tmp/out.txt')
         assert len(segs) >= 1
         found = False
         for seg in segs:
@@ -25,7 +25,7 @@ class TestDeclClauseRedirectionInheritance:
 
     def test_readonly_with_output_redirection(self) -> None:
         """readonly with output redirection should carry the redirection in its segment."""
-        segs = parse_segments("readonly FOO=\"bar\" > /tmp/out.txt")
+        segs = parse_segments('readonly FOO="bar" > /tmp/out.txt')
         assert len(segs) >= 1
         found = False
         for seg in segs:
@@ -36,7 +36,7 @@ class TestDeclClauseRedirectionInheritance:
 
     def test_declare_with_output_redirection(self) -> None:
         """declare -x with output redirection should carry the redirection in its segment."""
-        segs = parse_segments("declare -x FOO=\"bar\" > /tmp/out.txt")
+        segs = parse_segments('declare -x FOO="bar" > /tmp/out.txt')
         assert len(segs) >= 1
         found = False
         for seg in segs:
@@ -47,7 +47,7 @@ class TestDeclClauseRedirectionInheritance:
 
     def test_local_with_output_redirection(self) -> None:
         """local with output redirection should carry the redirection in its segment."""
-        segs = parse_segments("local FOO=\"bar\" > /tmp/out.txt")
+        segs = parse_segments('local FOO="bar" > /tmp/out.txt')
         assert len(segs) >= 1
         found = False
         for seg in segs:
@@ -58,7 +58,7 @@ class TestDeclClauseRedirectionInheritance:
 
     def test_typeset_with_output_redirection(self) -> None:
         """typeset with output redirection should carry the redirection in its segment."""
-        segs = parse_segments("typeset FOO=\"bar\" > /tmp/out.txt")
+        segs = parse_segments('typeset FOO="bar" > /tmp/out.txt')
         assert len(segs) >= 1
         found = False
         for seg in segs:
@@ -69,7 +69,7 @@ class TestDeclClauseRedirectionInheritance:
 
     def test_export_with_fd_redirection(self) -> None:
         """export with fd redirection (2>) should carry the redirection in its segment."""
-        segs = parse_segments("export FOO=\"bar\" 2> /tmp/err.txt")
+        segs = parse_segments('export FOO="bar" 2> /tmp/err.txt')
         assert len(segs) >= 1
         found = False
         for seg in segs:
@@ -100,7 +100,7 @@ class TestDeclClauseRedirectionInheritance:
 
     def test_export_no_redirection(self) -> None:
         """export without redirection should have empty redirections list."""
-        segs = parse_segments("export FOO=\"bar\"")
+        segs = parse_segments('export FOO="bar"')
         found = False
         for seg in segs:
             if seg["command"] == "export":
@@ -110,7 +110,7 @@ class TestDeclClauseRedirectionInheritance:
 
     def test_declclause_multiple_redirs(self) -> None:
         """export with multiple redirections should carry all of them."""
-        segs = parse_segments("export FOO=\"bar\" > /tmp/out.txt 2> /tmp/err.txt")
+        segs = parse_segments('export FOO="bar" > /tmp/out.txt 2> /tmp/err.txt')
         found = False
         for seg in segs:
             if seg["command"] == "export" and len(seg["redirections"]) == 2:
@@ -119,7 +119,7 @@ class TestDeclClauseRedirectionInheritance:
 
     def test_declclause_in_block_inherits_block_redirs(self) -> None:
         """DeclClause in a block should inherit the block's redirections."""
-        segs = parse_segments("{ export FOO=\"bar\"; } > /tmp/out.txt")
+        segs = parse_segments('{ export FOO="bar"; } > /tmp/out.txt')
         found = False
         for seg in segs:
             if seg["command"] == "export" and seg["redirections"]:
@@ -128,7 +128,7 @@ class TestDeclClauseRedirectionInheritance:
 
     def test_export_multiple_values_redir(self) -> None:
         """export with multiple assignments and redirection should carry the redirection."""
-        segs = parse_segments("export A=\"x\" B=\"y\" > /tmp/out.txt")
+        segs = parse_segments('export A="x" B="y" > /tmp/out.txt')
         found = False
         for seg in segs:
             if seg["command"] == "export" and seg["redirections"]:
@@ -146,7 +146,7 @@ class TestDeclClauseRedirectionInheritance:
 
     def test_decl_clause_recurses_into_cmdsubst_in_redir_target(self) -> None:
         """DeclClause should recurse into CmdSubst in its redirection target word."""
-        segs = parse_segments("export FOO=\"bar\" > $(mktemp)")
+        segs = parse_segments('export FOO="bar" > $(mktemp)')
         found_nested = False
         for seg in segs:
             if seg["command"] == "mktemp":
