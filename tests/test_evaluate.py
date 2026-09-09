@@ -633,3 +633,11 @@ class TestResultStructure:
         result = evaluate_bash_command("export BOGUS=true bogus", make_config(allowed=["^ls"]))
         reason = result["reason"].lower()
         assert "auto-approved" not in reason, f"Reason should not contain 'auto-approved': {reason}"
+
+    def test_case_clause_extracted(self) -> None:
+        """Case statement commands are extracted from branch bodies."""
+        result = evaluate_bash_command(
+            "case x in a) ls;; b) cp src dst;; esac",
+            make_config(allowed=["^ls$", "^cp\\s+src\\s+dst$"]),
+        )
+        assert result["status"] == "allow"  # both commands match patterns

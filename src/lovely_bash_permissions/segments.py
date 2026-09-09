@@ -25,6 +25,8 @@ from .ast import (
     BinaryCmd,
     Block,
     CallExpr,
+    CaseBranch,
+    CaseClause,
     CmdSubst,
     DeclClause,
     File,
@@ -174,6 +176,14 @@ def _extract_segments(node: object, redirs: list[Redir] | None = None) -> list[d
                 segments.append(
                     {"command": cmd_name, "arguments": [], "redirections": []}
                 )
+    elif isinstance(node, CaseClause):
+        # case/switch: extract commands from each branch body
+        if hasattr(node, "branches") and node.branches:
+            for branch in node.branches:
+                if hasattr(branch, "body") and branch.body:
+                    for stmt in branch.body:
+                        segments.extend(_extract_segments(stmt))
+
     elif isinstance(node, (IfClause, WhileClause)):
         # Handle conditional blocks: extract from each branch.
         # cond_stmts / body are lists of Stmt (each carries its own redirs).
