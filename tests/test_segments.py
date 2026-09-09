@@ -276,29 +276,60 @@ class TestDialect:
 
 
 class TestDeclClause:
-    """DeclClause (export/unset) segment extraction."""
+    """DeclClause (export/readonly/local/declare/typeset) segment extraction."""
 
-    def test_export_naked_name_single_segment(self) -> None:
+    def test_export_is_a_command_segment(self) -> None:
         segs = parse_segments("export BOGUS=true bogus")
-        assert [s["command"] for s in segs] == ["bogus"]
+        assert [s["command"] for s in segs] == ["export"]
+        assert segs[0]["arguments"] == ["BOGUS=true", "bogus"]
 
-    def test_export_assignment_is_not_a_command(self) -> None:
+    def test_export_assignment_is_an_operand(self) -> None:
         segs = parse_segments("export FOO=bar")
-        assert segs == []
+        assert len(segs) == 1
+        assert segs[0]["command"] == "export"
+        assert segs[0]["arguments"] == ["FOO=bar"]
 
     def test_export_no_duplicate_segments(self) -> None:
         segs = parse_segments("export FOO=bar")
-        assert len(segs) == 0
+        assert len(segs) == 1
         segs = parse_segments("export BOGUS=true bogus")
-        assert all(s["command"] != "bar" for s in segs)
+        assert [s["command"] for s in segs] == ["export"]
 
     def test_export_multiple_naked_names(self) -> None:
         segs = parse_segments("export FOO bar")
-        assert [s["command"] for s in segs] == ["FOO", "bar"]
+        assert [s["command"] for s in segs] == ["export"]
+        assert segs[0]["arguments"] == ["FOO", "bar"]
 
     def test_export_value_cmdsubst_extracted(self) -> None:
         # Command substitution in an assignment value is a real execution.
-        assert any(s["command"] == "rm" for s in parse_segments("export FOO=$(rm x)"))
+        segs = parse_segments("export FOO=$(rm x)")
+        assert segs[0]["command"] == "export"
+        assert any(s["command"] == "rm" for s in segs)
+
+    def test_export_flag_operands(self) -> None:
+        segs = parse_segments("export -f foo")
+        assert segs[0]["command"] == "export"
+        assert segs[0]["arguments"] == ["-f", "foo"]
+
+    def test_declclause_variants_are_commands(self) -> None:
+        for command, variant in [
+            ("readonly FOO", "readonly"),
+            ("local x=1 y=2", "local"),
+            ("declare FOO=1", "declare"),
+            ("typeset -x FOO", "typeset"),
+        ]:
+            segs = parse_segments(command)
+            assert segs[0]["command"] == variant
+            assert len(segs) == 1
+
+    def test_declclause_array_operand(self) -> None:
+        segs = parse_segments("declare -a arr=(a b)")
+        assert segs[0]["command"] == "declare"
+        assert segs[0]["arguments"] == ["-a", "arr=(...)"]
+
+    def test_declclause_array_value_cmdsubst_extracted(self) -> None:
+        # Command substitution inside an array element is a real execution.
+        assert any(s["command"] == "ls" for s in parse_segments("declare -a arr=($(ls))"))
 
 
 class TestConditionals:

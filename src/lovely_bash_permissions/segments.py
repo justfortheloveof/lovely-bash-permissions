@@ -24,6 +24,8 @@ from .ast import (
     AndCmd,
     ArithmCmd,
     ArithmExp,
+    ArrayElem,
+    ArrayExpr,
     BinaryArithm,
     BinaryCmd,
     BinaryTest,
@@ -189,16 +191,44 @@ def _extract_segments(
                     segments.extend(_extract_segments(r.word))
 
     elif isinstance(node, DeclClause):
-        # Declaration builtins (export/unset). Only *naked* names are real
-        # symbols being declared; `export NAME=value` is an assignment, not a
-        # command invocation. Recurse into assignment values so command
+        # Declaration builtins (export/readonly/local/declare/typeset) are
+        # commands like any other: the variant keyword is the command name and
+        # each operand (naked name, flag, NAME=value, arr=(...)) is an
+        # argument. Recurse into every operand sub-expression so command
         # substitutions inside them are still extracted (export FOO=$(rm x)).
-        if node.variant in ("export", "unset"):
-            for assign in node.assigns or []:
-                if getattr(assign, "naked", False) and assign.name is not None and assign.name.value:
-                    segments.append({"command": assign.name.value, "arguments": [], "redirections": []})
-                if assign.value is not None:
-                    segments.extend(_extract_segments(assign.value))
+        operands: list[str] = []
+        for assign in node.assigns or []:
+            name = assign.name.value if assign.name is not None and assign.name.value else ""
+            if assign.naked:
+                if name:
+                    operands.append(name)
+                elif assign.value is not None:
+                    operands.append(_word_raw(assign.value))
+            elif name:
+                if assign.append:
+                    operands.append(f"{name}+={_word_raw(assign.value)}" if assign.value is not None else f"{name}+=")
+                elif assign.value is not None:
+                    operands.append(f"{name}={_word_raw(assign.value)}")
+                elif assign.array is not None:
+                    operands.append(f"{name}=(...)")
+                else:
+                    operands.append(name)
+            elif assign.value is not None:
+                operands.append(_word_raw(assign.value))
+        if operands:
+            segments.append({"command": node.variant, "arguments": operands, "redirections": []})
+        for assign in node.assigns or []:
+            if assign.index is not None:
+                segments.extend(_extract_segments(assign.index, redirs))
+            if assign.value is not None:
+                segments.extend(_extract_segments(assign.value, redirs))
+            if assign.array is not None and isinstance(assign.array, ArrayExpr):
+                for elem in assign.array.elems:
+                    if isinstance(elem, ArrayElem):
+                        if elem.index is not None:
+                            segments.extend(_extract_segments(elem.index, redirs))
+                        if elem.value is not None:
+                            segments.extend(_extract_segments(elem.value, redirs))
     elif isinstance(node, CaseClause):
         # case/switch: extract commands from each branch body
         if hasattr(node, "branches") and node.branches:

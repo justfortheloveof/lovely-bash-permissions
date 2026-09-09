@@ -12,9 +12,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .ast import Node
+from .ast import CallExpr, CmdSubst, Node, ProcSubst
 from .converter import node_from_json
-from .inspect import _traverse, _word_value
+from .inspect import _traverse, _word_raw, _word_value, iter_children
 from .parser import ParseError, parse
 from .rules import (
     _check_segments_input_redirs,
@@ -82,6 +82,24 @@ def _has_cmd_subst(tree: dict[str, Any]) -> bool:
     except _Found:
         return True
     return False
+
+
+def _command_string(name: str, args: list[str]) -> str:
+    """Build the full command string used for allowed-pattern matching.
+
+    Mirrors the historical segment-loop semantics: when any argument holds a
+    real value (not a ``$(...)`` placeholder), the whole command line is
+    matched; otherwise only the command name is.
+    """
+    if any("$(...)" not in a for a in args):
+        return name if not args else " ".join([name, *args])
+    return name
+
+
+def _match_allowed_patterns(name: str, args: list[str], allowed_patterns: list[str]) -> list[str]:
+    """Return the allowed patterns matched by this command (name + args)."""
+    full = _command_string(name, args)
+    return [p for p in allowed_patterns if re.match(p, full)]
 
 
 def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any]:
@@ -166,7 +184,31 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     # Collect all matched patterns across ALL segments (joined into one reason, like TS)
 
     all_matched_patterns: list[str] = []
+    visited_commands: set[str] = set()
+    nested_non_match: set[str] = set()
     segment_results: list[dict[str, Any]] = []
+
+    if allowed_patterns:
+        ast_root = node_from_json(raw_tree)
+        if ast_root is not None:
+
+            def _walk(node: Node, depth: int) -> None:
+                if isinstance(node, CallExpr) and node.args:
+                    name = _word_value(node.args[0])
+                    raw_args = [_word_raw(a) for a in node.args[1:]]
+                    visited_commands.add(_command_string(name, raw_args))
+                    matched = _match_allowed_patterns(name, raw_args, allowed_patterns)
+                    if matched:
+                        all_matched_patterns.extend(matched)
+                    elif depth > 0:
+                        rest = " ".join(_word_value(a) for a in node.args[1:])
+                        full_cmd = name if not rest else f"{name} {rest}"
+                        nested_non_match.add(name if name != full_cmd else full_cmd)
+                new_depth = depth + (1 if isinstance(node, (CmdSubst, ProcSubst)) else 0)
+                for child in iter_children(node, include_call_args=True):
+                    _walk(child, new_depth)
+
+            _walk(ast_root, 0)
 
     for i, segment in enumerate(segments):
         cmd_name = segment.get("command", "")
@@ -177,24 +219,15 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         # If arguments contain real values (not "$(...)" placeholders),
         # check full command line so ^ls$ rejects "ls -la".
         if allowed_patterns:
-            matched_patterns = []
-
-            has_real_args = any("$(...)" not in a for a in args)
-            if has_real_args:
-                full_command = cmd_name
-                if args:
-                    full_command = " ".join([cmd_name, *args])
-                for pattern in allowed_patterns:
-                    if re.match(pattern, full_command):
-                        matched_patterns.append(pattern)
-            else:
-                for pattern in allowed_patterns:
-                    if re.match(pattern, cmd_name):
-                        matched_patterns.append(pattern)
+            matched_patterns = _match_allowed_patterns(cmd_name, args, allowed_patterns)
 
             if matched_patterns:
                 segment_result["allowed"] = True
-                all_matched_patterns.extend(matched_patterns)
+                # Real commands are already counted by the AST walk above (each
+                # CallExpr occurrence is matched once); only pseudo-commands
+                # (no CallExpr in the AST, e.g. `export FOO` names) are added here.
+                if _command_string(cmd_name, args) not in visited_commands:
+                    all_matched_patterns.extend(matched_patterns)
             else:
                 segment_result["allowed"] = False
                 any_segment_not_allowed = True
@@ -278,71 +311,20 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                     )
 
         # Also validate nested commands against allowed patterns.
-        # Check only the command name (first word), matching segment-level
-        # allowed-check behavior (which checks command names, not full args).
-        if allowed_patterns:
-            non_match_names: set[str] = set()
-            ast_subshell = node_from_json(raw_tree)
-            if ast_subshell is not None:
-                # Recursively walk the AST tracking CmdSubst/ProcSubst nesting depth.
-                def _walk(node: Node, depth: int) -> None:
-                    from .ast import CallExpr, CmdSubst, ProcSubst
-
-                    if isinstance(node, (CallExpr,)) and node.args:
-                        # Skip top-level CallExpr — already checked as a segment.
-                        if depth == 0:
-                            pass
-                        else:
-                            first = _word_value(node.args[0])
-                            rest = " ".join(_word_value(a) for a in node.args[1:])
-                            full_cmd = first if not rest else f"{first} {rest}"
-
-                            # Check each pattern individually:
-                            # - exact-match patterns (no \\s, no .*) with args → check full_cmd
-                            # Nested commands with real args check full_cmd only
-                            # (name fallback would let "find -exec" match ^find$).
-                            matched = False
-                            matching_patterns: list[str] = []
-                            has_real_args = (
-                                any("$(...)" not in _word_value(a) for a in node.args[1:])
-                                if hasattr(node, "args") and len(node.args) > 1
-                                else False
-                            )
-                            if has_real_args:
-                                for p in allowed_patterns:
-                                    if re.match(p, full_cmd):
-                                        matched = True
-                                        matching_patterns.append(p)
-                            else:
-                                for p in allowed_patterns:
-                                    if re.match(p, first):
-                                        matched = True
-                                        matching_patterns.append(p)
-                            if matched:
-                                all_matched_patterns.extend(matching_patterns)
-                            else:
-                                non_match_names.add(first if first != full_cmd else full_cmd)
-
-                    # Increment depth when entering a substitution.
-                    new_depth = depth + (1 if isinstance(node, (CmdSubst, ProcSubst)) else 0)
-                    from .inspect import iter_children
-
-                    for child in iter_children(node, include_call_args=True):
-                        _walk(child, new_depth)
-
-                _walk(ast_subshell, 0)
-                if non_match_names:
-                    names_str = ", ".join(f'"{n}"' for n in sorted(non_match_names))
-                    reasons.append(f"{names_str} commands inside subshell do not match allowed patterns")
-                    if overall_status == "deny":
-                        # Already denied by blocked paths check above, keep it
-                        pass
-                    elif subshell_policy == "allow":
-                        overall_status = "ask"  # Validation failed, allow policy → ask for approval
-                    elif subshell_policy == "deny":
-                        overall_status = "deny"  # Validation failed, deny policy → reject outright
-                    else:  # ask
-                        overall_status = subshell_policy
+        # Non-matching commands inside substitutions were collected by the
+        # unconditional AST walk above (only depth>0 CallExprs contribute).
+        if nested_non_match:
+            names_str = ", ".join(f'"{n}"' for n in sorted(nested_non_match))
+            reasons.append(f"{names_str} commands inside subshell do not match allowed patterns")
+            if overall_status == "deny":
+                # Already denied by blocked paths check above, keep it
+                pass
+            elif subshell_policy == "allow":
+                overall_status = "ask"  # Validation failed, allow policy → ask for approval
+            elif subshell_policy == "deny":
+                overall_status = "deny"  # Validation failed, deny policy → reject outright
+            else:  # ask
+                overall_status = subshell_policy
         if overall_status == "allow":
             if subshell_policy != "allow":
                 overall_status = subshell_policy

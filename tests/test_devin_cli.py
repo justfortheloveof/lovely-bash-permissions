@@ -405,21 +405,21 @@ class _NodeCoverageBase:
 class TestCliTestNodeCoverage(_NodeCoverageBase):
     """Exercise AST node handlers (DeclClause, conditionals, tests) via --test/-t."""
 
-    def test_declclause_naked_name_segment(self, tmp_project: Path, tmp_path: Path) -> None:
-        """/-t: export FOO=bar x extracts only the naked name x, not the value bar."""
+    def test_declclause_export_is_a_command(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/-t: export FOO=bar x is evaluated as the export command."""
         global_dir = self._setup(tmp_project, tmp_path)
         result = self._test("export FOO=bar x", tmp_project, global_dir, flag="-t")
         label = self._label(result)
-        assert '"x"' in label
+        assert '"export"' in label
         assert '"bar"' not in label
 
-    def test_declclause_assignment_value_not_a_command(self, tmp_project: Path, tmp_path: Path) -> None:
-        """/--test: export FOO=bar produces no segments (assignment, not a command)."""
+    def test_declclause_assignment_is_an_operand(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/--test: export FOO=bar is a segment with the export command."""
         global_dir = self._setup(tmp_project, tmp_path)
         result = self._test("export FOO=bar", tmp_project, global_dir)
         label = self._label(result)
-        assert "no parseable segments" in label
-        assert '"bar"' not in label
+        assert '"export"' in label
+        assert "no parseable segments" not in label
 
     def test_declclause_cmdsubst_extracted(self, tmp_project: Path, tmp_path: Path) -> None:
         """/--test: command substitution inside an assignment value is extracted."""

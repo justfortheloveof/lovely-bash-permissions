@@ -100,12 +100,12 @@ class TestAllowedPatterns:
         assert result["status"] == "ask"
 
     def test_declclause_export_segment_extracted(self) -> None:
-        """DeclClause export with a real command arg should extract it."""
+        """DeclClause export is evaluated as the export command."""
         result = evaluate_bash_command(
             "export BOGUS=true bogus",
-            make_config(allowed=["^bogus"]),
+            make_config(allowed=[r"^export(\s+.*)?$"]),
         )
-        assert result["status"] == "allow"  # now matches allowed pattern instead of wildcard ask
+        assert result["status"] == "allow"
 
     def test_for_clause_extracted(self) -> None:
         """For loop body commands should be extracted."""
@@ -370,6 +370,68 @@ class TestSubshellHandling:
             make_config(subshell="allow"),
         )
         assert result["status"] == "allow"
+
+    def test_subshell_matched_pattern_listed_once(self) -> None:
+        """A command matched by both the segment loop and the AST walk counts once.
+
+        Regression: `echo $(ls -l)` previously listed `^ls` twice — once from
+        the flattened segment and once from the AST traversal of the same call.
+        """
+        result = evaluate_bash_command(
+            "echo $(ls -l)",
+            make_config(allowed=[r"^echo(\s+.*)?$", r"^ls(\s+.*)?$"], subshell="allow"),
+        )
+        assert result["status"] == "allow"
+        assert result["reason"].count(r"^echo(\s+.*)?$") == 1
+        assert result["reason"].count(r"^ls(\s+.*)?$") == 1
+
+    def test_subshell_matched_pattern_counted_per_occurrence(self) -> None:
+        """Two distinct `ls` commands list `^ls` twice (no de-duplication)."""
+        result = evaluate_bash_command(
+            "ls --color $(ls -a)",
+            make_config(allowed=[r"^ls(\s+.*)?$"], subshell="allow"),
+        )
+        assert result["status"] == "allow"
+        assert result["reason"].count(r"^ls(\s+.*)?$") == 2
+
+    def test_subshell_matched_pattern_kept_for_assignment_value(self) -> None:
+        """Commands inside assignment values keep their matched pattern in the label."""
+        result = evaluate_bash_command(
+            "echo $(ls); x=$(cat /tmp/ed)",
+            make_config(
+                allowed=[r"^echo(\s+.*)?$", r"^ls(\s+.*)?$", r"^cat(\s+.*)?$"],
+                subshell="allow",
+            ),
+        )
+        assert result["status"] == "allow"
+        assert result["reason"].count(r"^echo(\s+.*)?$") == 1
+        assert result["reason"].count(r"^ls(\s+.*)?$") == 1
+        assert result["reason"].count(r"^cat(\s+.*)?$") == 1
+
+    def test_export_matched_pattern_listed_once(self) -> None:
+        """`export FOO` matches the export pattern and lists it once."""
+        result = evaluate_bash_command(
+            "export FOO",
+            make_config(allowed=[r"^export(\s+.*)?$"]),
+        )
+        assert result["status"] == "allow"
+        assert result["reason"].count(r"^export(\s+.*)?$") == 1
+
+    def test_declclause_substitution_value_not_silently_allowed(self) -> None:
+        """Nested substitution in a decl variant value requires approval."""
+        result = evaluate_bash_command(
+            "declare FOO=$(cat x)",
+            make_config(wildcard="allow"),
+        )
+        assert result["status"] == "ask"
+
+    def test_declclause_substitution_blocked_path_denied(self) -> None:
+        """Blocked path inside a decl variant value denies even with wildcard allow."""
+        result = evaluate_bash_command(
+            "local PATH=$(cat /etc/passwd)",
+            make_config(blocked=[r"^/etc/passwd$"], wildcard="allow", subshell="allow"),
+        )
+        assert result["status"] == "deny"
 
     def test_subshell_policy_deny(self) -> None:
         """subshell=deny forces denial regardless of wildcard."""
@@ -670,22 +732,22 @@ class TestResultStructure:
         assert result["status"] == "deny"
 
     def test_empty_segments_with_allowed_patterns_asks(self) -> None:
-        """Empty segments with allowed patterns → ask (bug 1 fix)."""
+        """Unmatched export command with allowed patterns → ask (bug 1 fix)."""
         result = evaluate_bash_command("export BOGUS=true bogus", make_config(allowed=["^ls"]))
         assert result["status"] == "ask"
 
     def test_empty_segments_wildcard_allow(self) -> None:
-        """Empty segments with wildcard=allow → allow."""
+        """Unmatched export command with wildcard=allow → allow."""
         result = evaluate_bash_command("export BOGUS=true bogus", make_config(allowed=["^ls"], wildcard="allow"))
         assert result["status"] == "allow"
 
     def test_empty_segments_wildcard_deny(self) -> None:
-        """Empty segments with wildcard=deny → deny."""
+        """Unmatched export command with wildcard=deny → deny."""
         result = evaluate_bash_command("export BOGUS=true bogus", make_config(allowed=["^ls"], wildcard="deny"))
         assert result["status"] == "deny"
 
     def test_export_segment_extracted_no_patterns(self) -> None:
-        """Export with naked word produces segment; no patterns → ask."""
+        """Export produces a segment; no patterns → ask."""
         result = evaluate_bash_command("export BOGUS=true bogus", make_config())
         assert result["status"] == "ask"
 
@@ -694,10 +756,10 @@ class TestResultStructure:
         result = evaluate_bash_command("export BOGUS=true bogus", make_config(wildcard="allow"))
         assert result["status"] == "allow"
 
-    def test_export_segment_reason_shows_pattern(self) -> None:
-        """Export segment reason contains matching pattern info."""
+    def test_export_segment_reason_shows_command(self) -> None:
+        """Unmatched export reason names the export command."""
         result = evaluate_bash_command("export BOGUS=true bogus", make_config(allowed=["^ls"]))
-        assert "bogus" in result["reason"]
+        assert "export" in result["reason"]
 
     def test_allow_reason_shows_patterns(self) -> None:
         """Matching command reason contains actual pattern(s)."""
@@ -705,7 +767,7 @@ class TestResultStructure:
         assert "pattern" in result["reason"] or "patterns" in result["reason"]
 
     def test_empty_segment_reason_not_generic(self) -> None:
-        """Empty segments reason NOT generic 'matches allowed pattern'."""
+        """Unmatched segment reason NOT generic 'matches allowed pattern'."""
         result = evaluate_bash_command("export BOGUS=true bogus", make_config(allowed=["^ls"]))
         assert "matches allowed pattern" not in result["reason"]
 
@@ -715,7 +777,7 @@ class TestResultStructure:
         assert result["status"] == "ask"
 
     def test_export_bogus_rejected(self) -> None:
-        """'export BOGUS=true bogus' → ask (regression for bug 1: empty segments wildcard policy)."""
+        """'export BOGUS=true bogus' → ask (regression for bug 1: unmatched segment wildcard policy)."""
         result = evaluate_bash_command("export BOGUS=true bogus", make_config(allowed=["^ls"]))
         assert result["status"] == "ask"
 
