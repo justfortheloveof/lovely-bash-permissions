@@ -343,9 +343,14 @@ class TestSubshellHandling:
         assert result["status"] == "deny"
 
     def test_subshell_process_substitution_blocked(self) -> None:
-        """Process substitution <(...) also checked against blocked paths."""
+        """Process substitution <(...) also checked against blocked paths.
+
+        The previous literal `<( /etc/passwd )` form relied on the path appearing
+        verbatim in the AST; the new form `<(cat /etc/passwd)` tests the same
+        traversal with realistic bash (a command whose argument is the blocked path).
+        """
         result = evaluate_bash_command(
-            "cat <(/etc/passwd)",
+            "cat <(cat /etc/passwd)",
             make_config(blocked=["^/etc/passwd$"]),
         )
         assert result["status"] == "deny"
