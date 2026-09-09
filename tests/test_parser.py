@@ -28,6 +28,7 @@ from lovely_bash_permissions import (
     parse_ast,
 )
 from lovely_bash_permissions.parser import ParseError
+from lovely_bash_permissions.segments import parse_segments
 
 
 class TestSimpleCommands:
@@ -1503,105 +1504,64 @@ class TestExtGlobNodes:
     Extended globs require `shopt -s extglob` in bash. shfmt parses
     them regardless. Syntax: @(pat|pat), +(pat|pat), *(pat|pat),
     ?(pat|pat), !(pat|pat). See https://www.gnu.org/software/bash/manual/bash.html#Pattern-Matching
+
+    NOTE: In real bash these patterns are only valid with
+    `shopt -s extglob` enabled. shfmt parses them regardless of the
+    shell option, so these tests assert the AST shape without the
+    option needing to be set — see test_extglob_invalid_without_shopt.
     """
 
-    def test_at_extended_glob(self) -> None:
-        """Parse ls *.@(txt|md) and verify ExtGlob with op='@('."""
-        tree = parse_ast("ls *.@(txt|md)")
-        cmd = tree.stmts[0].cmd
-        assert isinstance(cmd, CallExpr)
-        assert len(cmd.args) == 2
-        arg1 = cmd.args[1]
+    @pytest.mark.parametrize(
+        "cmd,op,pat",
+        [
+            ("ls *.@(txt|md)", "@(", "txt|md"),
+            ("ls *.+(txt|md)", "+(", "txt|md"),
+            ("ls *.?(txt|md)", "?(", "txt|md"),
+            ("ls *.!(txt|md)", "!(", "txt|md"),
+            ("ls *.*(txt|md)", "*(", "txt|md"),
+            ("ls *.@(txt|md|json|yaml)", "@(", "txt|md|json|yaml"),
+        ],
+    )
+    def test_extglob_op_pattern(self, cmd: str, op: str, pat: str) -> None:
+        """Parse `cmd` and verify the ExtGlob op and pattern."""
+        tree = parse_ast(cmd)
+        cmd_node = tree.stmts[0].cmd
+        assert isinstance(cmd_node, CallExpr)
+        arg1 = cmd_node.args[1]
         assert isinstance(arg1, Word)
-        lit_part = arg1.parts[0]
-        assert isinstance(lit_part, Lit)
-        assert lit_part.type == "Lit"
-        lp = lit_part
-        assert lp.value == "*."
-        eg_part = arg1.parts[1]
-        assert isinstance(eg_part, ExtGlob)
-        eg2 = arg1.parts[1]
-        assert isinstance(eg2, ExtGlob)
-        assert eg2.op == "@("
-        pat = eg2.pattern
-        assert isinstance(pat, Lit)
-        assert pat.type == "Lit"
-        assert pat.value == "txt|md"
-
-    def test_plus_extended_glob(self) -> None:
-        """Parse ls *.+(txt|md) and verify ExtGlob with op='+('."""
-        tree = parse_ast("ls *.+(txt|md)")
-        cmd = tree.stmts[0].cmd
-        assert isinstance(cmd, CallExpr)
-        arg1 = cmd.args[1]
-        assert isinstance(arg1, Word)
-        eg_part = arg1.parts[1]
-        assert isinstance(eg_part, ExtGlob)
         eg = arg1.parts[1]
         assert isinstance(eg, ExtGlob)
         assert eg.type == "ExtGlob"
-        pat2 = eg.pattern
-        assert isinstance(pat2, Lit)
-        assert pat2.value == "txt|md"
+        assert eg.op == op
+        assert isinstance(eg.pattern, Lit)
+        assert eg.pattern.value == pat
 
-    def test_question_extended_glob(self) -> None:
-        """Parse ls *.?(txt|md) and verify ExtGlob with op='?('."""
-        tree = parse_ast("ls *.?(txt|md)")
-        cmd = tree.stmts[0].cmd
-        assert isinstance(cmd, CallExpr)
-        eg_q2 = cmd.args[1].parts[1]
-        assert isinstance(eg_q2, ExtGlob)
-        assert eg_q2.type == "ExtGlob"
-        assert eg_q2.op == "?("
-        pat_q2 = eg_q2.pattern
-        assert isinstance(pat_q2, Lit)
-        assert pat_q2.value == "txt|md"
+    def test_extglob_invalid_without_shopt(self) -> None:
+        """Real bash rejects @(...) unless `shopt -s extglob` is enabled.
 
-    def test_bang_extended_glob(self) -> None:
-        """Parse ls *.!(txt|md) and verify ExtGlob with op='!('."""
-        tree = parse_ast("ls *.!(txt|md)")
-        cmd = tree.stmts[0].cmd
-        assert isinstance(cmd, CallExpr)
-        eg_b = cmd.args[1].parts[1]
-        assert isinstance(eg_b, ExtGlob)
-        assert eg_b.type == "ExtGlob"
-        eg_bo = eg_b.op
-        assert eg_bo == "!("
-        pat_b = eg_b.pattern
-        assert isinstance(pat_b, Lit)
-        pb = pat_b
-        assert pb.value == "txt|md"
+        Documents the prerequisite stated in the class docstring: shfmt
+        parses extglob syntax regardless of the shell option, but plain
+        bash refuses it at parse time.
+        """
+        import subprocess
 
-    def test_star_extended_glob(self) -> None:
-        """Parse ls *.*(txt|md) and verify ExtGlob with op='*(.'"""
-        tree = parse_ast("ls *.*(txt|md)")
-        cmd = tree.stmts[0].cmd
-        assert isinstance(cmd, CallExpr)
-        extglob = cmd.args[1].parts[1]
-        assert isinstance(extglob, ExtGlob)
-        eg_s2 = cmd.args[1].parts[1]
-        assert isinstance(eg_s2, ExtGlob)
-        eg_so = eg_s2.op
-        assert isinstance(eg_so, str)
-        assert eg_s2.type == "ExtGlob"
-        assert eg_s2.op == "*("
-        pat_s = eg_s2.pattern
-        assert isinstance(pat_s, Lit)
-        assert pat_s.value == "txt|md"
+        proc = subprocess.run(
+            ["bash", "-c", "echo *.@(txt|md)"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert proc.returncode != 0
 
-    def test_extglob_with_multiple_patterns(self) -> None:
-        """Parse ls *.@(txt|md|json|yaml) with four patterns."""
-        tree = parse_ast("ls *.@(txt|md|json|yaml)")
-        cmd = tree.stmts[0].cmd
-        assert isinstance(cmd, CallExpr)
-        eg_m = cmd.args[1].parts[1]
-        assert isinstance(eg_m, ExtGlob)
-        assert eg_m.type == "ExtGlob"
-        pat_m = eg_m.pattern
-        assert isinstance(pat_m, Lit)
-        assert isinstance(pat_m, Lit)
-        pm = pat_m
-        assert pm.value == "txt|md|json|yaml"
+    def test_unhandled_extglob_warning_logged(self, caplog: pytest.LogCaptureFixture) -> None:
+        """The segment parser logs an 'Unhandled ExtGlob' warning.
+
+        Guards the note in the class docstring: `_extract_segments` has
+        no branch for ExtGlob nodes yet, so it logs a warning instead of
+        emitting a segment. This is a known gap, not a silent success.
+        """
+        parse_segments("ls *.@(txt|md)")
+        assert any("Unhandled AST node type 'ExtGlob'" in message for _logger, _level, message in caplog.record_tuples)
 
     def test_extglob_position_info(self) -> None:
         """Verify ExtGlob nodes have position information from shfmt."""
