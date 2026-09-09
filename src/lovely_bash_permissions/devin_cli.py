@@ -18,6 +18,7 @@ from .config.devin import (
     get_devin_global_config_dir,
 )
 from .config.effective_bash import get_effective_bash_config
+from .config.jsonc import read_jsonc_file
 from .config.loader import get_permissions_config_file_paths
 from .config.manager import PermissionsManager
 from .hook import generate_hook_response, process_hook_event
@@ -42,28 +43,54 @@ def handle_setup() -> None:
     # Ensure directory exists
     config_dir.mkdir(parents=True, exist_ok=True)
 
-    # Read existing config (or {} if missing)
+    # Read existing config (or {} if missing). If the file is unreadable or
+    # malformed, abort without writing so we never destroy the user's config.
     if config_path.exists():
-        try:
-            with open(config_path) as f:
-                config = json.load(f)
-        except json.JSONDecodeError:
+        if config_path.stat().st_size == 0:
             config = {}
+        else:
+            result = read_jsonc_file(str(config_path))
+            if result.error is not None:
+                print(
+                    with_error_prefix(
+                        f"config {config_path} is not valid JSON/JSONC ({result.error}) — "
+                        "aborting to avoid overwriting it"
+                    ),
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            if not isinstance(result.value, dict):
+                print(
+                    with_error_prefix(
+                        f"config {config_path} must be a JSON object, got {type(result.value).__name__} — "
+                        "aborting to avoid overwriting it"
+                    ),
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            config = result.value
     else:
         config = {}
 
-    # Ensure structure
-    if not isinstance(config, dict):
-        config = {}
-    if "permissions" not in config:
-        config["permissions"] = {}
-    if "allow" not in config["permissions"]:
-        config["permissions"]["allow"] = []
-
-    allow = config["permissions"]["allow"]
-    if not isinstance(allow, list):
-        allow = []
-        config["permissions"]["allow"] = allow
+    # Refuse to clobber unexpected shapes
+    if "permissions" in config and not isinstance(config["permissions"], dict):
+        print(
+            with_error_prefix(
+                f"config {config_path} has a non-object 'permissions' field — aborting to avoid overwriting it"
+            ),
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    permissions = config.setdefault("permissions", {})
+    if "allow" in permissions and not isinstance(permissions["allow"], list):
+        print(
+            with_error_prefix(
+                f"config {config_path} has a non-list 'permissions.allow' field — aborting to avoid overwriting it"
+            ),
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    allow = permissions.setdefault("allow", [])
 
     # Check if already present
     if LABEL_EXEC_NAME in allow:
@@ -75,6 +102,7 @@ def handle_setup() -> None:
     try:
         with open(config_path, "w") as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
+            f.write("\n")
         print(f'Added "{LABEL_EXEC_NAME}" to {config_path} so Devin' + ' auto-approves the hook\'s ":" no-op label')
         sys.exit(0)
     except OSError as e:

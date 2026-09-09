@@ -197,6 +197,92 @@ class TestCliSetup:
         assert "Exec(npm)" in config["permissions"]["allow"]
         assert "Exec(: '[♡ perms:)" in config["permissions"]["allow"]
 
+    def test_setup_preserves_config_written_as_jsonc(self, tmp_path: Path) -> None:
+        """Setup should read JSONC configs (comments, trailing commas) and preserve all fields."""
+        devin_dir = tmp_path / "devin-config"
+        devin_dir.mkdir()
+        config_text = """{
+            // devin permissions
+            "session": {"resume": true},
+            "permissions": {
+                "allow": ["Exec(git)", "Exec(npm run)"],
+                "deny": ["Exec(rm)"],
+            },
+        }"""
+        with open(devin_dir / "config.json", "w") as f:
+            f.write(config_text)
+
+        result = run_cli("--setup", env={"DEVIN_GLOBAL_CONFIG_DIR": str(devin_dir)})
+        assert result.returncode == 0, result.stderr
+        assert "Added \"Exec(: '[♡ perms:)" in result.stdout
+
+        with open(devin_dir / "config.json") as f:
+            config = json.load(f)
+        assert config["session"] == {"resume": True}
+        assert config["permissions"]["deny"] == ["Exec(rm)"]
+        assert config["permissions"]["allow"] == ["Exec(git)", "Exec(npm run)", "Exec(: '[♡ perms:)"]
+
+    def test_setup_aborts_on_invalid_json_preserving_file(self, tmp_path: Path) -> None:
+        """A corrupt existing config must be left untouched, not overwritten."""
+        devin_dir = tmp_path / "devin-config"
+        devin_dir.mkdir()
+        config_path = devin_dir / "config.json"
+        original = '{"permissions": {"allow": ["Exec(git)"]}'
+        with open(config_path, "w") as f:
+            f.write(original)
+
+        result = run_cli("--setup", env={"DEVIN_GLOBAL_CONFIG_DIR": str(devin_dir)})
+        assert result.returncode == 1
+        assert "ERROR" in result.stderr
+        assert "Added" not in result.stdout
+        with open(config_path) as f:
+            assert f.read() == original
+
+    def test_setup_treats_empty_file_as_empty(self, tmp_path: Path) -> None:
+        """An empty existing config.json should be initialized rather than rejected."""
+        devin_dir = tmp_path / "devin-config"
+        devin_dir.mkdir()
+        config_path = devin_dir / "config.json"
+        config_path.touch()
+
+        result = run_cli("--setup", env={"DEVIN_GLOBAL_CONFIG_DIR": str(devin_dir)})
+        assert result.returncode == 0, result.stderr
+        assert "Added \"Exec(: '[♡ perms:)" in result.stdout
+
+        with open(config_path) as f:
+            config = json.load(f)
+        assert config["permissions"]["allow"] == ["Exec(: '[♡ perms:)"]
+
+    def test_setup_aborts_on_non_object_root(self, tmp_path: Path) -> None:
+        """A root value that isn't an object must not be clobbered."""
+        devin_dir = tmp_path / "devin-config"
+        devin_dir.mkdir()
+        config_path = devin_dir / "config.json"
+        original = "[1, 2, 3]"
+        with open(config_path, "w") as f:
+            f.write(original)
+
+        result = run_cli("--setup", env={"DEVIN_GLOBAL_CONFIG_DIR": str(devin_dir)})
+        assert result.returncode == 1
+        assert "ERROR" in result.stderr
+        with open(config_path) as f:
+            assert f.read() == original
+
+    def test_setup_aborts_on_non_object_permissions(self, tmp_path: Path) -> None:
+        """A non-object 'permissions' field must not be clobbered."""
+        devin_dir = tmp_path / "devin-config"
+        devin_dir.mkdir()
+        config_path = devin_dir / "config.json"
+        original = '{"permissions": 123}'
+        with open(config_path, "w") as f:
+            f.write(original)
+
+        result = run_cli("--setup", env={"DEVIN_GLOBAL_CONFIG_DIR": str(devin_dir)})
+        assert result.returncode == 1
+        assert "ERROR" in result.stderr
+        with open(config_path) as f:
+            assert f.read() == original
+
 
 class TestCliTest:
     """Test --test flag: test a command as a PreToolUse event."""
