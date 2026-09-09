@@ -109,7 +109,9 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         dict with keys:
             - 'status': 'allow', 'ask', or 'deny'
             - 'reason': human-readable explanation
-            - 'segments': list of per-segment results
+            - 'segments': list of per-segment results, each with 'command',
+              'arguments', 'allowed', 'blocked' (allowed/blocked are
+              evaluate-added metadata, absent from parse_segments output)
     """
     # Extract rules from config
     allowed_patterns = config.get("allowed_cmds_regex", [])
@@ -169,7 +171,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     for i, segment in enumerate(segments):
         cmd_name = segment.get("command", "")
         args = segment.get("arguments", [])
-        segment_result = {"index": i, "command": cmd_name, "args": args}
+        segment_result = {"index": i, "command": cmd_name, "arguments": args}
 
         # Check allowed patterns against command name.
         # If arguments contain real values (not "$(...)" placeholders),

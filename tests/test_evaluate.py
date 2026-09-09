@@ -553,7 +553,7 @@ class TestResultStructure:
         if result["segments"]:
             seg = result["segments"][0]
             assert "command" in seg
-            assert "args" in seg
+            assert "arguments" in seg
             assert "allowed" in seg
 
     def test_heredoc_input_redirection_ask(self) -> None:
