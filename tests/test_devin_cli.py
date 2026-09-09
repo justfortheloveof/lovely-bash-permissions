@@ -351,22 +351,30 @@ class TestCliTest:
         assert result.returncode in [0, 2]
 
 
-class TestCliTestNodeCoverage:
-    """Exercise AST node handlers (DeclClause, conditionals, tests) via --test/-t.
+class _NodeCoverageBase:
+    """Shared helpers for CLI AST-node-coverage tests.
 
     Config is created dynamically per-test in a temp project, and
     DEVIN_GLOBAL_CONFIG_DIR is pointed at an isolated temp dir so no local or
-    global config is read — results are fully deterministic. The extracted
-    per-segment reason text lists each segment's command name that does not
-    match an allowed pattern, proving each handler ran end-to-end.
+    global config is read — results are fully deterministic. The config allows
+    no commands, so the extracted per-segment reason text lists every segment's
+    command name that does not match an allowed pattern, proving each handler
+    ran end-to-end.
     """
 
     _CONFIG: ClassVar[dict[str, dict[str, list[str]]]] = {
         "bash": {
-            "allowed_cmds_regex": ["^ls$", "^true$", "^cat$"],
-            "blocked_paths_regex": ["curl"],
+            "allowed_cmds_regex": ["^zzz$"],
+            "blocked_paths_regex": [],
         }
     }
+
+    def _setup(self, tmp_project: Path, tmp_path: Path) -> Path:
+        """Create an isolated global config dir and write the project config."""
+        global_dir = tmp_path / "global"
+        global_dir.mkdir()
+        self._write_config(tmp_project)
+        return global_dir
 
     def _write_config(self, project_dir: Path, config: dict[str, Any] | None = None) -> None:
         devin_dir = project_dir / ".devin"
@@ -393,11 +401,13 @@ class TestCliTestNodeCoverage:
         b = cmd.index("]", marker)
         return cmd[b + 1 :].strip()
 
+
+class TestCliTestNodeCoverage(_NodeCoverageBase):
+    """Exercise AST node handlers (DeclClause, conditionals, tests) via --test/-t."""
+
     def test_declclause_naked_name_segment(self, tmp_project: Path, tmp_path: Path) -> None:
         """/-t: export FOO=bar x extracts only the naked name x, not the value bar."""
-        global_dir = tmp_path / "global"
-        global_dir.mkdir()
-        self._write_config(tmp_project)
+        global_dir = self._setup(tmp_project, tmp_path)
         result = self._test("export FOO=bar x", tmp_project, global_dir, flag="-t")
         label = self._label(result)
         assert '"x"' in label
@@ -405,9 +415,7 @@ class TestCliTestNodeCoverage:
 
     def test_declclause_assignment_value_not_a_command(self, tmp_project: Path, tmp_path: Path) -> None:
         """/--test: export FOO=bar produces no segments (assignment, not a command)."""
-        global_dir = tmp_path / "global"
-        global_dir.mkdir()
-        self._write_config(tmp_project)
+        global_dir = self._setup(tmp_project, tmp_path)
         result = self._test("export FOO=bar", tmp_project, global_dir)
         label = self._label(result)
         assert "no parseable segments" in label
@@ -415,28 +423,22 @@ class TestCliTestNodeCoverage:
 
     def test_declclause_cmdsubst_extracted(self, tmp_project: Path, tmp_path: Path) -> None:
         """/--test: command substitution inside an assignment value is extracted."""
-        global_dir = tmp_path / "global"
-        global_dir.mkdir()
-        self._write_config(tmp_project)
+        global_dir = self._setup(tmp_project, tmp_path)
         result = self._test("export FOO=$(cat x)", tmp_project, global_dir)
         label = self._label(result)
         assert '"cat"' in label
 
     def test_if_then_and_cond_segments(self, tmp_project: Path, tmp_path: Path) -> None:
         """/-t: if cond; then ls; fi extracts both the cond and then-branch ls."""
-        global_dir = tmp_path / "global"
-        global_dir.mkdir()
-        self._write_config(tmp_project)
+        global_dir = self._setup(tmp_project, tmp_path)
         result = self._test("if true; then ls; fi", tmp_project, global_dir, flag="-t")
         label = self._label(result)
-        assert "^true" in label
-        assert "^ls" in label
+        assert '"true"' in label
+        assert '"ls"' in label
 
     def test_if_elif_else_segments(self, tmp_project: Path, tmp_path: Path) -> None:
         """/--test: elif condition and else branch are extracted alongside then."""
-        global_dir = tmp_path / "global"
-        global_dir.mkdir()
-        self._write_config(tmp_project)
+        global_dir = self._setup(tmp_project, tmp_path)
         result = self._test("if true; then ls; elif false; then cat x; else pwd; fi", tmp_project, global_dir)
         label = self._label(result)
         assert '"false"' in label
@@ -444,18 +446,14 @@ class TestCliTestNodeCoverage:
 
     def test_while_cond_segment_extracted(self, tmp_project: Path, tmp_path: Path) -> None:
         """/-t: while cond; do ls; done extracts the while-condition."""
-        global_dir = tmp_path / "global"
-        global_dir.mkdir()
-        self._write_config(tmp_project)
+        global_dir = self._setup(tmp_project, tmp_path)
         result = self._test("while false; do ls; done", tmp_project, global_dir, flag="-t")
         label = self._label(result)
         assert '"false"' in label
 
     def test_unary_test_no_phantom_command(self, tmp_project: Path, tmp_path: Path) -> None:
         """/--test: [[ -d /tmp ]] produces no phantom 'tmp' segment."""
-        global_dir = tmp_path / "global"
-        global_dir.mkdir()
-        self._write_config(tmp_project)
+        global_dir = self._setup(tmp_project, tmp_path)
         result = self._test("[[ -d /tmp ]]", tmp_project, global_dir)
         label = self._label(result)
         assert "no parseable segments" in label
@@ -463,12 +461,152 @@ class TestCliTestNodeCoverage:
 
     def test_unary_test_cmdsubst_extracted(self, tmp_project: Path, tmp_path: Path) -> None:
         """/-t: [[ -d $(cat x) ]] extracts the inner command substitution."""
-        global_dir = tmp_path / "global"
-        global_dir.mkdir()
-        self._write_config(tmp_project)
+        global_dir = self._setup(tmp_project, tmp_path)
         result = self._test("[[ -d $(cat x) ]]", tmp_project, global_dir, flag="-t")
         label = self._label(result)
         assert '"cat"' in label
+
+
+class TestCliTestRemainingNodes(_NodeCoverageBase):
+    """Exercise every other supported AST node handler via --test/-t.
+
+    DeclClause, IfClause/ElifBranch, WhileClause, and UnaryTest are covered in
+    TestCliTestNodeCoverage; this class covers the rest: pipes, && / ||, case,
+    loops, subshell, test clauses (Binary/Paren), time, coproc, command/process
+    substitution, functions/blocks, multi-statement files, and the
+    deliberately-skipped arithmetic nodes.
+    """
+
+    def test_pipe_side_commands(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/-t: BinaryCmd — both sides of a pipe are extracted."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        result = self._test("ls | grep foo", tmp_project, global_dir, flag="-t")
+        label = self._label(result)
+        assert '"ls"' in label
+        assert '"grep"' in label
+
+    def test_and_cmd_side_commands(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/--test: AndCmd — both sides of && are extracted."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        result = self._test("true && ls", tmp_project, global_dir)
+        label = self._label(result)
+        assert '"true"' in label
+        assert '"ls"' in label
+
+    def test_or_cmd_side_commands(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/-t: OrCmd — both sides of || are extracted."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        result = self._test("false || ls", tmp_project, global_dir, flag="-t")
+        label = self._label(result)
+        assert '"false"' in label
+        assert '"ls"' in label
+
+    def test_case_branch_extracted(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/--test: CaseClause — commands in case branch bodies are extracted."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        result = self._test("case x in a) ls;; esac", tmp_project, global_dir)
+        label = self._label(result)
+        assert '"ls"' in label
+
+    def test_for_loop_body_extracted(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/-t: ForClause — the loop body command is extracted."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        result = self._test("for i in a b; do ls; done", tmp_project, global_dir, flag="-t")
+        label = self._label(result)
+        assert '"ls"' in label
+
+    def test_cstyle_loop_body_extracted(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/--test: CStyleLoop — the c-style for-loop body command is extracted."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        result = self._test("for ((i=0;i<10;i++)); do cat x; done", tmp_project, global_dir)
+        label = self._label(result)
+        assert '"cat"' in label
+
+    def test_subshell_extracted(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/-t: Subshell — commands inside ( ... ) are extracted."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        result = self._test("( ls )", tmp_project, global_dir, flag="-t")
+        label = self._label(result)
+        assert '"ls"' in label
+
+    def test_binary_test_right_operand(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/--test: BinaryTest — the right operand of && inside [[ ]] is extracted."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        result = self._test("[[ -d /tmp && cat ]]", tmp_project, global_dir)
+        label = self._label(result)
+        assert '"cat"' in label
+
+    def test_parenthesized_test_extracted(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/-t: ParenTest — commands reachable through a parenthesized test are extracted."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        result = self._test("[[ ( -d /tmp ) && ls ]]", tmp_project, global_dir, flag="-t")
+        label = self._label(result)
+        assert '"ls"' in label
+
+    def test_time_clause_command_extracted(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/--test: TimeClause — the timed command is extracted."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        result = self._test("time sleep 1", tmp_project, global_dir)
+        label = self._label(result)
+        assert '"sleep"' in label
+
+    def test_coproc_command_extracted(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/-t: CoprocClause — the coprocess command is extracted."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        result = self._test("coproc mycmd", tmp_project, global_dir, flag="-t")
+        label = self._label(result)
+        assert '"mycmd"' in label
+
+    def test_cmdsubst_extracted(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/--test: CmdSubst — a command substitution in an argument is extracted."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        result = self._test("echo $(ls)", tmp_project, global_dir)
+        label = self._label(result)
+        assert '"ls"' in label
+
+    def test_procsubst_extracted(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/-t: ProcSubst — process substitutions are extracted."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        result = self._test("diff <(ls) <(cat x)", tmp_project, global_dir, flag="-t")
+        label = self._label(result)
+        assert '"ls"' in label
+        assert '"cat"' in label
+
+    def test_function_body_extracted(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/--test: FuncDecl — the function body is extracted."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        result = self._test("foo() { ls; }", tmp_project, global_dir)
+        label = self._label(result)
+        assert '"ls"' in label
+
+    def test_brace_block_extracted(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/-t: Block — commands inside { ... } are extracted."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        result = self._test("{ cat x; }", tmp_project, global_dir, flag="-t")
+        label = self._label(result)
+        assert '"cat"' in label
+
+    def test_multi_statement_file_extracted(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/--test: File — every top-level statement is extracted."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        result = self._test("ls; cat x", tmp_project, global_dir)
+        label = self._label(result)
+        assert '"ls"' in label
+        assert '"cat"' in label
+
+    def test_arithmetic_skipped(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/-t: ArithmCmd — (( ... )) produces no segments (arithmetic-only)."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        result = self._test("((x=1))", tmp_project, global_dir, flag="-t")
+        label = self._label(result)
+        assert "no parseable segments" in label
+
+    def test_let_skipped(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/--test: LetClause — let produces no segments (arithmetic-only)."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        result = self._test("let x=1", tmp_project, global_dir)
+        label = self._label(result)
+        assert "no parseable segments" in label
 
 
 class TestCliShowConfig:
