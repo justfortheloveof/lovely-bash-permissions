@@ -31,6 +31,7 @@ from .ast import (
     DeclClause,
     File,
     FuncDecl,
+    ForClause,
     IfClause,
     Lit,
     OrCmd,
@@ -183,6 +184,12 @@ def _extract_segments(node: object, redirs: list[Redir] | None = None) -> list[d
                 if hasattr(branch, "body") and branch.body:
                     for stmt in branch.body:
                         segments.extend(_extract_segments(stmt))
+
+    elif isinstance(node, ForClause):
+        # Extract commands from loop body
+        if hasattr(node, "body") and node.body:
+            for stmt in node.body:
+                segments.extend(_extract_segments(stmt))
 
     elif isinstance(node, (IfClause, WhileClause)):
         # Handle conditional blocks: extract from each branch.

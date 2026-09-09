@@ -107,6 +107,14 @@ class TestAllowedPatterns:
         )
         assert result["status"] == "allow"  # now matches allowed pattern instead of wildcard ask
 
+    def test_for_clause_extracted(self) -> None:
+        """For loop body commands should be extracted."""
+        result = evaluate_bash_command(
+            "for i in 1 2; do echo; done",
+            make_config(allowed=["^echo$"])
+        )
+        assert result["status"] == "allow"  # 'echo' matches pattern
+
 
 class TestBlockedPatterns:
     """Tests for blocked_paths_regex evaluation."""
