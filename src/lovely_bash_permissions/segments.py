@@ -196,6 +196,26 @@ def _extract_segments(
         # each operand (naked name, flag, NAME=value, arr=(...)) is an
         # argument. Recurse into every operand sub-expression so command
         # substitutions inside them are still extracted (export FOO=$(rm x)).
+        # Inherit redirections from the parent statement/compound the same
+        # way CallExpr does.
+        def _part_value(p: object) -> str:
+            """Extract string value from a Word part node."""
+            if isinstance(p, Lit):
+                return p.value
+            elif hasattr(p, "value"):
+                v = getattr(p, "value", None)
+                return v if isinstance(v, str) else ""
+            return ""
+
+        redir_dicts = [
+            {
+                "Op": r.op,
+                "N": {"Value": str(r.n)} if r.n is not None else {},
+                "Word": {"Parts": [{"Value": _part_value(p)} for p in (r.word.parts if r.word else [])]},
+            }
+            for r in (redirs or [])
+        ]
+
         operands: list[str] = []
         for assign in node.assigns or []:
             name = assign.name.value if assign.name is not None and assign.name.value else ""
@@ -216,7 +236,12 @@ def _extract_segments(
             elif assign.value is not None:
                 operands.append(_word_raw(assign.value))
         if operands:
-            segments.append({"command": node.variant, "arguments": operands, "redirections": []})
+            segments.append({"command": node.variant, "arguments": operands, "redirections": redir_dicts})
+        # Recurse into redirection target words so nested command/process
+        # substitutions are extracted (e.g. `export F=$(generate_name)`).
+        for r in redirs or []:
+            if r.word is not None:
+                segments.extend(_extract_segments(r.word))
         for assign in node.assigns or []:
             if assign.index is not None:
                 segments.extend(_extract_segments(assign.index, redirs))
