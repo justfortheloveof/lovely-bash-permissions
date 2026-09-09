@@ -275,6 +275,32 @@ class TestDialect:
         assert segs[0]["command"] == "ls"
 
 
+class TestDeclClause:
+    """DeclClause (export/unset) segment extraction."""
+
+    def test_export_naked_name_single_segment(self) -> None:
+        segs = parse_segments("export BOGUS=true bogus")
+        assert [s["command"] for s in segs] == ["bogus"]
+
+    def test_export_assignment_is_not_a_command(self) -> None:
+        segs = parse_segments("export FOO=bar")
+        assert segs == []
+
+    def test_export_no_duplicate_segments(self) -> None:
+        segs = parse_segments("export FOO=bar")
+        assert len(segs) == 0
+        segs = parse_segments("export BOGUS=true bogus")
+        assert all(s["command"] != "bar" for s in segs)
+
+    def test_export_multiple_naked_names(self) -> None:
+        segs = parse_segments("export FOO bar")
+        assert [s["command"] for s in segs] == ["FOO", "bar"]
+
+    def test_export_value_cmdsubst_extracted(self) -> None:
+        # Command substitution in an assignment value is a real execution.
+        assert any(s["command"] == "rm" for s in parse_segments("export FOO=$(rm x)"))
+
+
 class TestErrorHandling:
     """Tests for error handling."""
 

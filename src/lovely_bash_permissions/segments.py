@@ -166,19 +166,16 @@ def _extract_segments(
                 segments.extend(_extract_segments(arg, redirs))
 
     elif isinstance(node, DeclClause):
-        # export/unset with naked words: those are real command names
+        # Declaration builtins (export/unset). Only *naked* names are real
+        # symbols being declared; `export NAME=value` is an assignment, not a
+        # command invocation. Recurse into assignment values so command
+        # substitutions inside them are still extracted (export FOO=$(rm x)).
         if node.variant in ("export", "unset"):
-            naked_assigns = [a for a in (node.assigns or []) if getattr(a, "naked", False)]
-            if naked_assigns:
-                name = naked_assigns[0].name
-                cmd_name = name.value if name else ""
-                if cmd_name:
-                    segments.append({"command": cmd_name, "arguments": [], "redirections": []})
-            elif node.args:
-                # Fallback: use first arg value (works for unset without assigns)
-                cmd_name = _word_value(node.args[0])
-                segments.append({"command": cmd_name, "arguments": [], "redirections": []})
-                segments.append({"command": cmd_name, "arguments": [], "redirections": []})
+            for assign in node.assigns or []:
+                if getattr(assign, "naked", False) and assign.name is not None and assign.name.value:
+                    segments.append({"command": assign.name.value, "arguments": [], "redirections": []})
+                if assign.value is not None:
+                    segments.extend(_extract_segments(assign.value))
     elif isinstance(node, CaseClause):
         # case/switch: extract commands from each branch body
         if hasattr(node, "branches") and node.branches:
