@@ -1,7 +1,7 @@
-# lovely-devin-permissions (Python)
+# lovely-devin-permissions
 
 A Devin CLI permission hook implemented in Python. It reads local `lovely-permissions.jsonc` rules and merges in `Exec(...)` allow rules from your Devin config, so commands you have already approved for Devin are not double-prompted.
-
+See [README.md](README.md) for the underlying bash-AST library API.
 ## Usage
 
 ### Install
@@ -32,7 +32,7 @@ Create `.devin/hooks.v1.json` in the project root:
       "hooks": [
         {
           "type": "command",
-          "command": "uv run lovely-devin-permissions"
+          "command": "uv run lovely-devin-permissions",
           "timeout": 5
         }
       ]
@@ -44,7 +44,7 @@ Create `.devin/hooks.v1.json` in the project root:
       "hooks": [
         {
           "type": "command",
-          "command": "uv run lovely-devin-permissions"
+          "command": "uv run lovely-devin-permissions",
           "timeout": 5
         }
       ]
@@ -87,6 +87,10 @@ The hook is invoked by Devin **only on `exec` tool calls** (bash shell commands)
 
 If either source approves the command, the hook lets it run. If neither matches, it asks for approval. Malformed configuration is reported as an error (and prevents exec tool calls from running).
 
+## Security notes
+
+- Patterns in `allowed_cmds_regex` and `blocked_paths_regex` are unanchored substring matches unless you anchor them. For example, `git` also matches `rm -rf /var/git`. Anchor with `^git(\s|$)` or similar.
+- This is a policy layer, not a sandbox. It can be bypassed by backtick command substitution, environment assignment prefixes like `a=1 rm -rf /`, and brace groups. Use it as guard-rails against accidental execution, not as a security boundary around untrusted input.
 ## Configuration files
 
 ### `lovely-permissions.jsonc`
@@ -194,13 +198,6 @@ Allowed commands get `: '[♡ perms: 💚 auto-approved] ...'`, blocked commands
 
 ## CLI usage
 
-Run via uv (or pip):
-
-```bash
-uv run lovely-devin-permissions ...
-# or: python -m lovely_devin_permissions ...
-```
-
 To add the label permission to Devin config:
 
 ```bash
@@ -230,11 +227,6 @@ It prints a JSON object with:
 - `effectiveConfig`: the effective bash tool config, with any Devin `Exec(...)` allow rules merged into `allowed_cmds_regex`.
 
 This is useful for confirming which rules Devin will see before running a session.
-
-## Security notes
-
-- Patterns in `allowed_cmds_regex` and `blocked_paths_regex` are unanchored substring matches unless you anchor them. For example, `git` also matches `rm -rf /var/git`. Anchor with `^git(\s|$)` or similar.
-- This is a policy layer, not a sandbox. It can be bypassed by backtick command substitution, environment assignment prefixes like `a=1 rm -rf /`, and brace groups. Use it as guard-rails against accidental execution, not as a security boundary around untrusted input.
 
 ## Troubleshooting
 
