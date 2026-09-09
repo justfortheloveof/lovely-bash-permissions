@@ -609,6 +609,64 @@ class TestCliTestRemainingNodes(_NodeCoverageBase):
         assert "no parseable segments" in label
 
 
+class TestCliTestMultilineCommands(_NodeCoverageBase):
+    """Exercise multiline commands via --test/-t.
+
+    Covers simple newline-separated statements and heredoc-fed interpreters
+    (node/python3/cat). A heredoc surfaces as an input redirection on the
+    segment, so the reason text also flags "input redirection requires
+    approval".
+    """
+
+    def test_multiline_simple_statements(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/-t: each newline-separated statement is extracted."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        result = self._test("ls\necho hi", tmp_project, global_dir, flag="-t")
+        label = self._label(result)
+        assert '"ls"' in label
+        assert '"echo"' in label
+
+    def test_multiline_many_statements(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/--test: every line is extracted, including repeated commands."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        result = self._test("echo one\necho two\ncat x", tmp_project, global_dir)
+        label = self._label(result)
+        assert '"echo"' in label
+        assert '"cat"' in label
+
+    def test_node_heredoc_command_and_redirection(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/--test: node heredoc extracts 'node' and flags the input redirection."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        result = self._test("node << 'EOF'\nconsole.log('hi')\nEOF", tmp_project, global_dir)
+        label = self._label(result)
+        assert '"node"' in label
+        assert "input redirection requires approval" in label
+
+    def test_python_heredoc_command_and_redirection(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/-t: python3 heredoc extracts 'python3' and flags the input redirection."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        result = self._test("python3 << 'EOF'\nprint('hi')\nEOF", tmp_project, global_dir, flag="-t")
+        label = self._label(result)
+        assert '"python3"' in label
+        assert "input redirection requires approval" in label
+
+    def test_cat_heredoc_command_and_redirection(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/-t: cat heredoc extracts 'cat' and flags the input redirection."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        result = self._test("cat << EOF\nhello\nworld\nEOF", tmp_project, global_dir, flag="-t")
+        label = self._label(result)
+        assert '"cat"' in label
+        assert "input redirection requires approval" in label
+
+    def test_python_dash_heredoc(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/--test: python3 - heredoc still extracts 'python3' via stdin."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        result = self._test("python3 - << 'EOF'\nprint('hi')\nEOF", tmp_project, global_dir)
+        label = self._label(result)
+        assert '"python3"' in label
+        assert "input redirection requires approval" in label
+
+
 class TestCliShowConfig:
     """Test --show-config flag: show effective config and file paths."""
 
