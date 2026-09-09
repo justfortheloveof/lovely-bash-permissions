@@ -672,3 +672,19 @@ class TestResultStructure:
         assert result["status"] == "allow"
         commands = [s["command"] for s in result["segments"]]
         assert "ls" in commands  # 'ls' inside [[ ]] is extracted
+
+    def test_time_clause_extracted(self) -> None:
+        """time <cmd> extracts the command from inside."""
+        result = evaluate_bash_command(
+            "time sleep 1",
+            make_config(allowed=["^sleep\\s+1$"]),
+        )
+        assert result["status"] == "allow"
+
+    def test_coproc_extracted(self) -> None:
+        """coprocess extracts command from stmt."""
+        result = evaluate_bash_command(
+            "coproc mycmd arg",
+            make_config(allowed=["^mycmd\\s+arg$"]),
+        )
+        assert result["status"] == "allow"

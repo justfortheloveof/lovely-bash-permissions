@@ -22,18 +22,21 @@ from typing import Any
 
 from .ast import (
     AndCmd,
+    ArithmCmd,
     BinaryCmd,
     BinaryTest,
     Block,
     CallExpr,
     CaseClause,
     CmdSubst,
+    CoprocClause,
     CStyleLoop,
     DeclClause,
     File,
     ForClause,
     FuncDecl,
     IfClause,
+    LetClause,
     Lit,
     OrCmd,
     ParenTest,
@@ -42,6 +45,7 @@ from .ast import (
     Stmt,
     Subshell,
     TestClause,
+    TimeClause,
     WhileClause,
     Word,
 )
@@ -209,6 +213,20 @@ def _extract_segments(
         # Parenthesized test: recurse into body with test context
         if hasattr(node, "body") and node.body:
             segments.extend(_extract_segments(node.body, _in_test_expr=True))
+
+    elif isinstance(node, TimeClause):
+        # time <cmd> — extract the command from inside
+        if hasattr(node, "stmt") and node.stmt:
+            segments.extend(_extract_segments(node.stmt))
+
+    elif isinstance(node, (ArithmCmd, LetClause)):
+        # (( expr )) and let — arithmetic-only, skip (no real command)
+        pass
+
+    elif isinstance(node, CoprocClause):
+        # coprocess — extract command if present
+        if hasattr(node, "stmt") and node.stmt:
+            segments.extend(_extract_segments(node.stmt))
 
     elif isinstance(node, (IfClause, WhileClause)):
         # Handle conditional blocks: extract from each branch.
