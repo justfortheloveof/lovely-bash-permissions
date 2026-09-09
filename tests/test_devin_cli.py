@@ -594,6 +594,15 @@ class TestCliTestRemainingNodes(_NodeCoverageBase):
         assert '"ls"' in label
         assert '"cat"' in label
 
+    def test_no_match_reason_printed_once_per_command(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/-t: non-matching segments yield one cumulative reason, not one per segment."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        result = self._test("bogus1 one;bogus2 two;bogus3 x", tmp_project, global_dir, flag="-t")
+        label = self._label(result)
+        assert label.count("commands do not match allowed patterns") == 1
+        assert '"bogus1", "bogus2", "bogus3" command' in label
+        assert '"bogus1" command does not match' not in label
+
     def test_arithmetic_skipped(self, tmp_project: Path, tmp_path: Path) -> None:
         """/-t: ArithmCmd — (( ... )) produces no segments (arithmetic-only)."""
         global_dir = self._setup(tmp_project, tmp_path)

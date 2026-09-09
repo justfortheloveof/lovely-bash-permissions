@@ -218,137 +218,137 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
 
         segment_results.append(segment_result)
 
-        # Collect matched patterns as approval reasons (only shown when status is allow).
-        # NOTE: approval_reason must be built AFTER _walk() so it includes nested command matches.
+    # Collect matched patterns as approval reasons (only shown when status is allow).
+    # NOTE: approval_reason must be built AFTER _walk() so it includes nested command matches.
 
-        # Check redirection rules (from segments — single source of truth, issue #2/#3)
-        output_result = _check_segments_output_redirs(segments, rules)
+    # Check redirection rules (from segments — single source of truth, issue #2/#3)
+    output_result = _check_segments_output_redirs(segments, rules)
 
-        input_result = _check_segments_input_redirs(segments, rules)
+    input_result = _check_segments_input_redirs(segments, rules)
 
-        bg_result = check_background_execution(raw_tree, rules)
+    bg_result = check_background_execution(raw_tree, rules)
 
-        # Deny overrides ask in aggregation (deny anywhere → deny overall)
-        if output_result["status"] == "deny" or input_result["status"] == "deny" or bg_result["status"] == "deny":
-            overall_status = "deny"
-            if output_result["status"] == "deny":
-                reasons.append(f"output redirection denied: {output_result['reason']}")
-            if input_result["status"] == "deny":
-                reasons.append(f"input redirection denied: {input_result['reason']}")
-            if bg_result["status"] == "deny":
-                reasons.append(f"background execution denied: {bg_result['reason']}")
-        elif output_result["status"] == "ask" and overall_status == "allow":
-            overall_status = "ask"
-            reasons.append(output_result["reason"])
-        elif input_result["status"] == "ask" and overall_status == "allow":
-            overall_status = "ask"
-            reasons.append(input_result["reason"])
-        elif bg_result["status"] == "ask" and overall_status == "allow":
-            overall_status = "ask"
-            reasons.append(bg_result["reason"])
+    # Deny overrides ask in aggregation (deny anywhere → deny overall)
+    if output_result["status"] == "deny" or input_result["status"] == "deny" or bg_result["status"] == "deny":
+        overall_status = "deny"
+        if output_result["status"] == "deny":
+            reasons.append(f"output redirection denied: {output_result['reason']}")
+        if input_result["status"] == "deny":
+            reasons.append(f"input redirection denied: {input_result['reason']}")
+        if bg_result["status"] == "deny":
+            reasons.append(f"background execution denied: {bg_result['reason']}")
+    elif output_result["status"] == "ask" and overall_status == "allow":
+        overall_status = "ask"
+        reasons.append(output_result["reason"])
+    elif input_result["status"] == "ask" and overall_status == "allow":
+        overall_status = "ask"
+        reasons.append(input_result["reason"])
+    elif bg_result["status"] == "ask" and overall_status == "allow":
+        overall_status = "ask"
+        reasons.append(bg_result["reason"])
 
-        # Commands not matching allowed patterns require approval
-        if allowed_patterns and any_segment_not_allowed:
-            non_matching = [seg["command"] for seg in segment_results if not seg.get("allowed", True)]
-            if non_matching:
-                names = [f'"{name}"' for name in non_matching]
-                if len(non_matching) == 1:
-                    reasons.append(f"{names[0]} command does not match allowed patterns")
-                else:
-                    reasons.append(f"{', '.join(names)} commands do not match allowed patterns")
-            if overall_status == "allow":
-                overall_status = wildcard
+    # Commands not matching allowed patterns require approval
+    if allowed_patterns and any_segment_not_allowed:
+        non_matching = [seg["command"] for seg in segment_results if not seg.get("allowed", True)]
+        if non_matching:
+            names = [f'"{name}"' for name in non_matching]
+            if len(non_matching) == 1:
+                reasons.append(f"{names[0]} command does not match allowed patterns")
+            else:
+                reasons.append(f"{', '.join(names)} commands do not match allowed patterns")
+        if overall_status == "allow":
+            overall_status = wildcard
 
-        # Subshell/command substitution policy check;
-        # also check inner content against blocked paths and allowed patterns
-        subshell_policy = rules.get("subshell", "ask")
-        _subshell_allowed = False
-        if has_subshell:
-            subshell_contents = _extract_subshell_contents(raw_tree)
+    # Subshell/command substitution policy check;
+    # also check inner content against blocked paths and allowed patterns
+    subshell_policy = rules.get("subshell", "ask")
+    _subshell_allowed = False
+    if has_subshell:
+        subshell_contents = _extract_subshell_contents(raw_tree)
 
-            # Check nested commands against blocked paths (already done above, keep it)
-            if blocked_patterns and subshell_contents:
-                for text in subshell_contents:
-                    matched, pattern, value = check_blocked_patterns("", [text], blocked_patterns)
-                    if matched:
-                        overall_status = "deny"
-                        reasons.append(
-                            f'Blocked by bash permissions: Argument "{value}" matches blocked path pattern '
-                            f"{pattern}. The tool has not been run."
-                        )
+        # Check nested commands against blocked paths (already done above, keep it)
+        if blocked_patterns and subshell_contents:
+            for text in subshell_contents:
+                matched, pattern, value = check_blocked_patterns("", [text], blocked_patterns)
+                if matched:
+                    overall_status = "deny"
+                    reasons.append(
+                        f'Blocked by bash permissions: Argument "{value}" matches blocked path pattern '
+                        f"{pattern}. The tool has not been run."
+                    )
 
-            # Also validate nested commands against allowed patterns.
-            # Check only the command name (first word), matching segment-level
-            # allowed-check behavior (which checks command names, not full args).
-            if allowed_patterns:
-                non_match_names: set[str] = set()
-                ast_subshell = node_from_json(raw_tree)
-                if ast_subshell is not None:
-                    # Recursively walk the AST tracking CmdSubst/ProcSubst nesting depth.
-                    def _walk(node: Node, depth: int) -> None:
-                        from .ast import CallExpr, CmdSubst, ProcSubst
+        # Also validate nested commands against allowed patterns.
+        # Check only the command name (first word), matching segment-level
+        # allowed-check behavior (which checks command names, not full args).
+        if allowed_patterns:
+            non_match_names: set[str] = set()
+            ast_subshell = node_from_json(raw_tree)
+            if ast_subshell is not None:
+                # Recursively walk the AST tracking CmdSubst/ProcSubst nesting depth.
+                def _walk(node: Node, depth: int) -> None:
+                    from .ast import CallExpr, CmdSubst, ProcSubst
 
-                        if isinstance(node, (CallExpr,)) and node.args:
-                            # Skip top-level CallExpr — already checked as a segment.
-                            if depth == 0:
-                                pass
-                            else:
-                                first = _word_value(node.args[0])
-                                rest = " ".join(_word_value(a) for a in node.args[1:])
-                                full_cmd = first if not rest else f"{first} {rest}"
-
-                                # Check each pattern individually:
-                                # - exact-match patterns (no \\s, no .*) with args → check full_cmd
-                                # Nested commands with real args check full_cmd only
-                                # (name fallback would let "find -exec" match ^find$).
-                                matched = False
-                                matching_patterns: list[str] = []
-                                has_real_args = (
-                                    any("$(...)" not in _word_value(a) for a in node.args[1:])
-                                    if hasattr(node, "args") and len(node.args) > 1
-                                    else False
-                                )
-                                if has_real_args:
-                                    for p in allowed_patterns:
-                                        if re.match(p, full_cmd):
-                                            matched = True
-                                            matching_patterns.append(p)
-                                else:
-                                    for p in allowed_patterns:
-                                        if re.match(p, first):
-                                            matched = True
-                                            matching_patterns.append(p)
-                                if matched:
-                                    all_matched_patterns.extend(matching_patterns)
-                                else:
-                                    non_match_names.add(first if first != full_cmd else full_cmd)  # noqa: B023
-
-                        # Increment depth when entering a substitution.
-                        new_depth = depth + (1 if isinstance(node, (CmdSubst, ProcSubst)) else 0)
-                        from .inspect import iter_children
-
-                        for child in iter_children(node, include_call_args=True):
-                            _walk(child, new_depth)
-
-                    _walk(ast_subshell, 0)
-                    if non_match_names:
-                        names_str = ", ".join(f'"{n}"' for n in sorted(non_match_names))
-                        reasons.append(f"{names_str} commands inside subshell do not match allowed patterns")
-                        if overall_status == "deny":
-                            # Already denied by blocked paths check above, keep it
+                    if isinstance(node, (CallExpr,)) and node.args:
+                        # Skip top-level CallExpr — already checked as a segment.
+                        if depth == 0:
                             pass
-                        elif subshell_policy == "allow":
-                            overall_status = "ask"  # Validation failed, allow policy → ask for approval
-                        elif subshell_policy == "deny":
-                            overall_status = "deny"  # Validation failed, deny policy → reject outright
-                        else:  # ask
-                            overall_status = subshell_policy
-            if overall_status == "allow":
-                if subshell_policy != "allow":
-                    overall_status = subshell_policy
-                    reasons.append("subshell or command substitution requires approval")
-                else:
-                    _subshell_allowed = True
+                        else:
+                            first = _word_value(node.args[0])
+                            rest = " ".join(_word_value(a) for a in node.args[1:])
+                            full_cmd = first if not rest else f"{first} {rest}"
+
+                            # Check each pattern individually:
+                            # - exact-match patterns (no \\s, no .*) with args → check full_cmd
+                            # Nested commands with real args check full_cmd only
+                            # (name fallback would let "find -exec" match ^find$).
+                            matched = False
+                            matching_patterns: list[str] = []
+                            has_real_args = (
+                                any("$(...)" not in _word_value(a) for a in node.args[1:])
+                                if hasattr(node, "args") and len(node.args) > 1
+                                else False
+                            )
+                            if has_real_args:
+                                for p in allowed_patterns:
+                                    if re.match(p, full_cmd):
+                                        matched = True
+                                        matching_patterns.append(p)
+                            else:
+                                for p in allowed_patterns:
+                                    if re.match(p, first):
+                                        matched = True
+                                        matching_patterns.append(p)
+                            if matched:
+                                all_matched_patterns.extend(matching_patterns)
+                            else:
+                                non_match_names.add(first if first != full_cmd else full_cmd)
+
+                    # Increment depth when entering a substitution.
+                    new_depth = depth + (1 if isinstance(node, (CmdSubst, ProcSubst)) else 0)
+                    from .inspect import iter_children
+
+                    for child in iter_children(node, include_call_args=True):
+                        _walk(child, new_depth)
+
+                _walk(ast_subshell, 0)
+                if non_match_names:
+                    names_str = ", ".join(f'"{n}"' for n in sorted(non_match_names))
+                    reasons.append(f"{names_str} commands inside subshell do not match allowed patterns")
+                    if overall_status == "deny":
+                        # Already denied by blocked paths check above, keep it
+                        pass
+                    elif subshell_policy == "allow":
+                        overall_status = "ask"  # Validation failed, allow policy → ask for approval
+                    elif subshell_policy == "deny":
+                        overall_status = "deny"  # Validation failed, deny policy → reject outright
+                    else:  # ask
+                        overall_status = subshell_policy
+        if overall_status == "allow":
+            if subshell_policy != "allow":
+                overall_status = subshell_policy
+                reasons.append("subshell or command substitution requires approval")
+            else:
+                _subshell_allowed = True
     # If no specific rules matched and nothing else triggered ask/deny, apply wildcard policy
     _redir_matched = output_result["reason"] != "no output redirection"
     _input_matched = input_result["reason"] != "no input redirection"
