@@ -27,6 +27,7 @@
 1. Add import near top of file (after `from __future__ import annotations`, line ~18):
 ```python
 import logging
+
 _logger = logging.getLogger(__name__)
 ```
 2. Add a catch-all `else` clause just before the final `return segments`:
@@ -85,9 +86,7 @@ elif isinstance(node, CaseClause):
 **Verification**: add test `test_case_clause_extracted`:
 ```python
 def test_case_clause_extracted(self):
-    result = evaluate_bash_command(
-        "case x in a) ls;; b) cp src dst;; esac", make_config(allowed=["^ls$"])
-    )
+    result = evaluate_bash_command("case x in a) ls;; b) cp src dst;; esac", make_config(allowed=["^ls$"]))
     assert result["status"] == "allow"  # 'ls' matches pattern
 ```
 
@@ -110,9 +109,7 @@ elif isinstance(node, ForClause):
 **Verification**: add test `test_for_clause_extracted`:
 ```python
 def test_for_clause_extracted(self):
-    result = evaluate_bash_command(
-        "for i in 1 2; do echo $i; done", make_config(allowed=["^echo$"])
-    )
+    result = evaluate_bash_command("for i in 1 2; do echo $i; done", make_config(allowed=["^echo$"]))
     assert result["status"] == "allow"  # 'echo' matches pattern
 ```
 
@@ -153,9 +150,7 @@ elif isinstance(node, (ForClause, CStyleLoop)):
 **Verification**: add test `test_cstyle_loop_extracted`:
 ```python
 def test_cstyle_loop_extracted(self):
-    result = evaluate_bash_command(
-        "for ((i=0;i<10;i++)); do echo x; done", make_config(allowed=["^echo$"])
-    )
+    result = evaluate_bash_command("for ((i=0;i<10;i++)); do echo x; done", make_config(allowed=["^echo$"]))
     assert result["status"] == "allow"
 ```
 
@@ -178,8 +173,7 @@ elif isinstance(node, TestClause):
 **Verification**: add test `test_testclause_extracted`:
 ```python
 def test_testclause_extracted(self):
-    result = evaluate_bash_command("[[ -d /tmp && ls ]]; echo done", make_config(allowed=["^ls$"])
-    )
+    result = evaluate_bash_command("[[ -d /tmp && ls ]]; echo done", make_config(allowed=["^ls$"]))
     assert result["status"] == "allow"
 ```
 ```python
@@ -215,6 +209,7 @@ elif isinstance(node, CoprocClause):
 def test_time_clause_extracted(self):
     result = evaluate_bash_command("time sleep 1", make_config(allowed=["^sleep$"]))
     assert result["status"] == "allow"
+
 
 def test_coproc_extracted(self):
     result = evaluate_bash_command("coproc mycmd arg", make_config(allowed=["^mycmd$"]))
