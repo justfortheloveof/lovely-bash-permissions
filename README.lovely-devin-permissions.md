@@ -90,7 +90,7 @@ If either source approves the command, the hook lets it run. If neither matches,
 ## Security notes
 
 - Patterns in `allowed_cmds_regex` and `blocked_paths_regex` are unanchored substring matches unless you anchor them. For example, `git` also matches `rm -rf /var/git`. Anchor with `^git(\s|$)` or similar.
-- This is a policy layer, not a sandbox. It can be bypassed by backtick command substitution, environment assignment prefixes like `a=1 rm -rf /`, and brace groups. Use it as guard-rails against accidental execution, not as a security boundary around untrusted input.
+- This is a policy layer, not a sandbox. It can be bypassed by backtick command substitution and brace groups. Environment assignment prefixes like `a=1 rm -rf /` are detected and evaluated separately (see `variable_assignment` policy). Use it as guard-rails against accidental execution, not as a security boundary around untrusted input.
 ## Configuration files
 
 ### `lovely-permissions.jsonc`
@@ -127,6 +127,7 @@ The `bash` config key supports these keys:
 | `output_redirection.stderr_to_stdout`   | `"allow" \| "ask" \| "deny"`           | Permission for duplicating stderr to stdout with `2>&1`                                                                                             |
 | `output_redirection.stdout_to_dev_null` | `"allow" \| "ask" \| "deny"`           | Permission for discarding stdout with `>/dev/null`                                                                                                  |
 | `output_redirection`                    | `"allow" \| "ask" \| "deny"` or object | Parent key for output redirection policy. A string applies to all output redirections. An object uses the keys below. If omitted, inherits from `*` |
+| `variable_assignment`                  | `"allow" \| "ask" \| "deny"`           | Policy for standalone variable assignments (`FOO=bar`) and variable assignment before commands (`FOO=bar ls`). If omitted, defaults to `"ask"` |
 | `allowed_cmds_regex`                    | `string[]`                             | Regexes that approve a command when matched against the full command line of each segment. Unanchored - anchor with `^` and `$`                     |
 | `blocked_paths_regex`                   | `string[]`                             | Regexes that block a command when matched in arguments or redirection targets. Unanchored substrings - anchor as needed                             |
 
