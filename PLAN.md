@@ -9,9 +9,10 @@
 |---|---|---|
 | DeclClause | `export/unset/alias` | 0 segments |
 | CaseClause | `case x in a) cmd;; esac` | 0 segments |
-| ForClause / CStyleLoop | `for i in ...; do done` | 0 segments |
+| ForClause | `for i in ...; do done` | 0 segments |
+| **CStyleLoop** | `for ((i=0;i<10;i++)); do echo x; done` | **0 segments** |
 | Subshell | `( ls )` | 0 segments |
-| TestClause (`[[ ]]`) | `[[ -d foo ]]` | 0 segments (note: `[ ]` works) |
+| **TestClause** (`[[ ]]`) | `[[ -d foo && -e bar ]]` | **0 segments** (note: `[ ]` works) |
 | TimeClause | `time sleep 1` | 0 segments |
 | ArithmCmd / LetClause | `(())`, `let x=1` | 0 segments |
 | CoprocClause | `coproc mycmd` | 0 segments |
@@ -131,7 +132,56 @@ elif isinstance(node, Subshell):
             segments.extend(_extract_segments(stmt))
 ```
 
-**Verification**: add test `test_subshell_extracted`:
+**Verification**: add test `test_subshell_extracted`.
+
+---
+
+## Step 4e2: Add CStyleLoop handler (segments.py)
+
+**Goal**: Handle c-style for loops `for ((i=0; i<10; i++)); do ... done`.
+
+**How CStyleLoop nodes look**: same shape as ForClause — has `body` list of Stmt.
+
+**Changes**: add alongside ForClause in same elif block:
+```python
+elif isinstance(node, (ForClause, CStyleLoop)):
+    if hasattr(node, "body") and node.body:
+        for stmt in node.body:
+            segments.extend(_extract_segments(stmt))
+```
+
+**Verification**: add test `test_cstyle_loop_extracted`:
+```python
+def test_cstyle_loop_extracted(self):
+    result = evaluate_bash_command(
+        "for ((i=0;i<10;i++)); do echo x; done", make_config(allowed=["^echo$"])
+    )
+    assert result["status"] == "allow"
+```
+
+---
+
+## Step 4e3: Add TestClause handler (segments.py)
+
+**Goal**: Handle `[[ ... ]]` tests — note `[ ]` (bracket form) already works via CallExpr, but `[[ ]]` parses as TestClause.
+
+**How TestClause nodes look**: has `test_expr` (UnaryTest/BinaryTest/ParenTest) and possibly a body. For simple tests like `[[ -d foo ]]` there's no body — skip (no command to extract). For test-with-body forms, recurse.
+
+**Changes**: add `elif isinstance(node, TestClause):`:
+```python
+elif isinstance(node, TestClause):
+    # Recurse into test expression — UnaryTest/BinaryTest may contain commands in args
+    if hasattr(node, "test_expr") and node.test_expr:
+        segments.extend(_extract_segments(node.test_expr))
+```
+
+**Verification**: add test `test_testclause_extracted`:
+```python
+def test_testclause_extracted(self):
+    result = evaluate_bash_command("[[ -d /tmp && ls ]]; echo done", make_config(allowed=["^ls$"])
+    )
+    assert result["status"] == "allow"
+```
 ```python
 def test_subshell_extracted(self):
     result = evaluate_bash_command("( ls )", make_config(allowed=["^ls$"]))
@@ -183,8 +233,10 @@ Run `uv run pytest -v` (expect 640+ passing). Commit each step separately:
 - "Step 4c: Handle CaseClause (case statements) in `_extract_segments()`"
 - "Step 4d: Handle ForClause (for loops) in `_extract_segments()`"
 - "Step 4e: Handle Subshell (parens) in `_extract_segments()`"
+- "Step 4e2: Handle CStyleLoop (c-style for loops) in `_extract_segments()`"
+- "Step 4e3: Handle TestClause ([[ ]]) in `_extract_segments()`"
 - "Step 4f: Handle TimeClause, ArithmCmd/LetClause, CoprocClause"
-- "Step 4g: Verify full suite passes (640+ tests)"
+- "Step 4g: Verify full suite passes (650+ tests)"
 
 ## Notes for implementers
 - `_extract_segments()` is in `src/lovely_bash_permissions/segments.py`, line ~68.
