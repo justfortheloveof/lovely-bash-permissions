@@ -320,6 +320,21 @@ class TestConditionals:
         assert [s["command"] for s in segs] == ["true", "echo", "rm"]
 
 
+class TestTestClauses:
+    """[[ ]] test-expression segment extraction."""
+
+    def test_bare_unary_test_no_phantom_command(self) -> None:
+        segs = parse_segments("[[ -d /tmp ]]")
+        assert segs == []
+
+    def test_unary_test_cmdsubst_extracted(self) -> None:
+        assert any(s["command"] == "pwd" for s in parse_segments("[[ -d $(pwd) ]]"))
+
+    def test_binary_test_right_operand_extracted(self) -> None:
+        commands = [s["command"] for s in parse_segments("[[ -d /tmp && ls ]]")]
+        assert "ls" in commands
+
+
 class TestErrorHandling:
     """Tests for error handling."""
 

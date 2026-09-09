@@ -47,6 +47,7 @@ from .ast import (
     Subshell,
     TestClause,
     TimeClause,
+    UnaryTest,
     WhileClause,
     Word,
 )
@@ -206,6 +207,14 @@ def _extract_segments(
         # Test expression: only right operand of &&/|| is a "command" to check
         if hasattr(node, "right") and node.right:
             segments.extend(_extract_segments(node.right, _in_test_expr=True))
+
+    elif isinstance(node, UnaryTest):
+        # Unary test op (-d/-n/-z ...): the operand is a path/variable, not a
+        # command. Recurse WITHOUT test-expr context so nested command
+        # substitutions are still extracted (e.g. [[ -d $(pwd) ]]) but the
+        # operand itself is not emitted as a segment.
+        if node.x is not None:
+            segments.extend(_extract_segments(node.x, _in_test_expr=False))
 
     elif isinstance(node, ParenTest):
         # Parenthesized test: recurse into body with test context
