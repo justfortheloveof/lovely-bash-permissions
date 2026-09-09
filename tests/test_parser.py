@@ -109,11 +109,11 @@ class TestRedirections:
 
     def test_redirect_on_left_of_and(self) -> None:
         """Redirection on the X side of && must not be dropped."""
-        tree = parse_ast("cmd4 >4 && ls")
+        tree = parse_ast("cmd4 > out4 && ls")
         redirs = get_redirections(tree)
         assert len(redirs) == 1
         assert redirs[0]["op"] == ">"
-        assert redirs[0]["target"] == "4"
+        assert redirs[0]["target"] == "out4"
 
     def test_redirect_on_middle_of_pipeline(self) -> None:
         """Redirection on a non-final pipeline segment must not be dropped."""

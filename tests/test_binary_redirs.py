@@ -15,8 +15,8 @@ class TestBinaryPerSideRedirs:
     """BinaryCmd must carry per-operand redirections in its AST fields."""
 
     def test_simple_two_segment_per_side(self) -> None:
-        """cmd2 > 2 | cmd3 > 3 splits redirs onto left_redirs and right_redirs."""
-        tree = parse_ast("cmd2 > 2 | cmd3 > 3")
+        """cmd2 > left.txt | cmd3 > right.txt splits redirs onto left_redirs and right_redirs."""
+        tree = parse_ast("cmd2 > left.txt | cmd3 > right.txt")
         stmt = tree.stmts[0]
         bc = stmt.cmd
         assert isinstance(bc, BinaryCmd)
@@ -27,7 +27,7 @@ class TestBinaryPerSideRedirs:
         left_part = left_word.parts[0]
         assert left_part is not None
         assert isinstance(left_part, Lit)
-        assert left_part.value == "2"
+        assert left_part.value == "left.txt"
 
         assert len(bc.right_redirs) == 1
         right_word = bc.right_redirs[0].word
@@ -35,7 +35,7 @@ class TestBinaryPerSideRedirs:
         right_part = right_word.parts[0]
         assert right_part is not None
         assert isinstance(right_part, Lit)
-        assert right_part.value == "3"
+        assert right_part.value == "right.txt"
 
         merged_targets = []
         for r in bc.redirs:
@@ -45,7 +45,7 @@ class TestBinaryPerSideRedirs:
             assert rp is not None
             assert isinstance(rp, Lit)
             merged_targets.append(rp.value)
-        assert merged_targets == ["2", "3"]
+        assert merged_targets == ["left.txt", "right.txt"]
 
     def test_three_segment_left_nested_per_side(self) -> None:
         """a > 1 | b > 2 | c > 3 — redirs split per-side across the nested chain."""
