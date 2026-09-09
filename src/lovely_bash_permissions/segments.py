@@ -23,6 +23,7 @@ from typing import Any
 from .ast import (
     AndCmd,
     BinaryCmd,
+    BinaryTest,
     Block,
     CallExpr,
     CaseClause,
@@ -35,10 +36,12 @@ from .ast import (
     IfClause,
     Lit,
     OrCmd,
+    ParenTest,
     ProcSubst,
     Redir,
     Stmt,
     Subshell,
+    TestClause,
     WhileClause,
     Word,
 )
@@ -73,7 +76,9 @@ def _extract_redirs(node: object) -> list[Redir]:
         return []
 
 
-def _extract_segments(node: object, redirs: list[Redir] | None = None) -> list[dict[str, Any]]:
+def _extract_segments(
+    node: object, redirs: list[Redir] | None = None, *, _in_test_expr: bool = False
+) -> list[dict[str, Any]]:
     """
     Recursively extract command segments from an AST node.
 
@@ -190,6 +195,21 @@ def _extract_segments(node: object, redirs: list[Redir] | None = None) -> list[d
             for stmt in node.stmts:
                 segments.extend(_extract_segments(stmt))
 
+    elif isinstance(node, TestClause):
+        # Recurse into test expression — UnaryTest/BinaryTest may contain commands in args
+        if hasattr(node, "body") and node.body:
+            segments.extend(_extract_segments(node.body, _in_test_expr=True))
+
+    elif isinstance(node, BinaryTest):
+        # Test expression: only right operand of &&/|| is a "command" to check
+        if hasattr(node, "right") and node.right:
+            segments.extend(_extract_segments(node.right, _in_test_expr=True))
+
+    elif isinstance(node, ParenTest):
+        # Parenthesized test: recurse into body with test context
+        if hasattr(node, "body") and node.body:
+            segments.extend(_extract_segments(node.body, _in_test_expr=True))
+
     elif isinstance(node, (IfClause, WhileClause)):
         # Handle conditional blocks: extract from each branch.
         # cond_stmts / body are lists of Stmt (each carries its own redirs).
@@ -207,9 +227,18 @@ def _extract_segments(node: object, redirs: list[Redir] | None = None) -> list[d
 
     elif isinstance(node, Word):
         # Word nodes (arguments) may contain CmdSubst/ProcSubst in their parts.
-        # Recurse into each part to find nested redirections.
-        for part in node.parts:
-            segments.extend(_extract_segments(part))
+        # Recurse into each part to find nested redirections (only outside test expr context).
+        if not _in_test_expr:
+            for part in node.parts:
+                segments.extend(_extract_segments(part, _in_test_expr=False))
+        # Inside test expressions, word values are command names
+        if _in_test_expr:
+            segments.append({"command": _word_value(node), "arguments": [], "redirections": []})
+
+    elif isinstance(node, Lit):
+        # Literals are command names only inside test expressions
+        if _in_test_expr:
+            segments.append({"command": node.value, "arguments": [], "redirections": []})
 
     elif isinstance(node, (CmdSubst, ProcSubst)):
         # Command/process substitution: recurse into each stmt, passing inherited redirs.

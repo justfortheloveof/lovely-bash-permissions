@@ -662,3 +662,13 @@ class TestResultStructure:
             make_config(allowed=["^ls$", "^cp\\s+src\\s+dst$"]),
         )
         assert result["status"] == "allow"  # both commands match patterns
+
+    def test_testclause_extracted(self) -> None:
+        """TestClause ([[ ]]) body commands are extracted."""
+        result = evaluate_bash_command(
+            "[[ -d /tmp && ls ]]",
+            make_config(allowed=["^ls$"]),
+        )
+        assert result["status"] == "allow"
+        commands = [s["command"] for s in result["segments"]]
+        assert "ls" in commands  # 'ls' inside [[ ]] is extracted
