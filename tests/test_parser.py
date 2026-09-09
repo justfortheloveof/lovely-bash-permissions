@@ -611,8 +611,19 @@ class TestSglQuotedNodes:
         assert isinstance(part1, SglQuoted)
         assert part1.value == ""
 
-    def test_single_quoted_backslashes(self) -> None:
-        """Parse echo 'hello\nworld' and verify backslashes are literal."""
+    def test_single_quoted_backslashes_are_literal(self) -> None:
+        """Single quotes preserve a literal backslash: 'hello\\nworld' stays backslash+n."""
+        tree = parse_ast(r"echo 'hello\nworld'")
+        cmd = tree.stmts[0].cmd
+        assert isinstance(cmd, CallExpr)
+        arg1 = cmd.args[1]
+        assert isinstance(arg1, Word)
+        part1 = arg1.parts[0]
+        assert isinstance(part1, SglQuoted)
+        assert part1.value == r"hello\nworld"
+
+    def test_single_quoted_multiline(self) -> None:
+        """Single quotes may span a real newline (existing behavior documented)."""
         tree = parse_ast("echo 'hello\nworld'")
         cmd = tree.stmts[0].cmd
         assert isinstance(cmd, CallExpr)
