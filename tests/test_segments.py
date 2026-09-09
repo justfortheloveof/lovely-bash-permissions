@@ -301,6 +301,25 @@ class TestDeclClause:
         assert any(s["command"] == "rm" for s in parse_segments("export FOO=$(rm x)"))
 
 
+class TestConditionals:
+    """if/elif/else and while segment extraction."""
+
+    def test_if_then_extracted(self) -> None:
+        assert any(s["command"] == "rm" for s in parse_segments("if true; then rm x; fi"))
+
+    def test_if_cond_extracted(self) -> None:
+        segs = parse_segments("if test -f x; then echo A; fi")
+        assert [s["command"] for s in segs] == ["test", "echo"]
+
+    def test_elif_branch_extracted(self) -> None:
+        segs = parse_segments("if true; then echo A; elif true; then echo B; else echo C; fi")
+        assert [s["command"] for s in segs] == ["true", "echo", "true", "echo", "echo"]
+
+    def test_else_extracted(self) -> None:
+        segs = parse_segments("if true; then echo A; else rm x; fi")
+        assert [s["command"] for s in segs] == ["true", "echo", "rm"]
+
+
 class TestErrorHandling:
     """Tests for error handling."""
 

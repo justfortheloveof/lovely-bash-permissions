@@ -32,6 +32,7 @@ from .ast import (
     CoprocClause,
     CStyleLoop,
     DeclClause,
+    ElifBranch,
     File,
     ForClause,
     FuncDecl,
@@ -225,20 +226,28 @@ def _extract_segments(
         if hasattr(node, "stmt") and node.stmt:
             segments.extend(_extract_segments(node.stmt))
 
-    elif isinstance(node, (IfClause, WhileClause)):
-        # Handle conditional blocks: extract from each branch.
-        # cond_stmts / body are lists of Stmt (each carries its own redirs).
-        if hasattr(node, "cond_stmts"):
-            for stmt in node.cond_stmts:
-                segments.extend(_extract_segments(stmt))
-        if hasattr(node, "body") and node.body:
-            for stmt in node.body:
-                segments.extend(_extract_segments(stmt))
-        if hasattr(node, "elif_branch") and node.elif_branch:
-            segments.extend(_extract_segments(node.elif_branch))
-        if hasattr(node, "else_stmts") and node.else_stmts:
-            for stmt in node.else_stmts:
-                segments.extend(_extract_segments(stmt))
+    elif isinstance(node, IfClause):
+        # Conditions and every branch body are real executions.
+        for stmt in node.cond_stmts:
+            segments.extend(_extract_segments(stmt))
+        for stmt in node.then_stmts:
+            segments.extend(_extract_segments(stmt))
+        for elif_branch in node.elif_branches:
+            segments.extend(_extract_segments(elif_branch))
+        for stmt in node.else_stmts:
+            segments.extend(_extract_segments(stmt))
+
+    elif isinstance(node, ElifBranch):
+        for stmt in node.cond:
+            segments.extend(_extract_segments(stmt))
+        for stmt in node.body:
+            segments.extend(_extract_segments(stmt))
+
+    elif isinstance(node, WhileClause):
+        for stmt in node.cond_stmts:
+            segments.extend(_extract_segments(stmt))
+        for stmt in node.body:
+            segments.extend(_extract_segments(stmt))
 
     elif isinstance(node, Word):
         # Word nodes (arguments) may contain CmdSubst/ProcSubst in their parts.
