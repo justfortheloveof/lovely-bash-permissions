@@ -559,7 +559,9 @@ All 28 tests passed. Phase 10 patterns (no-space redirects, chained redirects, m
 **Deliverable:** All tests run, results documented, bugs reported
 
 ### Phase 11: Nested Constructs and Compound Expressions
-**Status:** not started
+**Status:** complete
+**Results:**
+All tests passed. Nested constructs including: nested command substitution, pipe chains, nested conditionals, compound logical expressions, brace expansion, and here-documents with substitution are all correctly parsed and evaluated. No bugs found.
 **Objective:** Test deeply nested and compound expressions
 **Test Families:**
 - Nested substitution: `echo $(echo $(echo $(echo hi))) > file`
@@ -674,8 +676,8 @@ lovely-bash-permissions parses bash commands into structured AST using shfmt-py,
 
 Total bugs documented: **22 / 50**
 
-Phases completed: 0, 1, 2, 3, 4, 5, 6, 7, 9, 10
-Phases remaining: 8, 11, 12, 13, 14
+Phases completed: 0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11
+Phases remaining: 8, 12, 13, 14
 
 ### Bugs Found So Far:
 1. **Phase 0:** `>` vs `>>` indistinguishable by tool (fixed)
