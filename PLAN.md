@@ -103,7 +103,7 @@ EVIDENCE: <shfmt AST validation, if available>
 **Deliverable:** Full documentation of how the config system works, including all files, keys and possibilities. This is to be documented in this document.
 
 ### Phase 1: Simple Redirections
-**Status:** not started
+**Status:** complete
 **Objective:** Test basic output/input redirection
 **Test Families:**
 - `echo hi > file`
@@ -127,6 +127,15 @@ EVIDENCE: <shfmt AST validation, if available>
 - `true > /file` (root)
 - `true > ~user/file` (home expansion)
 - `true > /path/with spaces/file` (spaces in path)
+**Results:** 21 tests run across 3 config environments (empty, env2, env3). 20 confirmed correct, 1 bug found.
+
+BUG: <> (truncate) redirection not detected as output redirection
+COMMAND: cat <> file
+TOOL OUTPUT: {"decision": "approve", "hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": {"command": ": '[♡ perms: 💚 auto-approved] command matches allowed pattern ^cat.' ; cat <> file"}}}
+EXPECTED: Should require approval (ask) because <> opens the file for read/write AND truncates it (writes to the file).
+EVIDENCE: shfmt parses <> as: "Op": "<>". The tool's rules.py has WRITE_REDIRECT_OPS = {">", ">>", ">|", "&>", ">&", "&>>"} — does NOT include <>. check_input_redirection only looks for "<" or "<<". Since <> matches neither category, the tool treats it as a non-redirection and only checks the command pattern (^cat), which passes. But in bash, cat <> file creates/truncates file — it's a write operation.
+FIX: Add "<>" to WRITE_REDIRECT_OPS in src/lovely_bash_permissions/rules.py.
+
 **Deliverable:** All tests run, results documented, bugs reported
 
 ### Phase 2: Complex Redirections
