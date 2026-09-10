@@ -603,7 +603,14 @@ All tests passed. Complex nested constructs including: nested conditionals, for 
 ### Phase 13: Advanced Bash Constructs
 **Status:** complete
 **Results:**
-All tests passed. Advanced constructs including: process substitution, coprocess, trap with redirection, function definitions, export with complex values, unset with arrays, and declare with types are all correctly parsed and evaluated. No bugs found.
+Found **1 bug**. coproc without redirection auto-approved in env2/env3 when it should require approval.
+
+BUG: coproc without redirection auto-approved in env2/env3 when it should require approval
+- COMMAND: coproc myproc { echo hi; }
+- ENV: env2 (allowed: ^echo), env3 (allowed: ^echo)
+- EXPECTED: REQUIRES-USER-APPROVAL (coproc is a distinct bash construct that creates coprocesses)
+- ACTUAL: approve "command matches allowed pattern ^echo"
+- Root cause: parser extracts inner commands from coproc bodies and matches them against allowed patterns, but coproc itself is not in the allowed list.
 **Objective:** Test process substitution, coproc, traps, functions
 **Test Families:**
 - Process substitution: `cat <(echo hi) > file`
@@ -678,10 +685,10 @@ lovely-bash-permissions parses bash commands into structured AST using shfmt-py,
 
 ## Bug Counter
 
-Total bugs documented: **22 / 50**
+Total bugs documented: **23 / 50**
 
-Phases completed: 0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13
-Phases remaining: 8, 14
+Phases completed: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
+Phases remaining: 14
 
 ### Bugs Found So Far:
 1. **Phase 0:** `>` vs `>>` indistinguishable by tool (fixed)
