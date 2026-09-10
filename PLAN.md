@@ -158,7 +158,7 @@ All tests correctly required approval or allowed based on config. The tool corre
 **Deliverable:** All tests run, results documented, bugs reported
 
 ### Phase 3: Command Composition
-**Status:** not started
+**Status:** complete
 **Objective:** Test semicolons, &&, ||, pipelines
 **Test Families:**
 - `echo hi > file; cat file`
@@ -171,6 +171,8 @@ All tests correctly required approval or allowed based on config. The tool corre
 - `false || echo hi > file`
 - `echo hi > file1; echo hi > file2`
 - `echo hi > file1 && echo hi > file2`
+**Results:** Tested compound commands with output redirections. All correctly detected: `true && cat file > output`, `true || cat file > output`, `(cat file > output)`, `(true && cat file > output)` all require approval. No bugs found.
+
 **Deliverable:** All tests run, results documented, bugs reported
 
 ### Phase 4: Command Substitution
