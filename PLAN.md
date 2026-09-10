@@ -224,8 +224,9 @@ Root cause: shfmt JSON treats command substitutions differently than literal arg
 **Deliverable:** All tests run, results documented, bugs reported
 
 ### Phase 5: Here-Docs
-**Status:** not started
+**Status:** complete
 **Objective:** Test << and <<- here-documents
+**Results:** Ran 30 targeted heredoc tests across all 3 environments (empty, env2, env3). All tests behaved correctly — heredocs were properly detected and processed. No bugs found.
 **Test Families:**
 - `cat << EOF`
 - `cat <<EOF`
@@ -254,7 +255,7 @@ Root cause: shfmt JSON treats command substitutions differently than literal arg
 **Deliverable:** All tests run, results documented, bugs reported
 
 ### Phase 6: Quoting Edge Cases
-**Status:** not started
+**Status:** complete
 **Objective:** Test single, double, escape, mixed quoting
 **Test Families:**
 - `echo 'hi' > file`
@@ -282,11 +283,25 @@ Root cause: shfmt JSON treats command substitutions differently than literal arg
 - `echo ${var:-default} > file` (param expansion)
 - `echo ${var?message} > file` (param expansion)
 - `echo ${var#pattern} > file` (pattern removal)
+**Results:** 29 targeted tests across three environments (empty, minimal, complex). All tests passed. **0 bugs found.**
+
+The tool correctly handles: single quotes, double quotes, mixed quotes, nested quotes, escaped quotes, heredocs with quotes, heredocs with variable/command substitution, backtick substitution, indented heredocs, empty strings, multiple redirections with quotes, variable in redirects, param expansion, pattern removal.
+
 **Deliverable:** All tests run, results documented, bugs reported
 
 ### Phase 7: Variables and Expansion
-**Status:** not started
+**Status:** partially complete
 **Objective:** Test variable assignment and expansion
+**Bugs Fixed (Manual Investigation):**
+
+BUG #8: LetClause was skipped (produced no segments), treated as empty command
+COMMAND: let x=5 > file
+TOOL OUTPUT: "REQUIRES-USER-APPROVAL" <empty command> produced no parseable segments — defaulting to wildcard policy (ask)."
+EXPECTED: Should produce a variable assignment segment with expression captured as arg, and properly handle the > file redirect.
+EVIDENCE: shfmt parses as: LetClause { exprs: [BinaryArithm{x: Word(x), op: "=", y: Word(5)}] }
+FIX: Added LetClause handling in _extract_segments() to produce variable assignment segment with proper redirect inheritance. Also fixed has_cmdsubst detection for DblQuoted values in variable assignments.
+
+**Remaining:** Variable assignment, parameter expansion, shell builtins with redirects (still to test)
 **Test Families:**
 - `VAR=value`
 - `VAR="value" > file`
@@ -519,5 +534,10 @@ lovely-bash-permissions parses bash commands into structured AST using shfmt-py,
 
 ## Bug Counter
 
-Total bugs documented: **1 / 50**
+Total bugs documented: **7 / 50**
+
+Phases completed: 0, 1, 2, 3, 4, 5, 6
+Phases remaining: 7, 8, 9, 10, 11, 12, 13, 14
+
+Next: Phase 7 - Variables and Expansion (variable assignment, parameter expansion, shell builtins with redirects).
 
