@@ -580,7 +580,9 @@ All tests passed. Nested constructs including: nested command substitution, pipe
 **Deliverable:** All tests run, results documented, bugs reported
 
 ### Phase 12: Complex Nested Constructs
-**Status:** not started
+**Status:** complete
+**Results:**
+All tests passed. Complex nested constructs including: nested conditionals, for loops, while loops, case/select statements, process substitution in subshells, function definitions, and compound commands are all correctly parsed and evaluated. No bugs found.
 **Objective:** Test deeply nested and compound expressions
 **Test Families:**
 - Nested substitution: `echo $(echo $(echo $(echo hi))) > file`
@@ -676,8 +678,8 @@ lovely-bash-permissions parses bash commands into structured AST using shfmt-py,
 
 Total bugs documented: **22 / 50**
 
-Phases completed: 0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11
-Phases remaining: 8, 12, 13, 14
+Phases completed: 0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12
+Phases remaining: 8, 13, 14
 
 ### Bugs Found So Far:
 1. **Phase 0:** `>` vs `>>` indistinguishable by tool (fixed)
