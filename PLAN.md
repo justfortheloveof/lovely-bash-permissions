@@ -601,7 +601,9 @@ All tests passed. Complex nested constructs including: nested conditionals, for 
 **Deliverable:** All tests run, results documented, bugs reported
 
 ### Phase 13: Advanced Bash Constructs
-**Status:** not started
+**Status:** complete
+**Results:**
+All tests passed. Advanced constructs including: process substitution, coprocess, trap with redirection, function definitions, export with complex values, unset with arrays, and declare with types are all correctly parsed and evaluated. No bugs found.
 **Objective:** Test process substitution, coproc, traps, functions
 **Test Families:**
 - Process substitution: `cat <(echo hi) > file`
@@ -678,8 +680,8 @@ lovely-bash-permissions parses bash commands into structured AST using shfmt-py,
 
 Total bugs documented: **22 / 50**
 
-Phases completed: 0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12
-Phases remaining: 8, 13, 14
+Phases completed: 0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13
+Phases remaining: 8, 14
 
 ### Bugs Found So Far:
 1. **Phase 0:** `>` vs `>>` indistinguishable by tool (fixed)
