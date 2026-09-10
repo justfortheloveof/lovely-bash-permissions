@@ -610,12 +610,12 @@ class TestCliTestRemainingNodes(_NodeCoverageBase):
         label = self._label(result)
         assert "no parseable segments" in label
 
-    def test_let_skipped(self, tmp_project: Path, tmp_path: Path) -> None:
-        """/--test: LetClause — let produces no segments (arithmetic-only)."""
+    def test_let_treated_as_variable_assignment(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/--test: LetClause — let produces variable assignment segment (arithmetic var assign)."""
         global_dir = self._setup(tmp_project, tmp_path)
         result = self._test("let x=1", tmp_project, global_dir)
         label = self._label(result)
-        assert "no parseable segments" in label
+        assert "variable assignment" in label
 
 
 class TestCliTestMultilineCommands(_NodeCoverageBase):

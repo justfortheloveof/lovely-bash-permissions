@@ -169,9 +169,16 @@ def _extract_segments(
                             if isinstance(part, (CmdSubst, ProcSubst)):
                                 has_cmdsubst = True
                                 break
+                            # Recurse into DblQuoted parts to find CmdSubst/ProcSubst inside
+                            if isinstance(part, DblQuoted):
+                                for inner in part.parts:
+                                    if isinstance(inner, (CmdSubst, ProcSubst)):
+                                        has_cmdsubst = True
+                                        break
                     if has_cmdsubst:
                         break
                 if not has_cmdsubst:
+                    var_assign_args = []
 
                     def _part_value(p: object) -> str:
                         if isinstance(p, Lit):
@@ -181,30 +188,29 @@ def _extract_segments(
                             return v if isinstance(v, str) else ""
                         return ""
 
-                var_assign_args = []
-                for a in node.assigns:
-                    name = a.name.value if a.name is not None and a.name.value else ""
-                    if a.naked:
-                        if name:
-                            var_assign_args.append(name)
+                    for a in node.assigns:
+                        name = a.name.value if a.name is not None and a.name.value else ""
+                        if a.naked:
+                            if name:
+                                var_assign_args.append(name)
+                            elif a.value is not None:
+                                var_assign_args.append(_word_raw(a.value))
+                        elif name:
+                            if a.append:
+                                var_assign_args.append(
+                                    f"{name}+={_word_raw(a.value)}" if a.value is not None else f"{name}+="
+                                )
+                            elif a.value is not None:
+                                var_assign_args.append(f"{name}={_word_raw(a.value)}")
+                            elif a.array is not None:
+                                var_assign_args.append(f"{name}=(...)")
+                            else:
+                                var_assign_args.append(name)
                         elif a.value is not None:
                             var_assign_args.append(_word_raw(a.value))
-                    elif name:
-                        if a.append:
-                            var_assign_args.append(
-                                f"{name}+={_word_raw(a.value)}" if a.value is not None else f"{name}+="
-                            )
-                        elif a.value is not None:
-                            var_assign_args.append(f"{name}={_word_raw(a.value)}")
-                        elif a.array is not None:
-                            var_assign_args.append(f"{name}=(...)")
-                        else:
-                            var_assign_args.append(name)
-                    elif a.value is not None:
-                        var_assign_args.append(_word_raw(a.value))
-                if var_assign_args:
-                    # Add variable assignment segment before the command segment
-                    segments.append({"command": "", "arguments": var_assign_args, "redirections": []})
+                    if var_assign_args:
+                        # Add variable assignment segment before the command segment
+                        segments.append({"command": "", "arguments": var_assign_args, "redirections": []})
 
             def _part_value(p: object) -> str:
                 """Extract string value from a Word part node."""
@@ -390,9 +396,61 @@ def _extract_segments(
         if hasattr(node, "stmt") and node.stmt:
             segments.extend(_extract_segments(node.stmt))
 
-    elif isinstance(node, (ArithmCmd, LetClause)):
-        # (( expr )) and let — arithmetic-only, skip (no real command)
+    elif isinstance(node, ArithmCmd):
+        # (( expr )) — arithmetic-only, skip (no real command)
         pass
+    elif isinstance(node, LetClause):
+        # let — variable assignment with arithmetic
+        # Extract as variable assignment segment, capturing expressions as args.
+        # Recurse into exprs to find any embedded CmdSubst/ProcSubst.
+        args = []
+        for expr in node.exprs:
+            # Render the expression as a string
+
+            def _arithm_to_str(node: object) -> str:
+                if isinstance(node, ArithmExp):
+                    return "$(...)"
+                elif isinstance(node, BinaryArithm):
+                    return f"({_arithm_to_str(node.left)}){node.op}({_arithm_to_str(node.right)})"
+                elif isinstance(node, UnaryArithm):
+                    return f"{node.op}{_arithm_to_str(node.x)}"
+                elif isinstance(node, ParenArithm):
+                    return f"({_arithm_to_str(node.body)})"
+                elif isinstance(node, FlagsArithm):
+                    return f"{node.flags}({_arithm_to_str(node.x)})"
+                elif isinstance(node, Word):
+                    return _word_value(node)
+                elif isinstance(node, Lit):
+                    return node.value
+                elif isinstance(node, ParamExp):
+                    return "${...}"
+                elif isinstance(node, BraceExp):
+                    return "{...}"
+                else:
+                    return "?"
+
+            args.append(_arithm_to_str(expr))
+            # Recurse into expr to find embedded CmdSubst/ProcSubst
+            segments.extend(_extract_segments(expr))
+        if args:
+            # Inherit redirections from parent Stmt (same as CallExpr)
+            def _part_value(p: object) -> str:
+                if isinstance(p, Lit):
+                    return p.value
+                elif hasattr(p, "value"):
+                    v = getattr(p, "value", None)
+                    return v if isinstance(v, str) else ""
+                return ""
+
+            redir_dicts = [
+                {
+                    "Op": r.op,
+                    "N": {"Value": str(r.n)} if r.n is not None else {},
+                    "Word": {"Parts": [{"Value": _part_value(p)} for p in (r.word.parts if r.word else [])]},
+                }
+                for r in (redirs or [])
+            ]
+            segments.append({"command": "", "arguments": args, "redirections": redir_dicts})
 
     elif isinstance(node, CoprocClause):
         # coprocess — extract command if present
