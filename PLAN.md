@@ -87,7 +87,7 @@ EVIDENCE: <shfmt AST validation, if available>
 ## Exploration Space (Phases)
 
 ### Phase 0: Codebase Study & Config Inspection
-**Status:** not started
+**Status:** complete
 **Objective:** Understand the architecture AND inspect existing user configs
 **Activities:**
 - Read `src/lovely_bash_permissions/segments.py` (AST extraction)
@@ -446,6 +446,39 @@ EVIDENCE: <shfmt AST validation, if available>
 ## Results
 
 ### Phase 0
+
+**Architecture Overview:**
+lovely-bash-permissions parses bash commands into structured AST using shfmt-py, extracts command segments, and evaluates them against configurable rules.
+
+**Core Components:**
+1. **Parser** (parser.py, converter.py): Uses shfmt-py's --to-json to parse bash, converts to typed Python dataclass AST nodes.
+2. **AST Types** (ast.py): 45 dataclass types: CallExpr, Word, Lit, Redir, BinaryCmd (pipes/&&/||), Block, Subshell, IfClause, ForClause, WhileClause, CmdSubst, ProcSubst, etc.
+3. **Segment Extraction** (segments.py): parse_segments() splits complex commands into individual segments. Each segment: command (name), arguments (strings), redirections (dicts).
+4. **Rules Engine** (rules.py): check_allowed_patterns(), check_blocked_patterns(), check_output_redirection(), check_input_redirection(), check_background_execution()
+5. **Evaluator** (evaluate.py): evaluate_bash_command() - parses, extracts segments, evaluates each, aggregates (all allowed → allow, any denied → deny, any asks → ask)
+6. **Config System** (config/): loader.py (3-location deep merge), manager.py (PermissionsManager), schema.py (Pydantic models), jsonc.py (json5), devin.py (Exec patterns to regex)
+7. **Hook Interface** (hook.py): process_hook_event(), generate_hook_response()
+8. **CLI** (cli.py, devin_cli.py): --test, --show-config, --setup
+
+**Config System Details:**
+- **Lovely Permissions Config** (lovely-permissions.jsonc): 3 load locations (global → project → local), deep merged (objects merge, arrays concatenate, scalars override). Key: bash with ToolConfig schema (* wildcard, allowed_cmds_regex, blocked_paths_regex, output_redirection, input_redirection, background_execution, subshell, variable_assignment)
+- **Devin Config** (config.json): 3 locations, permissions.allow Exec(prefix) patterns converted to anchored regex (Exec(git log) → ^git log(\s|$))
+- **Effective Config** (effective_bash.py): Combines lovely config bash section with Devin exec regexes, always adds hook label regex
+
+**Current Environment Config (Phase 0):**
+- **Global lovely config** (~/.config/devin/lovely-permissions.jsonc): 47 allowed_cmds_regex patterns, *: "ask", subshell: "allow", output_redirection: object (*: ask, stderr_to_dev_null: allow, stderr_to_stdout: allow), blocked_paths_regex: ["\/etc", "\.env$", "\.envrc$"]
+- **Global devin config** (~/.config/devin/config.json): permissions.allow: ["Exec(: '[♡ perms:)"]
+- **Project/local configs**: Don't exist (.devin/ is empty)
+
+**Effective Config for Current Environment:**
+- allowed_cmds_regex: 47 patterns from global lovely + 1 from devin (hook label)
+- blocked_paths_regex: ["\/etc", "\.env$", "\.envrc$"]
+- Wildcard: "ask"
+- Subshell: "allow"
+- Output redirection: object (ask default, allow stderr_to_dev_null, allow stderr_to_stdout)
+- Input redirection: "ask"
+- Background execution: "ask"
+- Variable assignment: "ask"
 
 
 ## Bug Counter
