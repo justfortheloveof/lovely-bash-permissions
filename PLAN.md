@@ -139,7 +139,7 @@ FIX: Add "<>" to WRITE_REDIRECT_OPS in src/lovely_bash_permissions/rules.py.
 **Deliverable:** All tests run, results documented, bugs reported
 
 ### Phase 2: Complex Redirections
-**Status:** not started
+**Status:** complete
 **Objective:** Test multiple, fd-specific, and chained redirections
 **Test Families:**
 - `echo hi > file1 > file2`
@@ -151,6 +151,10 @@ FIX: Add "<>" to WRITE_REDIRECT_OPS in src/lovely_bash_permissions/rules.py.
 - `cmd < file1 > file2 < file3`
 - `ls > file 2> file2 < file3`
 - `cat file1 > file2 < file3`
+**Results:** 9 tests run across 3 config environments (empty, env2, env3). All passed. 0 bugs found.
+
+All tests correctly required approval or allowed based on config. The tool correctly handles chained redirections, stderr duplication (2>&1), mixed input/output redirections, and respects config policies. No parsing/classification bugs found.
+
 **Deliverable:** All tests run, results documented, bugs reported
 
 ### Phase 3: Command Composition
@@ -492,5 +496,5 @@ lovely-bash-permissions parses bash commands into structured AST using shfmt-py,
 
 ## Bug Counter
 
-Total bugs documented: **0 / 50**
+Total bugs documented: **1 / 50**
 
