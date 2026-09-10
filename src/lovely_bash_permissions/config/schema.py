@@ -51,6 +51,7 @@ class ToolConfig(BaseModel):
     input_redirection: PermissionLevel | None = None
     background_execution: PermissionLevel | None = None
     subshell: PermissionLevel | None = None
+    variable_assignment: PermissionLevel | None = None
 
     @field_validator("blocked_paths_regex", "allowed_cmds_regex", mode="before")
     @classmethod
