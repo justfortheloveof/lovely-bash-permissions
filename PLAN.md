@@ -52,12 +52,12 @@ echo '{}' > /tmp/bughunt-{phase}/empty/global/lovely-permissions.jsonc
 echo '{}' > /tmp/bughunt-{phase}/empty/project/.devin/lovely-permissions.jsonc
 
 # Minimal: allow common commands
-echo '{"allowed_cmds_regex":["^ls","^true","^echo","^cat","^grep","^find"]}' > /tmp/bughunt-{phase}/env2/global/lovely-permissions.jsonc
+echo '{"bash":{"allowed_cmds_regex":["^ls","^true","^echo","^cat","^grep","^find"]}}' > /tmp/bughunt-{phase}/env2/global/lovely-permissions.jsonc
 echo '{}' > /tmp/bughunt-{phase}/env2/project/.devin/lovely-permissions.jsonc
 
 # Complex: allowed + blocked
-echo '{"allowed_cmds_regex":["^ls .*","^true","^echo"],"blocked_paths_regex":["/etc","\\/home"]}' > /tmp/bughunt-{phase}/env3/global/lovely-permissions.jsonc
-echo '{"allowed_cmds_regex":["^cat\\s+.*","^grep\\s+.+","^find\\s+"]}' > /tmp/bughunt-{phase}/env3/project/.devin/lovely-permissions.jsonc
+echo '{"bash":{"allowed_cmds_regex":["^ls .*","^true","^echo"],"blocked_paths_regex":["/etc","\\/home"]}}' > /tmp/bughunt-{phase}/env3/global/lovely-permissions.jsonc
+echo '{"bash":{"allowed_cmds_regex":["^cat\\s+.*","^grep\\s+.+","^find\\s+"]}}' > /tmp/bughunt-{phase}/env3/project/.devin/lovely-permissions.jsonc
 ```
 
 ### Run Command Templates
