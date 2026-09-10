@@ -176,7 +176,7 @@ All tests correctly required approval or allowed based on config. The tool corre
 **Deliverable:** All tests run, results documented, bugs reported
 
 ### Phase 4: Command Substitution
-**Status:** not started
+**Status:** complete
 **Objective:** Test $(...) and backtick substitution
 **Test Families:**
 - `echo $(cat file)`
@@ -200,6 +200,27 @@ All tests correctly required approval or allowed based on config. The tool corre
 - `var=$(echo test)` (no redirection in substitution)
 - `echo $(ls /) > file` (ls in substitution, redirect outside)
 - `$(echo hi > file)` (standalone substitution)
+**Results:** 20+ targeted tests across three environments (empty, env2 with basic allow rules, env3 with complex regex patterns). Found **3 confirmed bugs** in command substitution handling:
+
+BUG #1: Substitution args not counted (env3)
+COMMAND: cat $(echo files.txt)
+TOOL OUTPUT: "REQUIRES-USER-APPROVAL"
+EXPECTED: Should be approved since cat with args is allowed in env3 (pattern ^cat\s+.*). But substitution args are not counted when matching the pattern.
+
+BUG #2: Standalone substitution with redirection (env2)
+COMMAND: $(echo hello) > output.txt
+TOOL OUTPUT: "REQUIRES-USER-APPROVAL"
+EXPECTED: Should be approved since echo is allowed in env2. But the outer substitution wraps an allowed command but is treated as "$(...)" command.
+
+BUG #3: Variable assignment with substitution (env2)
+COMMAND: var=$(echo hello)
+TOOL OUTPUT: "REQUIRES-USER-APPROVAL"
+EXPECTED: Should be approved since echo is allowed in env2. But substitution in variable assignments isn't recognized as a separate command.
+
+Correct behavior verified: cat <(ls) → approve ✓, ls | cat $(ls) → approve ✓, cat $(ls) → approve ✓.
+
+Root cause: shfmt JSON treats command substitutions differently than literal arguments, and the segments extraction in segments.py doesn't recognize substitution-wrapped allowed commands.
+
 **Deliverable:** All tests run, results documented, bugs reported
 
 ### Phase 5: Here-Docs
