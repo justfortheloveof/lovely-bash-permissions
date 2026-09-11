@@ -489,7 +489,7 @@ def _check_segments_output_redirs(segments: list[dict[str, Any]], rules: dict[st
                 redirections.append(r)
 
     if not redirections:
-        return {"status": "allow", "reason": "no output redirection"}
+        return {"status": "allow", "matched": False, "reason": "no output redirection"}
 
     targets: list[str] = []
     kinds: list[str] = []
@@ -549,7 +549,7 @@ def _check_segments_input_redirs(segments: list[dict[str, Any]], rules: dict[str
                 input_redirs.append({"op": r["Op"], "target": target})
 
     if not input_redirs:
-        return {"status": "allow", "reason": "no input redirection"}
+        return {"status": "allow", "matched": False, "reason": "no input redirection"}
 
     targets = [r["target"] for r in input_redirs]
     blocked_patterns = rules.get("blocked_paths_regex", [])
@@ -621,6 +621,7 @@ def check_background_execution(tree: dict[str, Any], rules: dict[str, Any]) -> d
     if not background_commands:
         return {
             "status": "allow",
+            "matched": False,
             "reason": "no background execution",
         }
 

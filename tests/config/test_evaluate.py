@@ -233,6 +233,57 @@ class TestAggregation:
         assert "input redirection requires approval" in result["reason"]
         assert "background execution requires approval: cat" in result["reason"]
 
+    def test_allow_shows_pattern_and_redirection_reasons(self) -> None:
+        """Auto-approve includes both pattern-match and redirection-allowed reasons."""
+        result = evaluate_bash_command(
+            "ls > /tmp/out",
+            {"*": "allow", "allowed_cmds_regex": ["^ls"], "output_redirection": "allow"},
+        )
+        assert result["status"] == "allow"
+        assert "command matches allowed pattern" in result["reason"]
+        assert "output redirection allowed to /tmp/out" in result["reason"]
+
+    def test_allow_shows_pattern_and_background_reasons(self) -> None:
+        """Auto-approve includes both pattern-match and background-allowed reasons."""
+        result = evaluate_bash_command(
+            "ls &",
+            {"*": "allow", "allowed_cmds_regex": ["^ls"], "background_execution": "allow"},
+        )
+        assert result["status"] == "allow"
+        assert "command matches allowed pattern" in result["reason"]
+        assert "background execution allowed: ls" in result["reason"]
+
+    def test_allow_omits_sentinel_when_no_redirection(self) -> None:
+        """No 'no output redirection' clutter when there is nothing to check."""
+        result = evaluate_bash_command(
+            "ls",
+            {"*": "allow", "allowed_cmds_regex": ["^ls"], "output_redirection": "allow"},
+        )
+        assert result["status"] == "allow"
+        assert "command matches allowed pattern" in result["reason"]
+        assert "no output redirection" not in result["reason"]
+
+    def test_allow_shows_all_four_reasons(self) -> None:
+        """All applicable allow reasons appear alongside the pattern-match reason."""
+        result = evaluate_bash_command(
+            "cat < /tmp/in > /tmp/out &",
+            {
+                "*": "allow",
+                "allowed_cmds_regex": ["^cat"],
+                "output_redirection": "allow",
+                "input_redirection": "allow",
+                "background_execution": "allow",
+            },
+        )
+        assert result["status"] == "allow"
+        for fragment in (
+            "command matches allowed pattern",
+            "output redirection allowed to /tmp/out",
+            "input redirection allowed from /tmp/in",
+            "background execution allowed: cat",
+        ):
+            assert fragment in result["reason"]
+
 
 class TestWildcardPolicy:
     """Tests for wildcard ('*') policy."""

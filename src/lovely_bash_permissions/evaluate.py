@@ -236,9 +236,9 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     variable_assignment_policy = rules.get("variable_assignment", "ask")
 
     # Default values for redirection results (initialized before loop so they're always defined).
-    output_result: dict[str, Any] = {"status": "allow", "reason": "no output redirection"}
-    input_result: dict[str, Any] = {"status": "allow", "reason": "no input redirection"}
-    bg_result: dict[str, Any] = {"status": "allow", "reason": "no background execution"}
+    output_result: dict[str, Any] = {"status": "allow", "matched": False, "reason": "no output redirection"}
+    input_result: dict[str, Any] = {"status": "allow", "matched": False, "reason": "no input redirection"}
+    bg_result: dict[str, Any] = {"status": "allow", "matched": False, "reason": "no background execution"}
 
     # Collect all matched patterns across ALL segments (joined into one reason, like TS)
 
@@ -336,14 +336,13 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     bg_result = check_background_execution(raw_tree, rules)
 
     # Deny overrides ask in aggregation (deny anywhere → deny overall)
-    _redir_results = (output_result, input_result, bg_result)
-    _redir_statuses = [r["status"] for r in _redir_results]
-    if "deny" in _redir_statuses:
+    _redir_results = [r for r in (output_result, input_result, bg_result) if r.get("matched", True)]
+    if any(r["status"] == "deny" for r in _redir_results):
         overall_status = "deny"
-    elif "ask" in _redir_statuses and overall_status == "allow":
+    elif any(r["status"] == "ask" for r in _redir_results) and overall_status == "allow":
         overall_status = "ask"
     for _r in _redir_results:
-        if _r["status"] == overall_status and _r["status"] != "allow":
+        if _r["status"] == overall_status:
             reasons.append(_r["reason"])
 
     # Commands not matching allowed patterns require approval
@@ -399,9 +398,9 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                 _subshell_allowed = True
     # If no specific rules matched and nothing else triggered ask/deny, apply wildcard policy
     # But don't override variable_assignment decisions (variable_assignment is more specific)
-    _redir_matched = output_result["reason"] != "no output redirection"
-    _input_matched = input_result["reason"] != "no input redirection"
-    _bg_matched = bg_result["reason"] != "no background execution"
+    _redir_matched = output_result.get("matched", True)
+    _input_matched = input_result.get("matched", True)
+    _bg_matched = bg_result.get("matched", True)
     _va_applied = variable_assignment_policy != "ask"
     if (
         not allowed_patterns

@@ -414,6 +414,50 @@ class TestCliTestMultipleApprovalReasons(_NodeCoverageBase):
         assert "background execution requires approval: cat" in label
 
 
+class TestCliTestAutoApprovalReasons(_NodeCoverageBase):
+    """An auto-approved command reports every reason it was approved."""
+
+    def test_output_redirection_allowed_reported(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/-t: 'ls -l 2>&1' shows pattern match plus the redirection-allowed reason."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        self._write_config(
+            tmp_project,
+            {
+                "bash": {
+                    "allowed_cmds_regex": ["^ls(\\s+.*)?$"],
+                    "blocked_paths_regex": [],
+                    "output_redirection": "allow",
+                    "input_redirection": "allow",
+                    "background_execution": "allow",
+                }
+            },
+        )
+        result = self._test("ls -l 2>&1", tmp_project, global_dir, flag="-t")
+        label = self._label(result)
+        assert "command matches allowed pattern" in label
+        assert "output redirection allowed to 1" in label
+
+    def test_background_allowed_reported(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/-t: 'ls &' shows pattern match plus the background-allowed reason."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        self._write_config(
+            tmp_project,
+            {
+                "bash": {
+                    "allowed_cmds_regex": ["^ls(\\s+.*)?$"],
+                    "blocked_paths_regex": [],
+                    "output_redirection": "allow",
+                    "input_redirection": "allow",
+                    "background_execution": "allow",
+                }
+            },
+        )
+        result = self._test("ls &", tmp_project, global_dir, flag="-t")
+        label = self._label(result)
+        assert "command matches allowed pattern" in label
+        assert "background execution allowed: ls" in label
+
+
 class TestCliTestNodeCoverage(_NodeCoverageBase):
     """Exercise AST node handlers (DeclClause, conditionals, tests) via --test/-t."""
 
