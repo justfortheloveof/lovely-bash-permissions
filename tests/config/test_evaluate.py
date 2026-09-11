@@ -278,7 +278,7 @@ class TestSubshellHandling:
             "cat $(ls)",
             make_config(),
         )
-        assert result["reason"] == "subshell or command substitution requires approval."
+        assert result["reason"] == "subshell or command substitution requires approval"
 
     def test_subshell_blocked_path(self) -> None:
         """Dangerous commands inside subshells are blocked."""

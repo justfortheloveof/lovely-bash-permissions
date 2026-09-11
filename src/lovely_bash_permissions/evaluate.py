@@ -208,7 +208,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         _wildcard = config.get("*", "ask")
         return {
             "status": _wildcard,
-            "reason": f"ParseError: {e}, defaulting approval decision to bash permission configuration ({_wildcard}).",
+            "reason": f"ParseError: {e}, defaulting approval decision to bash permission configuration ({_wildcard})",
         }
 
     has_subshell = _has_cmd_subst(raw_tree)
@@ -223,7 +223,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
             _wildcard = "allow"
         return {
             "status": _wildcard,
-            "reason": f"<empty command> produced no parseable segments — defaulting to wildcard policy ({_wildcard}).",
+            "reason": f"<empty command> produced no parseable segments — defaulting to wildcard policy ({_wildcard})",
         }
 
     # Determine the wildcard policy (default action for unmatched commands)
@@ -316,7 +316,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                 overall_status = "deny"
                 reasons.append(
                     f'Blocked by bash permissions: Argument "{value}" matches blocked path pattern '
-                    f"{pattern}. The tool has not been run."
+                    f"{pattern}. The tool has not been run"
                 )
             else:
                 segment_result["blocked"] = False
@@ -381,7 +381,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                     overall_status = "deny"
                     reasons.append(
                         f'Blocked by bash permissions: Argument "{value}" matches blocked path pattern '
-                        f"{pattern}. The tool has not been run."
+                        f"{pattern}. The tool has not been run"
                     )
 
         # Also validate nested commands against allowed patterns.
@@ -428,15 +428,13 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     if overall_status == "allow" and all_matched_patterns:
         # Build approval reason from ALL matched patterns (top-level + nested)
         noun = "pattern" if len(all_matched_patterns) == 1 else "patterns"
-        approval_reason = f"command matches allowed {noun} {', '.join(all_matched_patterns)}"
+        approval_reason = f"command matches allowed {noun}: {', '.join(all_matched_patterns)}"
         reasons.append(approval_reason)
     if reasons:
-        reason_str = "; ".join(r.rstrip(".!? ") for r in reasons)
-        if len(reasons) == 1:
-            reason_str += "."
+        reason_str = "; ".join(reasons)
     elif all_matched_patterns:
         noun = "pattern" if len(all_matched_patterns) == 1 else "patterns"
-        reason_str = f"command matches allowed {noun} {', '.join(all_matched_patterns)}"
+        reason_str = f"command matches allowed {noun}: {', '.join(all_matched_patterns)}"
     else:
         _wp = config.get("*", "ask")
         reason_str = f"allowed by wildcard policy ({_wp})"
