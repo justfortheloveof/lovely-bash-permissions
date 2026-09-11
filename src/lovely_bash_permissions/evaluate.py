@@ -29,6 +29,11 @@ class _Found(Exception):
     """Raised to short-circuit traversal when a match is found."""
 
 
+#: Regex metacharacters (unescaped) or lone backslashes that mark a pattern
+#: body as more than a plain escaped literal — i.e. not a bare-name anchor.
+_BARE_NAME_META = re.compile(r"(?<!\\)[()\[\]{}.*+?|^$]|\\(?!\\)")
+
+
 def _extract_subshell_contents(tree: dict[str, Any]) -> list[str]:
     """Extract literal text values from inside CmdSubst/ProcSubst nodes.
 
@@ -111,10 +116,47 @@ def _command_string(name: str, args: list[str]) -> str:
     return name
 
 
+def _opaque_match_unreliable(pattern: str) -> bool:
+    """True when an opaque ``$(...)`` argument can hide the token a pattern
+    constrains, making a literal match on the placeholder unsafe to approve.
+
+    Two pattern shapes are affected: line-spanning negative lookaheads
+    (e.g. ``^find(?!.*\\s-(exec|delete|ok)...)``, whose ``(?!)`` scans the
+    whole command line and cannot see tokens produced at runtime by a
+    substitution) and bare-name anchors such as ``^true$`` (which accept no
+    arguments, so a command whose argument list is hidden entirely behind
+    ``$(...)`` must not be approved against them).
+    """
+    # Line-spanning negative lookahead: the guard scans the whole command
+    # line, so a substitute token never appears in the matched string.
+    if "(?!" in pattern:
+        return True
+    # Bare-name anchor produced by _item_to_anchored_pattern (^name$): accept
+    # no arguments, so any argument hidden behind $(...) invalidates the match.
+    # The body must be plain escaped text with no regex metacharacters.
+    body = pattern[1:-1] if pattern.startswith("^") and pattern.endswith("$") else None
+    if body is None:
+        return False
+    return not _BARE_NAME_META.search(body) if body else False
+
+
 def _match_allowed_patterns(name: str, args: list[str], allowed_patterns: list[str]) -> list[str]:
-    """Return the allowed patterns matched by this command (name + args)."""
+    """Return the allowed patterns matched by this command (name + args).
+
+    Matches are rejected when opaque ``$(...)`` arguments could change the
+    pattern's verdict — see :func:`_opaque_match_unreliable`.  Such commands
+    are treated as not allowed, requesting approval instead of auto-approving.
+    """
     full = _command_string(name, args)
-    return [p for p in allowed_patterns if re.match(p, full)]
+    has_opaque = any("$(...)" in a for a in args)
+    matched: list[str] = []
+    for pattern in allowed_patterns:
+        if not re.match(pattern, full):
+            continue
+        if has_opaque and _opaque_match_unreliable(pattern):
+            continue
+        matched.append(pattern)
+    return matched
 
 
 def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any]:

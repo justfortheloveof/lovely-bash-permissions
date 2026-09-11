@@ -426,6 +426,45 @@ class TestSubshellHandling:
         assert result["status"] == "deny"
 
 
+class TestOpaqueSubstitutionPatternGuard:
+    """Opaque `$(...)` args must not slip past restrictive allow patterns.
+
+    Regression: `find . $(echo -delete)` was auto-approved because the outer
+    command was matched as `find . $(...)` (the negative lookahead never saw
+    `-delete`), while the inner `echo -delete` was individually approved —
+    even though the command line that actually runs is `find . -delete`.
+    """
+
+    def test_lookahead_pattern_bypass_not_allowed(self) -> None:
+        cfg = make_config(allowed=[r"^find(?!.*\s-(exec|delete|ok)(\s|;|$)).*$"], subshell="allow")
+        assert evaluate_bash_command("find . -delete", cfg)["status"] == "ask"
+        assert evaluate_bash_command("find . $(echo -delete)", cfg)["status"] == "ask"
+        assert evaluate_bash_command(r"find . $(echo -exec rm {} \;)", cfg)["status"] == "ask"
+
+    def test_git_output_guard_bypass_not_allowed(self) -> None:
+        cfg = make_config(
+            allowed=[r"^git\s+(?!.*--output\b)(-C\s+[\w./\\\\-]+\s+)?(log|diff|show)(\s+.*)?$"], subshell="allow"
+        )
+        assert evaluate_bash_command("git diff --output=/tmp/x", cfg)["status"] == "ask"
+        assert evaluate_bash_command("git diff $(echo --output=/tmp/x)", cfg)["status"] == "ask"
+        # Legit git invocations without a substitution still auto-approve.
+        assert evaluate_bash_command("git diff --cached", cfg)["status"] == "allow"
+        assert evaluate_bash_command("git status", cfg)["status"] == "ask"
+
+    def test_bare_name_anchor_not_bypassed(self) -> None:
+        cfg = make_config(allowed=["^true$"], subshell="allow")
+        assert evaluate_bash_command("true", cfg)["status"] == "allow"
+        assert evaluate_bash_command("true --flag", cfg)["status"] == "ask"
+        assert evaluate_bash_command("true $(echo --flag)", cfg)["status"] == "ask"
+
+    def test_free_tail_pattern_still_allows_substitution(self) -> None:
+        """Patterns that accept arbitrary arguments are unaffected."""
+        cfg = make_config(allowed=[r"^echo(\s+.*)?$", r"^ls(\s+.*)?$"], subshell="allow")
+        assert evaluate_bash_command("echo $(echo hi)", cfg)["status"] == "allow"
+        assert evaluate_bash_command("echo $(echo $(echo hi))", cfg)["status"] == "allow"
+        assert evaluate_bash_command("ls $(echo -la)", cfg)["status"] == "allow"
+
+
 class TestEdgeCases:
     """Tests for edge cases."""
 
