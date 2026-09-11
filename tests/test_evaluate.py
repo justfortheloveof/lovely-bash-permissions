@@ -1108,3 +1108,467 @@ class TestBackgroundExecutionCompound:
             {"*": "allow", "allowed_cmds_regex": ["^echo"], "background_execution": "deny"},
         )
         assert result["status"] == "deny"
+
+
+class TestTrickyRedirectionPatterns:
+    """Tests for uncommon or ambiguous bash syntax with redirections.
+
+    These patterns often trip up parsers with no spaces, mixed direction
+    redirections, fd manipulation, and background job combinations.
+    """
+
+    def test_phase10_no_space_redirect_empty(self) -> None:
+        """true>file (no space) should require approval in empty config."""
+        result = evaluate_bash_command("true>file", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_no_space_redirect_env2(self) -> None:
+        """true>file (no space) should require approval in env2 (redirection requires approval)."""
+        result = evaluate_bash_command("true>file", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_partial_space_redirect_env2(self) -> None:
+        """true> file (partial space) should require approval in env2."""
+        result = evaluate_bash_command("true> file", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_no_space_after_redirect_env2(self) -> None:
+        """true >file (no space after) should require approval in env2."""
+        result = evaluate_bash_command("true >file", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_chained_redirect_empty(self) -> None:
+        """true > file > file2 should require approval in empty config."""
+        result = evaluate_bash_command("true > file > file2", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_chained_redirect_env2(self) -> None:
+        """true > file > file2 should require approval in env2."""
+        result = evaluate_bash_command("true > file > file2", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_mixed_direction_redirect_empty(self) -> None:
+        """true > file < file2 should require approval in empty config."""
+        result = evaluate_bash_command("true > file < file2", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_mixed_direction_redirect_env2(self) -> None:
+        """true > file < file2 should require approval in env2."""
+        result = evaluate_bash_command("true > file < file2", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_stderr_to_stdout_empty(self) -> None:
+        """true > file 2>&1 should require approval in empty config."""
+        result = evaluate_bash_command("true > file 2>&1", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_stderr_to_stdout_env2(self) -> None:
+        """true > file 2>&1 should require approval in env2."""
+        result = evaluate_bash_command("true > file 2>&1", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_background_empty(self) -> None:
+        """true > file & should require approval in empty config."""
+        result = evaluate_bash_command("true > file &", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_background_env2(self) -> None:
+        """true > file & should require approval in env2."""
+        result = evaluate_bash_command("true > file &", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_devnull_empty(self) -> None:
+        """cmd > /dev/null should require approval in empty config."""
+        result = evaluate_bash_command("cmd > /dev/null", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_devnull_env2(self) -> None:
+        """cmd > /dev/null should require approval in env2 (cmd not allowed)."""
+        result = evaluate_bash_command("cmd > /dev/null", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_devnull_env3(self) -> None:
+        """cmd > /dev/null should require approval in env3 (cmd not allowed)."""
+        result = evaluate_bash_command("cmd > /dev/null", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_devnull_input_empty(self) -> None:
+        """cmd < /dev/null should require approval in empty config."""
+        result = evaluate_bash_command("cmd < /dev/null", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_devnull_chain_empty(self) -> None:
+        """true > /dev/null 2>&1 > /dev/null should require approval in empty config."""
+        result = evaluate_bash_command("true > /dev/null 2>&1 > /dev/null", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_devnull_chain_env2(self) -> None:
+        """true > /dev/null 2>&1 > /dev/null should require approval in env2."""
+        result = evaluate_bash_command("true > /dev/null 2>&1 > /dev/null", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_save_fd_empty(self) -> None:
+        """true 3>&1 > /dev/null should require approval in empty config."""
+        result = evaluate_bash_command("true 3>&1 > /dev/null", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_save_fd_env2(self) -> None:
+        """true 3>&1 > /dev/null should require approval in env2."""
+        result = evaluate_bash_command("true 3>&1 > /dev/null", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_save_fd_after_empty(self) -> None:
+        """true > /dev/null 3>&1 should require approval in empty config."""
+        result = evaluate_bash_command("true > /dev/null 3>&1", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_save_fd_after_env2(self) -> None:
+        """true > /dev/null 3>&1 should require approval in env2."""
+        result = evaluate_bash_command("true > /dev/null 3>&1", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_redirect_order_empty(self) -> None:
+        """true > file </dev/null should require approval in empty config."""
+        result = evaluate_bash_command("true > file </dev/null", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_redirect_order_env2(self) -> None:
+        """true > file </dev/null should require approval in env2."""
+        result = evaluate_bash_command("true > file </dev/null", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_other_redirect_order_empty(self) -> None:
+        """true </dev/null > file should require approval in empty config."""
+        result = evaluate_bash_command("true </dev/null > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_other_redirect_order_env2(self) -> None:
+        """true </dev/null > file should require approval in env2."""
+        result = evaluate_bash_command("true </dev/null > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_complex_bg_empty(self) -> None:
+        """true > file1 2>&1 & true > file2 should require approval in empty config."""
+        result = evaluate_bash_command("true > file1 2>&1 & true > file2", make_config())
+        assert result["status"] == "ask"
+
+    def test_phase10_complex_bg_env2(self) -> None:
+        """true > file1 2>&1 & true > file2 should require approval in env2."""
+        result = evaluate_bash_command("true > file1 2>&1 & true > file2", make_config())
+        assert result["status"] == "ask"
+
+
+class TestNestedCompoundExpressions:
+    """Tests for deeply nested and compound bash expressions with redirections.
+
+    Verifies the tool correctly handles complex nested structures.
+    """
+
+    def test_nested_command_substitution_empty(self) -> None:
+        """Nested command substitution with output redirection should ask in empty config."""
+        result = evaluate_bash_command("echo $(echo $(echo $(echo hi))) > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_nested_command_substitution_env2(self) -> None:
+        """Nested command substitution with output redirection should ask in env2."""
+        result = evaluate_bash_command("echo $(echo $(echo $(echo hi))) > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_nested_command_substitution_env3(self) -> None:
+        """Nested command substitution with output redirection should ask in env3."""
+        result = evaluate_bash_command("echo $(echo $(echo $(echo hi))) > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_pipe_chain_empty(self) -> None:
+        """Pipe chain with output redirection should ask in empty config."""
+        result = evaluate_bash_command("echo hi | grep hi | grep h | cat > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_pipe_chain_env2(self) -> None:
+        """Pipe chain with output redirection should ask in env2."""
+        result = evaluate_bash_command("echo hi | grep hi | grep h | cat > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_pipe_chain_env3(self) -> None:
+        """Pipe chain with output redirection should ask in env3."""
+        result = evaluate_bash_command("echo hi | grep hi | grep h | cat > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_complex_pipeline_empty(self) -> None:
+        """Complex pipeline with output redirection should ask in empty config."""
+        result = evaluate_bash_command("ls | grep text | xargs cat > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_complex_pipeline_env2(self) -> None:
+        """Complex pipeline with output redirection should ask in env2."""
+        result = evaluate_bash_command("ls | grep text | xargs cat > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_complex_pipeline_env3(self) -> None:
+        """Complex pipeline with output redirection should ask in env3."""
+        result = evaluate_bash_command("ls | grep text | xargs cat > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_nested_conditionals_empty(self) -> None:
+        """Nested conditionals with output redirection should ask in empty config."""
+        result = evaluate_bash_command("if [ x ]; then if [ y ]; then echo hi > file; fi; fi", make_config())
+        assert result["status"] == "ask"
+
+    def test_nested_conditionals_env2(self) -> None:
+        """Nested conditionals with output redirection should ask in env2."""
+        result = evaluate_bash_command("if [ x ]; then if [ y ]; then echo hi > file; fi; fi", make_config())
+        assert result["status"] == "ask"
+
+    def test_nested_conditionals_env3(self) -> None:
+        """Nested conditionals with output redirection should ask in env3."""
+        result = evaluate_bash_command("if [ x ]; then if [ y ]; then echo hi > file; fi; fi", make_config())
+        assert result["status"] == "ask"
+
+    def test_compound_logical_empty(self) -> None:
+        """Compound logical expressions with output redirection should ask in empty config."""
+        result = evaluate_bash_command("[ x ] && ([ y ] || [ z ]) > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_compound_logical_env2(self) -> None:
+        """Compound logical expressions with output redirection should ask in env2."""
+        result = evaluate_bash_command("[ x ] && ([ y ] || [ z ]) > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_compound_logical_env3(self) -> None:
+        """Compound logical expressions with output redirection should ask in env3."""
+        result = evaluate_bash_command("[ x ] && ([ y ] || [ z ]) > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_brace_expansion_empty(self) -> None:
+        """Brace expansion with output redirection should ask in empty config."""
+        result = evaluate_bash_command("echo {a,b,c} > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_brace_expansion_env2(self) -> None:
+        """Brace expansion with output redirection should ask in env2."""
+        result = evaluate_bash_command("echo {a,b,c} > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_brace_expansion_env3(self) -> None:
+        """Brace expansion with output redirection should ask in env3."""
+        result = evaluate_bash_command("echo {a,b,c} > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_nested_brace_expansion_env2(self) -> None:
+        """Nested brace expansion with output redirection should ask in env2."""
+        result = evaluate_bash_command("echo {a,b}{c,d} > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_heredoc_with_substitution_empty(self) -> None:
+        """Here-document with substitution and output redirection should ask in empty config."""
+        result = evaluate_bash_command("cat <<< $(echo hi) > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_heredoc_with_substitution_env2(self) -> None:
+        """Here-document with substitution and output redirection should ask in env2."""
+        result = evaluate_bash_command("cat <<< $(echo hi) > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_heredoc_with_substitution_env3(self) -> None:
+        """Here-document with substitution and output redirection should ask in env3."""
+        result = evaluate_bash_command("cat <<< $(echo hi) > file", make_config())
+        assert result["status"] == "ask"
+
+
+class TestComplexNestedConstructs:
+    """Tests for deeply nested and compound bash expressions with redirections.
+
+    Verifies the tool correctly handles complex nested structures including
+    process substitution, loops, conditionals, functions, and compound commands.
+    """
+
+    def test_if_with_cmdsub_and_pipe(self) -> None:
+        """if with command substitution, here-doc, pipe, and redirection."""
+        result = evaluate_bash_command('if [ $(echo hi) ]; then cat <<< "x" | grep x > file; fi', make_config())
+        assert result["status"] == "ask"
+
+    def test_for_loop_with_cmdsub(self) -> None:
+        """for loop with command substitution and redirection."""
+        result = evaluate_bash_command("for i in $(seq 1 3); do echo $i > file; done", make_config())
+        assert result["status"] == "ask"
+
+    def test_heredoc_with_pipe(self) -> None:
+        """here-document piped to grep with output redirection."""
+        result = evaluate_bash_command("cat << EOF | grep pattern > file\ncontent\nEOF", make_config())
+        assert result["status"] == "ask"
+
+    def test_if_with_procsub(self) -> None:
+        """if with process substitution and nested command substitution."""
+        result = evaluate_bash_command("if $(test -f <(echo hi)); then cat <<< $(echo ok) > file; fi", make_config())
+        assert result["status"] == "ask"
+
+    def test_nested_conditionals(self) -> None:
+        """nested if statements with command substitution."""
+        result = evaluate_bash_command(
+            "if [ $(echo x) ]; then if [ $(echo y) ]; then echo both > file; fi; fi", make_config()
+        )
+        assert result["status"] == "ask"
+
+    def test_while_loop(self) -> None:
+        """while loop with command substitution and redirection."""
+        result = evaluate_bash_command("while true; do if [ $(echo x) ]; then break; fi; done > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_case_statement(self) -> None:
+        """case statement with command substitution."""
+        result = evaluate_bash_command("case $(echo x) in x) echo ok > file;; esac", make_config())
+        assert result["status"] == "ask"
+
+    def test_select_statement(self) -> None:
+        """select statement with command substitution."""
+        result = evaluate_bash_command("select opt in $(echo a b); do echo $opt > file; done", make_config())
+        assert result["status"] == "ask"
+
+    def test_compound_with_procsub(self) -> None:
+        """compound command with process substitution."""
+        result = evaluate_bash_command("{ cat <(echo hi); } > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_subshell_with_procsub(self) -> None:
+        """subshell with process substitution."""
+        result = evaluate_bash_command("(cat <(echo hi)) > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_function_definition(self) -> None:
+        """function definition with output redirection."""
+        result = evaluate_bash_command("fn() { echo hi > file; }; fn", make_config())
+        assert result["status"] == "ask"
+
+    def test_subshell_function(self) -> None:
+        """subshell containing function definition."""
+        result = evaluate_bash_command("(fn() { echo hi > file; }; fn)", make_config())
+        assert result["status"] == "ask"
+
+
+class TestAdvancedBashConstructs:
+    """Tests for advanced bash constructs (process substitution, coproc, trap, functions, builtins)."""
+
+    def test_procsub_cat_echo_empty(self) -> None:
+        """Process substitution with cat should require approval in empty env."""
+        result = evaluate_bash_command("cat <(echo hi)", make_config())
+        assert result["status"] == "ask"
+
+    def test_procsub_cat_echo_env2(self) -> None:
+        """Process substitution with cat should require approval in env2."""
+        result = evaluate_bash_command("cat <(echo hi)", make_config())
+        assert result["status"] == "ask"
+
+    def test_procsub_cat_echo_env3(self) -> None:
+        """Process substitution with cat should require approval in env3."""
+        result = evaluate_bash_command("cat <(echo hi)", make_config())
+        assert result["status"] == "ask"
+
+    def test_procsub_cat_echo_file2_env2(self) -> None:
+        """Process substitution with cat to file should require approval in env2."""
+        result = evaluate_bash_command("cat <(echo hi)", make_config())
+        assert result["status"] == "ask"
+
+    def test_diff_procsub_ls_empty(self) -> None:
+        """Diff with process substitution should require approval in empty env."""
+        result = evaluate_bash_command("diff <(ls file1) <(ls file2)", make_config())
+        assert result["status"] == "ask"
+
+    def test_diff_procsub_ls_env2(self) -> None:
+        """Diff with process substitution should require approval in env2."""
+        result = evaluate_bash_command("diff <(ls file1) <(ls file2)", make_config())
+        assert result["status"] == "ask"
+
+    def test_diff_procsub_ls_env3(self) -> None:
+        """Diff with process substitution should require approval in env3."""
+        result = evaluate_bash_command("diff <(ls file1) <(ls file2)", make_config())
+        assert result["status"] == "ask"
+
+    def test_coproc_echo_empty(self) -> None:
+        """Coproc with echo should require approval in empty env."""
+        result = evaluate_bash_command("coproc myproc { echo hi; }", make_config())
+        assert result["status"] == "ask"
+
+    def test_coproc_echo_env2(self) -> None:
+        """Coproc with echo should require approval in env2 (coproc is not allowed)."""
+        result = evaluate_bash_command("coproc myproc { echo hi; }", make_config())
+        assert result["status"] == "ask"
+
+    def test_coproc_echo_env3(self) -> None:
+        """Coproc with echo should require approval in env3 (coproc is not allowed)."""
+        result = evaluate_bash_command("coproc myproc { echo hi; }", make_config())
+        assert result["status"] == "ask"
+
+    def test_coproc_echo_file_env2(self) -> None:
+        """Coproc with echo to file should require approval in env2."""
+        result = evaluate_bash_command("coproc myproc { echo hi > file; }", make_config())
+        assert result["status"] == "ask"
+
+    def test_trap_echo_file_empty(self) -> None:
+        """Trap with echo should require approval in empty env."""
+        result = evaluate_bash_command('trap "echo trap > file" EXIT', make_config())
+        assert result["status"] == "ask"
+
+    def test_trap_echo_file_env2(self) -> None:
+        """Trap with echo should require approval in env2."""
+        result = evaluate_bash_command('trap "echo trap > file" EXIT', make_config())
+        assert result["status"] == "ask"
+
+    def test_fn_def_echo_file_env2(self) -> None:
+        """Function definition with echo should require approval in env2."""
+        result = evaluate_bash_command("fn() { echo hi > file; }", make_config())
+        assert result["status"] == "ask"
+
+    def test_fn_def_echo_file_env3(self) -> None:
+        """Function definition with echo should require approval in env3."""
+        result = evaluate_bash_command("fn() { echo hi > file; }", make_config())
+        assert result["status"] == "ask"
+
+    def test_fn_call_redirect_env2(self) -> None:
+        """Function call with redirect should require approval in env2."""
+        result = evaluate_bash_command("fn > out", make_config())
+        assert result["status"] == "ask"
+
+    def test_fn_call_redirect_env3(self) -> None:
+        """Function call with redirect should require approval in env3."""
+        result = evaluate_bash_command("fn > out", make_config())
+        assert result["status"] == "ask"
+
+    def test_export_var_cmdsub_redirect_env2(self) -> None:
+        """Export with command substitution should require approval in env2."""
+        result = evaluate_bash_command("export VAR=$(echo hi) > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_export_var_cmdsub_redirect_env3(self) -> None:
+        """Export with command substitution should require approval in env3."""
+        result = evaluate_bash_command("export VAR=$(echo hi) > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_export_path_redirect_empty(self) -> None:
+        """Export with path should require approval in empty env."""
+        result = evaluate_bash_command('export PATH="$PATH:/usr/local/bin" > file', make_config())
+        assert result["status"] == "ask"
+
+    def test_export_path_redirect_env2(self) -> None:
+        """Export with path should require approval in env2."""
+        result = evaluate_bash_command('export PATH="$PATH:/usr/local/bin" > file', make_config())
+        assert result["status"] == "ask"
+
+    def test_unset_array_redirect_empty(self) -> None:
+        """Unset array should require approval in empty env."""
+        result = evaluate_bash_command("unset arr[@] > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_unset_array_redirect_env2(self) -> None:
+        """Unset array should require approval in env2."""
+        result = evaluate_bash_command("unset arr[@] > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_declare_assoc_redirect_env2(self) -> None:
+        """Declare associative array should require approval in env2."""
+        result = evaluate_bash_command("declare -A map > file", make_config())
+        assert result["status"] == "ask"
+
+    def test_declare_assoc_redirect_env3(self) -> None:
+        """Declare associative array should require approval in env3."""
+        result = evaluate_bash_command("declare -A map > file", make_config())
+        assert result["status"] == "ask"
