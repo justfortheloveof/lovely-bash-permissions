@@ -1125,6 +1125,78 @@ class TestBackgroundExecutionCompound:
         )
         assert result["status"] == "deny"
 
+    def test_subshell_inner_background_denied(self) -> None:
+        """`(echo hi &)` backgrounds the inner command — policy applies."""
+        result = evaluate_bash_command(
+            "(echo hi &)",
+            {"*": "allow", "allowed_cmds_regex": ["^echo"], "background_execution": "deny"},
+        )
+        assert result["status"] == "deny"
+
+    def test_subshell_inner_background_ask(self) -> None:
+        result = evaluate_bash_command(
+            "(echo hi &)",
+            {"*": "allow", "allowed_cmds_regex": ["^echo"], "background_execution": "ask"},
+        )
+        assert result["status"] == "ask"
+
+    def test_assignment_substitution_background_denied(self) -> None:
+        """`x=$(echo hi &)` backgrounds a command inside a substitution."""
+        result = evaluate_bash_command(
+            "x=$(echo hi &)",
+            {
+                "*": "allow",
+                "allowed_cmds_regex": ["^echo"],
+                "background_execution": "deny",
+                "variable_assignment": "allow",
+                "subshell": "allow",
+            },
+        )
+        assert result["status"] == "deny"
+
+
+class TestCompoundCommandRedirections:
+    """Redirections on time/funcdef/coproc statements are not dropped.
+
+    Regression: `time echo hi > /etc/passwd` was auto-approved because the
+    converter unwrapped the inner Stmt and lost its redirections.
+    """
+
+    def test_time_blocked_path_denied(self) -> None:
+        result = evaluate_bash_command(
+            "time echo hi > /etc/passwd",
+            make_config(blocked=[r"^/etc/passwd$"], subshell="allow", variable_assignment="allow"),
+        )
+        assert result["status"] == "deny"
+
+    def test_time_output_redirection_asks(self) -> None:
+        result = evaluate_bash_command(
+            "time echo hi > /tmp/out",
+            make_config(allowed=[r"^echo(\s+.*)?$"], output="ask", subshell="allow", variable_assignment="allow"),
+        )
+        assert result["status"] == "ask"
+
+    def test_time_no_redirection_unaffected(self) -> None:
+        result = evaluate_bash_command(
+            "time echo hi",
+            make_config(allowed=[r"^echo(\s+.*)?$"], subshell="allow", variable_assignment="allow"),
+        )
+        assert result["status"] == "allow"
+
+    def test_funcdef_blocked_path_denied(self) -> None:
+        result = evaluate_bash_command(
+            "f() { echo hi; } > /etc/passwd",
+            make_config(blocked=[r"^/etc/passwd$"], subshell="allow", variable_assignment="allow"),
+        )
+        assert result["status"] == "deny"
+
+    def test_coproc_blocked_path_denied(self) -> None:
+        result = evaluate_bash_command(
+            "coproc c { echo hi; } > /etc/passwd",
+            make_config(blocked=[r"^/etc/passwd$"], subshell="allow", variable_assignment="allow"),
+        )
+        assert result["status"] == "deny"
+
 
 class TestTrickyRedirectionPatterns:
     """Tests for uncommon or ambiguous bash syntax with redirections.

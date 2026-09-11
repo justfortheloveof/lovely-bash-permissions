@@ -570,11 +570,32 @@ def _check_segments_input_redirs(segments: list[dict[str, Any]], rules: dict[str
         return {"status": "deny", "reason": f"input redirection denied from {', '.join(targets)}"}
 
 
+def _collect_background_command_names(node: dict[str, Any], results: list[str]) -> None:
+    """Recursively collect command names being run in the background.
+
+    Background flags can appear on any statement in the tree, not just the
+    top-level ones — e.g. ``(echo hi &)`` or ``x=$(echo hi &)`` background the
+    inner command while the outer statement has ``Background=false``.
+    """
+    if not isinstance(node, dict):
+        return
+    if node.get("Background") or node.get("Type") == "CoprocClause":
+        results.extend(_find_background_flags(node.get("Cmd") or node))
+    for value in node.values():
+        if isinstance(value, dict):
+            _collect_background_command_names(value, results)
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    _collect_background_command_names(item, results)
+
+
 def check_background_execution(tree: dict[str, Any], rules: dict[str, Any]) -> dict[str, Any]:
     """Evaluate background execution against rules.
 
-    Detects background execution (trailing & operator) from the AST and
-    applies the configured allow/ask/deny policy.
+    Detects background execution (trailing & operator) anywhere in the AST —
+    including backgrounds nested inside subshells and command substitutions —
+    and applies the configured allow/ask/deny policy.
 
     Args:
         tree: The shfmt JSON AST representation of the bash command.
@@ -593,11 +614,9 @@ def check_background_execution(tree: dict[str, Any], rules: dict[str, Any]) -> d
     # (per-type policies handled in the evaluator layer)
     level = policy.get("*", policy.get("allow", "allow")) if isinstance(policy, dict) else policy
 
-    background_commands = []
-    for stmt in tree.get("Stmts", []):
-        cmd = stmt.get("Cmd", {})
-        if stmt.get("Background") or cmd.get("Type") == "CoprocClause":
-            background_commands.extend(_find_background_flags(cmd))
+    background_commands: list[str] = []
+    _collect_background_command_names(tree, background_commands)
+    background_commands = list(dict.fromkeys(background_commands))
 
     if not background_commands:
         return {

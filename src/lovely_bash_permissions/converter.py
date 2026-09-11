@@ -611,9 +611,15 @@ def _convert_func_decl(data: dict[str, Any]) -> FuncDecl:
     name_node = _convert_lit(name_data) if isinstance(name_data, dict) else None
 
     body_data = data.get("Body")
-    body_node = None
+    body_node: Node | None = None
     if isinstance(body_data, dict):
-        body_node = node_from_json(body_data.get("Cmd", body_data))
+        # Wrap the body in a Stmt so trailing redirections on the function
+        # definition (e.g. `f() { ...; } > file`) are preserved; keep the
+        # unwrapped command node otherwise so existing consumers see a Block.
+        if body_data.get("Redirs"):
+            body_node = _convert_stmt(body_data)
+        else:
+            body_node = node_from_json(body_data.get("Cmd", body_data))
 
     pos, end = _parse_pos_end(data)
     return FuncDecl(
@@ -732,7 +738,7 @@ def _convert_time_clause(data: dict[str, Any]) -> TimeClause:
         end=end,
         time_pos=_parse_position(data.get("Time")),
         posix_format=data.get("PosixFormat", False),
-        stmt=node_from_json(data.get("Stmt")),
+        stmt=_convert_stmt(stmt_data) if (stmt_data := data.get("Stmt")) else None,
     )
 
 
@@ -743,7 +749,7 @@ def _convert_coproc_clause(data: dict[str, Any]) -> CoprocClause:
         end=end,
         coproc_pos=_parse_position(data.get("Coproc")),
         name=_convert_word(data.get("Name")),
-        stmt=node_from_json(data.get("Stmt")),
+        stmt=_convert_stmt(stmt_data) if (stmt_data := data.get("Stmt")) else None,
     )
 
 
@@ -753,7 +759,7 @@ def _convert_test_decl(data: dict[str, Any]) -> TestDecl:
         pos=pos,
         end=end,
         description=_convert_word(data.get("Description")),
-        body=node_from_json(data.get("Body")),
+        body=_convert_stmt(body_data) if (body_data := data.get("Body")) else None,
     )
 
 

@@ -494,6 +494,35 @@ class TestNestedSubstitutionExtraction:
         assert [s["command"] for s in segs] == ["ls"]
 
 
+class TestCompoundCommandRedirections:
+    """Redirections on time/funcdef/coproc compound commands are kept.
+
+    Regression: the converter unwrapped the Stmt-shaped body/statement of
+    TimeClause/CoprocClause/FuncDecl, silently dropping trailing redirections —
+    so `time echo hi > /etc/passwd` was approved while the plain command was blocked.
+    """
+
+    def test_time_redirection_kept(self) -> None:
+        segs = parse_segments("time echo hi > /etc/passwd")
+        assert [s["command"] for s in segs] == ["echo"]
+        assert segs[0]["redirections"][0]["Word"]["Parts"][0]["Value"] == "/etc/passwd"
+
+    def test_time_posix_redirection_kept(self) -> None:
+        segs = parse_segments("time -p echo hi > /etc/passwd")
+        assert [s["command"] for s in segs] == ["echo"]
+        assert segs[0]["redirections"][0]["Word"]["Parts"][0]["Value"] == "/etc/passwd"
+
+    def test_funcdef_redirection_kept(self) -> None:
+        segs = parse_segments("f() { echo hi; } > /etc/passwd")
+        assert [s["command"] for s in segs] == ["echo"]
+        assert segs[0]["redirections"][0]["Word"]["Parts"][0]["Value"] == "/etc/passwd"
+
+    def test_coproc_redirection_kept(self) -> None:
+        segs = parse_segments("coproc c { echo hi; } > /etc/passwd")
+        assert [s["command"] for s in segs] == ["echo"]
+        assert segs[0]["redirections"][0]["Word"]["Parts"][0]["Value"] == "/etc/passwd"
+
+
 class TestErrorHandling:
     """Tests for error handling."""
 
