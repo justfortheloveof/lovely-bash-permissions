@@ -212,6 +212,27 @@ class TestAggregation:
         )
         assert result["status"] == "allow"
 
+    def test_multiple_ask_reasons_all_reported(self) -> None:
+        """All ask-level rule reasons are reported, not just the first."""
+        result = evaluate_bash_command(
+            "ls > /tmp/out &",
+            make_config(allowed=["^ls"], output="ask", background="ask"),
+        )
+        assert result["status"] == "ask"
+        assert "output redirection requires approval" in result["reason"]
+        assert "background execution requires approval: ls" in result["reason"]
+
+    def test_multiple_ask_reasons_three_ways(self) -> None:
+        """Ask reasons for output, input, and background redirection all appear."""
+        result = evaluate_bash_command(
+            "cat < /tmp/in > /tmp/out &",
+            make_config(allowed=["^cat"], output="ask", input_redir="ask", background="ask"),
+        )
+        assert result["status"] == "ask"
+        assert "output redirection requires approval" in result["reason"]
+        assert "input redirection requires approval" in result["reason"]
+        assert "background execution requires approval: cat" in result["reason"]
+
 
 class TestWildcardPolicy:
     """Tests for wildcard ('*') policy."""

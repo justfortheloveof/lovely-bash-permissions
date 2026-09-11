@@ -369,6 +369,51 @@ class _NodeCoverageBase:
         return cmd[b + 1 :].strip()
 
 
+class TestCliTestMultipleApprovalReasons(_NodeCoverageBase):
+    """A command tripping several ask-level rules reports all reasons."""
+
+    def test_output_redirection_and_background(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/-t: 'ls -l 2> /tmp/deleteme &' shows both approval reasons."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        self._write_config(
+            tmp_project,
+            {
+                "bash": {
+                    "allowed_cmds_regex": ["^ls", "^cat"],
+                    "blocked_paths_regex": [],
+                    "output_redirection": "ask",
+                    "input_redirection": "ask",
+                    "background_execution": "ask",
+                }
+            },
+        )
+        result = self._test("ls -l 2> /tmp/deleteme &", tmp_project, global_dir, flag="-t")
+        label = self._label(result)
+        assert "output redirection requires approval" in label
+        assert "background execution requires approval: ls" in label
+
+    def test_input_output_and_background(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/-t: combined redirections and background report every ask reason."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        self._write_config(
+            tmp_project,
+            {
+                "bash": {
+                    "allowed_cmds_regex": ["^ls", "^cat"],
+                    "blocked_paths_regex": [],
+                    "output_redirection": "ask",
+                    "input_redirection": "ask",
+                    "background_execution": "ask",
+                }
+            },
+        )
+        result = self._test("cat < /tmp/in > /tmp/out &", tmp_project, global_dir, flag="-t")
+        label = self._label(result)
+        assert "output redirection requires approval" in label
+        assert "input redirection requires approval" in label
+        assert "background execution requires approval: cat" in label
+
+
 class TestCliTestNodeCoverage(_NodeCoverageBase):
     """Exercise AST node handlers (DeclClause, conditionals, tests) via --test/-t."""
 

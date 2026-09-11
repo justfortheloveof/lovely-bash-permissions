@@ -336,23 +336,15 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     bg_result = check_background_execution(raw_tree, rules)
 
     # Deny overrides ask in aggregation (deny anywhere → deny overall)
-    if output_result["status"] == "deny" or input_result["status"] == "deny" or bg_result["status"] == "deny":
+    _redir_results = (output_result, input_result, bg_result)
+    _redir_statuses = [r["status"] for r in _redir_results]
+    if "deny" in _redir_statuses:
         overall_status = "deny"
-        if output_result["status"] == "deny":
-            reasons.append(output_result["reason"])
-        if input_result["status"] == "deny":
-            reasons.append(input_result["reason"])
-        if bg_result["status"] == "deny":
-            reasons.append(bg_result["reason"])
-    elif output_result["status"] == "ask" and overall_status == "allow":
+    elif "ask" in _redir_statuses and overall_status == "allow":
         overall_status = "ask"
-        reasons.append(output_result["reason"])
-    elif input_result["status"] == "ask" and overall_status == "allow":
-        overall_status = "ask"
-        reasons.append(input_result["reason"])
-    elif bg_result["status"] == "ask" and overall_status == "allow":
-        overall_status = "ask"
-        reasons.append(bg_result["reason"])
+    for _r in _redir_results:
+        if _r["status"] == overall_status and _r["status"] != "allow":
+            reasons.append(_r["reason"])
 
     # Commands not matching allowed patterns require approval
     if allowed_patterns and any_segment_not_allowed:
