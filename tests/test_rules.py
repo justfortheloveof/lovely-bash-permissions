@@ -513,6 +513,93 @@ def test_object_form_background_policy_wildcard() -> None:
     assert result["status"] == "deny"
 
 
+def test_coproc_named_background_denied() -> None:
+    """BUGZ-013: named coproc block is background execution."""
+    tree = parse("coproc myproc { echo hi; }")
+    result = check_background_execution(tree, {"background_execution": "deny"})
+    assert result["status"] == "deny"
+    assert "echo" in result["reason"]
+
+
+def test_coproc_anonymous_background_denied() -> None:
+    """BUGZ-013: anonymous coproc block is background execution."""
+    tree = parse("coproc { echo hi; }")
+    result = check_background_execution(tree, {"background_execution": "deny"})
+    assert result["status"] == "deny"
+    assert "echo" in result["reason"]
+
+
+def test_coproc_single_command_background_denied() -> None:
+    """BUGZ-013: single-command coproc form is background execution."""
+    tree = parse("coproc echo hi")
+    result = check_background_execution(tree, {"background_execution": "deny"})
+    assert result["status"] == "deny"
+    assert "echo" in result["reason"]
+
+
+def test_coproc_background_ask() -> None:
+    """BUGZ-013: coproc triggers ask when policy is ask."""
+    tree = parse("coproc myproc { echo hi; }")
+    result = check_background_execution(tree, {"background_execution": "ask"})
+    assert result["status"] == "ask"
+    assert "echo" in result["reason"]
+
+
+def test_coproc_background_allowed() -> None:
+    """BUGZ-013: coproc is allowed when policy is allow."""
+    tree = parse("coproc myproc { echo hi; }")
+    result = check_background_execution(tree, {"background_execution": "allow"})
+    assert result["status"] == "allow"
+    assert "echo" in result["reason"]
+
+
+def test_coproc_background_default_ask() -> None:
+    """BUGZ-013: default background policy is ask for coproc."""
+    tree = parse("coproc myproc { echo hi; }")
+    result = check_background_execution(tree, {})
+    assert result["status"] == "ask"
+
+
+def test_block_background_denied() -> None:
+    """Compound block with trailing & is background execution."""
+    tree = parse("{ echo hi; } &")
+    result = check_background_execution(tree, {"background_execution": "deny"})
+    assert result["status"] == "deny"
+    assert "echo" in result["reason"]
+
+
+def test_subshell_background_denied() -> None:
+    """Subshell with trailing & is background execution."""
+    tree = parse("( echo hi ) &")
+    result = check_background_execution(tree, {"background_execution": "deny"})
+    assert result["status"] == "deny"
+    assert "echo" in result["reason"]
+
+
+def test_if_clause_background_denied() -> None:
+    """If-clause with trailing & is background execution."""
+    tree = parse("if true; then echo hi; fi &")
+    result = check_background_execution(tree, {"background_execution": "deny"})
+    assert result["status"] == "deny"
+    assert "echo" in result["reason"]
+
+
+def test_for_clause_background_denied() -> None:
+    """For-loop with trailing & is background execution."""
+    tree = parse("for x in 1 2; do echo $x; done &")
+    result = check_background_execution(tree, {"background_execution": "deny"})
+    assert result["status"] == "deny"
+    assert "echo" in result["reason"]
+
+
+def test_while_clause_background_denied() -> None:
+    """While-loop with trailing & is background execution."""
+    tree = parse("while true; do echo hi; done &")
+    result = check_background_execution(tree, {"background_execution": "deny"})
+    assert result["status"] == "deny"
+    assert "echo" in result["reason"]
+
+
 # Tests for pipe redirections (regression tests for BinaryCmd traversal)
 
 

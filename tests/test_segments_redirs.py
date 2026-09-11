@@ -26,6 +26,14 @@ class TestSegmentRedirections:
         assert len(r) == 1
         assert r[0]["Op"] == "<"
 
+    def test_truncate_redir(self) -> None:
+        segs = parse_segments("cat <> /tmp/out")
+        assert len(segs) == 1
+        r = segs[0]["redirections"]
+        assert len(r) == 1
+        assert r[0]["Op"] == "<>"
+        assert r[0]["Word"]["Parts"][0]["Value"] == "/tmp/out"
+
     def test_fd_redirection(self) -> None:
         segs = parse_segments("cmd 2>/dev/null")
         assert len(segs) == 1

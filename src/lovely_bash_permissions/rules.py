@@ -11,7 +11,7 @@ import re
 from functools import lru_cache
 from typing import Any
 
-WRITE_REDIRECT_OPS: frozenset[str] = frozenset({">", ">>", ">|", "&>", ">&", "&>>"})
+WRITE_REDIRECT_OPS: frozenset[str] = frozenset({">", ">>", ">|", "&>", ">&", "&>>", "<>"})
 COMBINED_OPS: frozenset[str] = frozenset({">&", "&>", "&>>"})
 DEV_NULL: str = "/dev/null"
 
@@ -137,16 +137,17 @@ def _find_redirs(node: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _find_background_flags(node: dict[str, Any]) -> list[str]:
-    """Recursively collect background flags from an AST node.
+    """Recursively collect command names from a backgrounded AST node.
 
-    Finds statements with ``Background: true`` regardless of whether their Cmd
-    is a CallExpr or BinaryCmd (pipes).
+    Walks the whole subtree so any compound command type (Block, Subshell,
+    IfClause, WhileClause, ForClause, CaseClause, CoprocClause, ...) yields
+    the commands it runs.
 
     Args:
         node: A dict representing an AST node from shfmt's JSON output.
 
     Returns:
-        List of (command_name, background_flag) tuples found in CallExpr args.
+        List of command names found in CallExpr args.
     """
     results: list[str] = []
 
@@ -157,17 +158,13 @@ def _find_background_flags(node: dict[str, Any]) -> list[str]:
             if parts:
                 results.append(parts[0].get("Value", ""))
 
-    if node.get("Type") == "BinaryCmd":
-        x = node.get("X", {})
-        results.extend(_find_background_flags(x.get("Cmd", {})))
-        y = node.get("Y", {})
-        results.extend(_find_background_flags(y.get("Cmd", {})))
-
-    if node.get("Type") in ("AndCmd", "OrCmd"):
-        left = node.get("Left", {})
-        results.extend(_find_background_flags(left))
-        right = node.get("Right", {})
-        results.extend(_find_background_flags(right))
+    for value in node.values():
+        if isinstance(value, dict):
+            results.extend(_find_background_flags(value))
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    results.extend(_find_background_flags(item))
 
     return results
 
@@ -598,8 +595,8 @@ def check_background_execution(tree: dict[str, Any], rules: dict[str, Any]) -> d
 
     background_commands = []
     for stmt in tree.get("Stmts", []):
-        if stmt.get("Background"):
-            cmd = stmt.get("Cmd", {})
+        cmd = stmt.get("Cmd", {})
+        if stmt.get("Background") or cmd.get("Type") == "CoprocClause":
             background_commands.extend(_find_background_flags(cmd))
 
     if not background_commands:

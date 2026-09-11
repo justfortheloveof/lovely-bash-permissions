@@ -36,6 +36,7 @@ BASIC_PATTERNS = [
     ("2>&1 stderr-to-stdout", "echo hi 2>&1"),
     ("2> stderr to file", "echo hi 2> /tmp/err.txt"),
     ("2>> stderr append", "echo hi 2>> /tmp/err.txt"),
+    ("truncate <>", "cat <> /tmp/out.txt"),
     ("pipe + redirect", "ls -la | grep txt > /tmp/out.txt"),
 ]
 
@@ -179,6 +180,18 @@ class TestOutputRedirectionValidation:
         for _desc, cmd in BASIC_PATTERNS[:2]:
             run_test(cmd, project_dir=tmp_path, tmp_global_dir=tmp_path)
         assert (real_devin.is_file() and real_devin.read_bytes() == before) or not real_devin.is_file()
+
+    def test_truncate_redir_denied(self, tmp_path: Path) -> None:
+        """BUGZ-014: `<>` (truncate) is treated as an output redirection."""
+        write_local_config({"*": "allow", "output_redirection": "deny"}, tmp_path)
+        r = run_test("cat <> /tmp/out.txt", project_dir=tmp_path, tmp_global_dir=tmp_path)
+        assert decision_of(r) == "block"
+
+    def test_truncate_redir_ask(self, tmp_path: Path) -> None:
+        """BUGZ-014: `<>` (truncate) triggers output_redirection ask policy."""
+        write_local_config({"*": "allow", "output_redirection": "ask"}, tmp_path)
+        r = run_test("cat <> /tmp/out.txt", project_dir=tmp_path, tmp_global_dir=tmp_path)
+        assert decision_of(r) == "ask"
 
 
 @pytest.mark.skipif(not TS_PATH.exists(), reason="TS hook.js not present")

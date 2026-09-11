@@ -870,7 +870,7 @@ class TestResultStructure:
         """coprocess extracts command from stmt."""
         result = evaluate_bash_command(
             "coproc mycmd arg",
-            make_config(allowed=["^mycmd\\s+arg$"]),
+            {"*": "ask", "allowed_cmds_regex": ["^mycmd\\s+arg$"], "background_execution": "allow"},
         )
         assert result["status"] == "allow"
 
@@ -1064,3 +1064,47 @@ class TestVariableAssignment:
             make_config(allowed=[r"^cat(\s+.*)?$"], subshell="allow", variable_assignment="allow"),
         )
         assert result["status"] == "allow"
+
+
+class TestBackgroundExecutionCompound:
+    """BUGZ-013: background_execution policy covers coproc and compound & forms.
+
+    Configs are built inline because make_config() only emits
+    background_execution when it differs from the "allow" default.
+    """
+
+    def test_coproc_denied(self) -> None:
+        result = evaluate_bash_command(
+            "coproc myproc { echo hi; }",
+            {"*": "allow", "allowed_cmds_regex": ["^echo"], "background_execution": "deny"},
+        )
+        assert result["status"] == "deny"
+        assert "background execution denied" in result["reason"]
+
+    def test_coproc_ask(self) -> None:
+        result = evaluate_bash_command(
+            "coproc myproc { echo hi; }",
+            {"*": "allow", "allowed_cmds_regex": ["^echo"], "background_execution": "ask"},
+        )
+        assert result["status"] == "ask"
+
+    def test_coproc_allowed(self) -> None:
+        result = evaluate_bash_command(
+            "coproc myproc { echo hi; }",
+            {"*": "allow", "allowed_cmds_regex": ["^echo"], "background_execution": "allow"},
+        )
+        assert result["status"] == "allow"
+
+    def test_compound_block_denied(self) -> None:
+        result = evaluate_bash_command(
+            "{ echo hi; } &",
+            {"*": "allow", "allowed_cmds_regex": ["^echo"], "background_execution": "deny"},
+        )
+        assert result["status"] == "deny"
+
+    def test_compound_if_denied(self) -> None:
+        result = evaluate_bash_command(
+            "if true; then echo hi; fi &",
+            {"*": "allow", "allowed_cmds_regex": ["^echo"], "background_execution": "deny"},
+        )
+        assert result["status"] == "deny"

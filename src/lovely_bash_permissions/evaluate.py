@@ -297,11 +297,11 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     if output_result["status"] == "deny" or input_result["status"] == "deny" or bg_result["status"] == "deny":
         overall_status = "deny"
         if output_result["status"] == "deny":
-            reasons.append(f"output redirection denied: {output_result['reason']}")
+            reasons.append(output_result["reason"])
         if input_result["status"] == "deny":
-            reasons.append(f"input redirection denied: {input_result['reason']}")
+            reasons.append(input_result["reason"])
         if bg_result["status"] == "deny":
-            reasons.append(f"background execution denied: {bg_result['reason']}")
+            reasons.append(bg_result["reason"])
     elif output_result["status"] == "ask" and overall_status == "allow":
         overall_status = "ask"
         reasons.append(output_result["reason"])

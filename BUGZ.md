@@ -7,11 +7,11 @@ Entries pending review are added as they surface; verdicts are filled in by the 
 
 - Bugs **1–8** (PLAN "Bugs Found So Far"): confirmed and **fixed** (see git history, PLAN.md). ⚠️ **Re-reviewed 2026-09-11 — see BUGZ-015: #1–#3, #6–#8 verified working; #4 PARTIAL; #5 NOT FIXED.**
 - Bugs **9–22** (Phase 9 candidates, "special builtins in env3"): re-reviewed. **#9–#22 except #14 = NOT BUGS** (false positives: commands not in env3 allow-list → "ask" is correct). #14's review surfaced genuine bugs **#23 `[[ ]]` drops redirections** (security-relevant) and **#24 `[[ x =~ regex ]]` miscategorizes regex RHS as command**. Details below.
-- **Phase 13 coproc (#25): CONFIRMED REAL BUG** (background_execution policy bypass) — BUGZ-013.
+- **Phase 13 coproc (#25): CONFIRMED REAL BUG → FIXED** (background_execution policy bypass) — BUGZ-013. Fix also closed the same root-cause gap for all compound-command `&` forms (`{ …; } &`, `( … ) &`, `if/for/while … done &`).
 - **Phase 14 (#26–#31): all reviewed = NOT BUGS** (false positives) — see summary below.
-- **Phase 1 `<>` (#32): CONFIRMED REAL BUG, STILL UNFIXED** (truncate bypasses `output_redirection`) — BUGZ-014.
+- **Phase 1 `<>` (#32): CONFIRMED REAL BUG, FIXED** (added `<>` to `WRITE_REDIRECT_OPS`) — BUGZ-014.
 - **Phase 4 (#1–#3) and Phase 7 (17): re-reviewed = NOT BUGS** (ask reasons trace to output_redirection / variable_assignment policy defaults; all 17 Phase 7 patterns approve under the matching config).
-- **Confirmed REAL bugs to date: #23, #24, #25, #32 (#32 unfixed). BUGZ-011 & BUGZ-012 fixed 2026-09-11.**
+- **Confirmed REAL bugs to date: #23, #24, #25, #32. All fixed 2026-09-11 (BUGZ-011, BUGZ-012, BUGZ-013, BUGZ-014).**
 
 ---
 
@@ -81,7 +81,7 @@ perms: 💚 auto-approved] "pat" command does not match allowed patterns.' ; [[ 
 
 ## Entry: BUGZ-013 — `coproc` bypasses `background_execution` policy
 
-**Status:** ✅ Processed — **CONFIRMED REAL BUG** (not yet fixed)
+**Status:** ✅ FIXED (2026-09-11) — `check_background_execution` now also gates `CoprocClause`, and `_find_background_flags` was replaced with a generic subtree walker that collects inner command names for any compound command type. This also fixed a same-root-cause bypass for all compound-command `&` forms: `{ …; } &`, `( … ) &`, `if … fi &`, `for/while … done &` were all silently allowed under `background_execution: deny`.
 
 **REPORTED:** PLAN.md Phase 13 (canonical bug #25).
 
@@ -142,7 +142,7 @@ Phase 14 contributed **0 real bugs**.
 
 ## Entry: BUGZ-014 — `<>` truncate redirection bypasses `output_redirection`
 
-**Status:** ⏳ CONFIRMED REAL BUG — **STILL UNFIXED** (Phase 1 finding; suggested fix never applied)
+**Status:** ✅ FIXED (2026-09-11) — `"<>"` added to `WRITE_REDIRECT_OPS` in `rules.py`; `<>` is now classified as an output (write) redirection and gated by `output_redirection` policy. Tests added for deny/ask policies.
 
 **REPORTED:** PLAN.md Phase 1 (canonical bug #32).
 
