@@ -309,7 +309,7 @@ class TestPermissionsManagerEndToEnd:
         assert bash_cfg["permission"] == "deny", f"expected local precedence (deny), got {bash_cfg['permission']}"
 
     def test_cross_level_merge_both_keys(self, mock_project: Path, devin_global_config_dir: str) -> None:
-        """Keys from global and local both survive when they are different keys (step 3b deep-merge fix)."""
+        """Keys from global and local both survive when they are different keys"""
 
         global_config = Path(devin_global_config_dir) / "lovely-permissions.jsonc"
         with open(global_config, "w") as f:

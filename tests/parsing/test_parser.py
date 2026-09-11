@@ -1,5 +1,5 @@
 """
-Comprehensive tests for the lovely-bash-permissions parser.
+Comprehensive tests for the lovely-bash-permissions parser
 """
 
 import pytest
@@ -264,7 +264,7 @@ class TestASTStructure:
 
 
 class TestLitNodes:
-    """Tests for the Lit node type (Step 1 of node coverage)."""
+    """Tests for the Lit node type."""
 
     def test_simple_literal_value(self) -> None:
         """Parse a simple command and find the Lit node with its value."""
@@ -529,7 +529,7 @@ class TestLitNodes:
 
 
 class TestSglQuotedNodes:
-    """Tests for the SglQuoted node type (Step 2 of node coverage)."""
+    """Tests for the SglQuoted node type."""
 
     def test_simple_single_quoted(self) -> None:
         """Parse echo 'hello world' and verify it produces a SglQuoted node."""
@@ -665,7 +665,7 @@ class TestSglQuotedNodes:
 
 
 class TestParamExpNodes:
-    """Tests for the ParamExp node type (Step 4 of node coverage)."""
+    """Tests for the ParamExp node type."""
 
     def test_short_param_expansion(self) -> None:
         """Parse echo $HOME and verify it produces a ParamExp node with Short=True."""
@@ -860,7 +860,7 @@ class TestParamExpNodes:
 
 
 class TestDblQuotedNodes:
-    """Tests for the DblQuoted node type (Step 3 of node coverage)."""
+    """Tests for the DblQuoted node type."""
 
     def test_simple_double_quoted(self) -> None:
         """Parse echo "hello" and verify it produces a DblQuoted node with Lit parts."""
@@ -932,8 +932,8 @@ class TestDblQuotedNodes:
     def test_empty_double_quoted_shfmt_go(self) -> None:
         """Test shfmt Go-style empty DblQuoted handling (for completeness)."""
         # In shfmt Go, empty double quotes would give a DblQuoted
-        # with an empty parts array.
-        # Our parser should handle both: None parts (shfmt-py) and [] parts (shfmt Go).
+        # with an empty parts array
+        # Our parser should handle both: None parts (shfmt-py) and [] parts (shfmt Go)
         from lovely_bash_permissions.ast import DblQuoted
 
         dq_go = DblQuoted(type="DblQuoted", pos=None, end=None, parts=[])
@@ -1038,7 +1038,7 @@ class TestDblQuotedNodes:
 
 
 class TestCmdSubstNodes:
-    """Tests for the CmdSubst node type (Step 5 of node coverage)."""
+    """Tests for the CmdSubst node type."""
 
     def test_simple_cmdsubst_syntax(self) -> None:
         """Parse echo $(date) and verify it produces a CmdSubst node."""
@@ -1223,7 +1223,7 @@ class TestCmdSubstNodes:
 
 
 class TestArithmExpNodes:
-    """Tests for the ArithmExp node type (Step 6 of node coverage)."""
+    """Tests for the ArithmExp node type."""
 
     def test_simple_arithmetic_expression(self) -> None:
         """Parse echo $((2 + 2)) and verify ArithmExp with BinaryArithm."""
@@ -1380,7 +1380,7 @@ class TestArithmExpNodes:
 
 
 class TestProcSubstNodes:
-    """Tests for the ProcSubst node type (Step 7 of node coverage)."""
+    """Tests for the ProcSubst node type."""
 
     def test_input_process_substitution(self) -> None:
         """Parse cat <(echo 'hi') and verify ProcSubst with op='<('."""
@@ -1499,7 +1499,7 @@ class TestProcSubstNodes:
 
 
 class TestExtGlobNodes:
-    """Tests for the ExtGlob node type (Step 8 of node coverage).
+    """Tests for the ExtGlob node type.
 
     Extended globs require `shopt -s extglob` in bash. shfmt parses
     them regardless. Syntax: @(pat|pat), +(pat|pat), *(pat|pat),
@@ -1508,7 +1508,7 @@ class TestExtGlobNodes:
     NOTE: In real bash these patterns are only valid with
     `shopt -s extglob` enabled. shfmt parses them regardless of the
     shell option, so these tests assert the AST shape without the
-    option needing to be set — see test_extglob_invalid_without_shopt.
+    option needing to be set — see test_extglob_invalid_without_shopt
     """
 
     @pytest.mark.parametrize(
@@ -1537,11 +1537,11 @@ class TestExtGlobNodes:
         assert eg.pattern.value == pat
 
     def test_extglob_invalid_without_shopt(self) -> None:
-        """Real bash rejects @(...) unless `shopt -s extglob` is enabled.
+        """Real bash rejects @(...) unless `shopt -s extglob` is enabled
 
         Documents the prerequisite stated in the class docstring: shfmt
         parses extglob syntax regardless of the shell option, but plain
-        bash refuses it at parse time.
+        bash refuses it at parse time
         """
         import subprocess
 
@@ -1554,12 +1554,12 @@ class TestExtGlobNodes:
         assert proc.returncode != 0
 
     def test_extglob_no_unhandled_warning(self, caplog: pytest.LogCaptureFixture) -> None:
-        """ExtGlob patterns are handled explicitly and never emit a segment.
+        """ExtGlob patterns are handled explicitly and never emit a segment
 
         Guards the fix for the extraction gap: `_extract_segments` has a
         branch for ExtGlob nodes now (extended glob patterns are literal and
         contain no substitutions), so no 'Unhandled AST node type' warning is
-        logged and no phantom command segment is produced.
+        logged and no phantom command segment is produced
         """
         segs = parse_segments("ls *.@(txt|md)")
         assert [s["command"] for s in segs] == ["ls"]
@@ -1622,11 +1622,11 @@ class TestExtGlobNodes:
 
 
 class TestBlockNodes:
-    """Tests for the Block node type (Step 10 of node coverage).
+    """Tests for the Block node type.
 
     Blocks are curly-brace groups: { cmd1; cmd2; }. They execute
     commands in the current shell environment (unlike subshells with
-    parentheses which spawn a new shell).
+    parentheses which spawn a new shell)
     """
 
     def test_simple_block(self) -> None:
@@ -1807,10 +1807,10 @@ class TestBlockNodes:
         assert rp1.value == "txt"
 
     def test_block_andcmd_inside(self) -> None:
-        """Parse { test -f file && cat file; } with BinaryCmd(op='&&') inside Block.
+        """Parse { test -f file && cat file; } with BinaryCmd(op='&&') inside Block
 
-        shfmt represents && as BinaryCmd with Op='&&', not AndCmd.
-        AndCmd is used at statement level (across semicolons), not within blocks.
+        shfmt represents && as BinaryCmd with Op='&&', not AndCmd
+        AndCmd is used at statement level (across semicolons), not within blocks
         """
         tree = parse_ast("{ test -f file && cat file; }")
         cmd = tree.stmts[0].cmd
@@ -1937,10 +1937,10 @@ class TestBlockNodes:
 
 
 class TestFuncDeclNodes:
-    """Tests for the FuncDecl node type (Step 11 of node coverage).
+    """Tests for the FuncDecl node type.
 
     Bash function declarations: name() { body }, function name { body },
-    function name() { body }. The function body is always a Block node.
+    function name() { body }. The function body is always a Block node
     """
 
     def test_func_decl_with_parens(self) -> None:

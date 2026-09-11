@@ -1,4 +1,4 @@
-"""Comprehensive Phase 3 tests: edge cases, error handling,
+"""Comprehensive tests: edge cases, error handling,
 shell features, multi-line commands."""
 
 import pytest

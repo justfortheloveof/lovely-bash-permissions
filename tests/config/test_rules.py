@@ -514,7 +514,7 @@ def test_object_form_background_policy_wildcard() -> None:
 
 
 def test_coproc_named_background_denied() -> None:
-    """BUGZ-013: named coproc block is background execution."""
+    """named coproc block is background execution."""
     tree = parse("coproc myproc { echo hi; }")
     result = check_background_execution(tree, {"background_execution": "deny"})
     assert result["status"] == "deny"
@@ -522,7 +522,7 @@ def test_coproc_named_background_denied() -> None:
 
 
 def test_coproc_anonymous_background_denied() -> None:
-    """BUGZ-013: anonymous coproc block is background execution."""
+    """anonymous coproc block is background execution."""
     tree = parse("coproc { echo hi; }")
     result = check_background_execution(tree, {"background_execution": "deny"})
     assert result["status"] == "deny"
@@ -530,7 +530,7 @@ def test_coproc_anonymous_background_denied() -> None:
 
 
 def test_coproc_single_command_background_denied() -> None:
-    """BUGZ-013: single-command coproc form is background execution."""
+    """single-command coproc form is background execution."""
     tree = parse("coproc echo hi")
     result = check_background_execution(tree, {"background_execution": "deny"})
     assert result["status"] == "deny"
@@ -538,7 +538,7 @@ def test_coproc_single_command_background_denied() -> None:
 
 
 def test_coproc_background_ask() -> None:
-    """BUGZ-013: coproc triggers ask when policy is ask."""
+    """coproc triggers ask when policy is ask."""
     tree = parse("coproc myproc { echo hi; }")
     result = check_background_execution(tree, {"background_execution": "ask"})
     assert result["status"] == "ask"
@@ -546,7 +546,7 @@ def test_coproc_background_ask() -> None:
 
 
 def test_coproc_background_allowed() -> None:
-    """BUGZ-013: coproc is allowed when policy is allow."""
+    """coproc is allowed when policy is allow."""
     tree = parse("coproc myproc { echo hi; }")
     result = check_background_execution(tree, {"background_execution": "allow"})
     assert result["status"] == "allow"
@@ -554,7 +554,7 @@ def test_coproc_background_allowed() -> None:
 
 
 def test_coproc_background_default_ask() -> None:
-    """BUGZ-013: default background policy is ask for coproc."""
+    """default background policy is ask for coproc."""
     tree = parse("coproc myproc { echo hi; }")
     result = check_background_execution(tree, {})
     assert result["status"] == "ask"

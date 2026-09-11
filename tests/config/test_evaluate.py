@@ -959,7 +959,7 @@ class TestResultStructure:
 
 
 class TestTestClausePolicies:
-    """[[ ]] with attached redirections must honor redirection policies (BUGZ-011)."""
+    """[[ ]] with attached redirections must honor redirection policies."""
 
     def test_testclause_output_redirection_denied(self) -> None:
         result = evaluate_bash_command(
@@ -1016,7 +1016,7 @@ class TestTestClausePolicies:
         assert "output redirection denied" in result["reason"]
 
     def test_regex_rhs_no_false_phantom_command(self) -> None:
-        """=~ regex RHS must not be reported as an unmatched command (BUGZ-012)."""
+        """=~ regex RHS must not be reported as an unmatched command."""
         result = evaluate_bash_command(
             "[[ $var =~ pat ]] > /tmp/out",
             make_config(allowed=["^ls$"], wildcard="allow", output="deny"),
@@ -1194,7 +1194,7 @@ class TestVariableAssignment:
 
 
 class TestBackgroundExecutionCompound:
-    """BUGZ-013: background_execution policy covers coproc and compound & forms.
+    """background_execution policy covers coproc and compound & forms.
 
     Configs are built inline because make_config() only emits
     background_execution when it differs from the "allow" default.
@@ -1316,142 +1316,142 @@ class TestTrickyRedirectionPatterns:
     redirections, fd manipulation, and background job combinations.
     """
 
-    def test_phase10_no_space_redirect_empty(self) -> None:
+    def test_no_space_redirect_empty(self) -> None:
         """true>file (no space) should require approval in empty config."""
         result = evaluate_bash_command("true>file", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_no_space_redirect_env2(self) -> None:
+    def test_no_space_redirect_env2(self) -> None:
         """true>file (no space) should require approval in env2 (redirection requires approval)."""
         result = evaluate_bash_command("true>file", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_partial_space_redirect_env2(self) -> None:
+    def test_partial_space_redirect_env2(self) -> None:
         """true> file (partial space) should require approval in env2."""
         result = evaluate_bash_command("true> file", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_no_space_after_redirect_env2(self) -> None:
+    def test_no_space_after_redirect_env2(self) -> None:
         """true >file (no space after) should require approval in env2."""
         result = evaluate_bash_command("true >file", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_chained_redirect_empty(self) -> None:
+    def test_chained_redirect_empty(self) -> None:
         """true > file > file2 should require approval in empty config."""
         result = evaluate_bash_command("true > file > file2", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_chained_redirect_env2(self) -> None:
+    def test_chained_redirect_env2(self) -> None:
         """true > file > file2 should require approval in env2."""
         result = evaluate_bash_command("true > file > file2", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_mixed_direction_redirect_empty(self) -> None:
+    def test_mixed_direction_redirect_empty(self) -> None:
         """true > file < file2 should require approval in empty config."""
         result = evaluate_bash_command("true > file < file2", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_mixed_direction_redirect_env2(self) -> None:
+    def test_mixed_direction_redirect_env2(self) -> None:
         """true > file < file2 should require approval in env2."""
         result = evaluate_bash_command("true > file < file2", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_stderr_to_stdout_empty(self) -> None:
+    def test_stderr_to_stdout_empty(self) -> None:
         """true > file 2>&1 should require approval in empty config."""
         result = evaluate_bash_command("true > file 2>&1", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_stderr_to_stdout_env2(self) -> None:
+    def test_stderr_to_stdout_env2(self) -> None:
         """true > file 2>&1 should require approval in env2."""
         result = evaluate_bash_command("true > file 2>&1", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_background_empty(self) -> None:
+    def test_background_empty(self) -> None:
         """true > file & should require approval in empty config."""
         result = evaluate_bash_command("true > file &", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_background_env2(self) -> None:
+    def test_background_env2(self) -> None:
         """true > file & should require approval in env2."""
         result = evaluate_bash_command("true > file &", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_devnull_empty(self) -> None:
+    def test_devnull_empty(self) -> None:
         """cmd > /dev/null should require approval in empty config."""
         result = evaluate_bash_command("cmd > /dev/null", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_devnull_env2(self) -> None:
+    def test_devnull_env2(self) -> None:
         """cmd > /dev/null should require approval in env2 (cmd not allowed)."""
         result = evaluate_bash_command("cmd > /dev/null", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_devnull_env3(self) -> None:
+    def test_devnull_env3(self) -> None:
         """cmd > /dev/null should require approval in env3 (cmd not allowed)."""
         result = evaluate_bash_command("cmd > /dev/null", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_devnull_input_empty(self) -> None:
+    def test_devnull_input_empty(self) -> None:
         """cmd < /dev/null should require approval in empty config."""
         result = evaluate_bash_command("cmd < /dev/null", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_devnull_chain_empty(self) -> None:
+    def test_devnull_chain_empty(self) -> None:
         """true > /dev/null 2>&1 > /dev/null should require approval in empty config."""
         result = evaluate_bash_command("true > /dev/null 2>&1 > /dev/null", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_devnull_chain_env2(self) -> None:
+    def test_devnull_chain_env2(self) -> None:
         """true > /dev/null 2>&1 > /dev/null should require approval in env2."""
         result = evaluate_bash_command("true > /dev/null 2>&1 > /dev/null", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_save_fd_empty(self) -> None:
+    def test_save_fd_empty(self) -> None:
         """true 3>&1 > /dev/null should require approval in empty config."""
         result = evaluate_bash_command("true 3>&1 > /dev/null", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_save_fd_env2(self) -> None:
+    def test_save_fd_env2(self) -> None:
         """true 3>&1 > /dev/null should require approval in env2."""
         result = evaluate_bash_command("true 3>&1 > /dev/null", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_save_fd_after_empty(self) -> None:
+    def test_save_fd_after_empty(self) -> None:
         """true > /dev/null 3>&1 should require approval in empty config."""
         result = evaluate_bash_command("true > /dev/null 3>&1", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_save_fd_after_env2(self) -> None:
+    def test_save_fd_after_env2(self) -> None:
         """true > /dev/null 3>&1 should require approval in env2."""
         result = evaluate_bash_command("true > /dev/null 3>&1", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_redirect_order_empty(self) -> None:
+    def test_redirect_order_empty(self) -> None:
         """true > file </dev/null should require approval in empty config."""
         result = evaluate_bash_command("true > file </dev/null", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_redirect_order_env2(self) -> None:
+    def test_redirect_order_env2(self) -> None:
         """true > file </dev/null should require approval in env2."""
         result = evaluate_bash_command("true > file </dev/null", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_other_redirect_order_empty(self) -> None:
+    def test_other_redirect_order_empty(self) -> None:
         """true </dev/null > file should require approval in empty config."""
         result = evaluate_bash_command("true </dev/null > file", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_other_redirect_order_env2(self) -> None:
+    def test_other_redirect_order_env2(self) -> None:
         """true </dev/null > file should require approval in env2."""
         result = evaluate_bash_command("true </dev/null > file", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_complex_bg_empty(self) -> None:
+    def test_complex_bg_empty(self) -> None:
         """true > file1 2>&1 & true > file2 should require approval in empty config."""
         result = evaluate_bash_command("true > file1 2>&1 & true > file2", make_config())
         assert result["status"] == "ask"
 
-    def test_phase10_complex_bg_env2(self) -> None:
+    def test_complex_bg_env2(self) -> None:
         """true > file1 2>&1 & true > file2 should require approval in env2."""
         result = evaluate_bash_command("true > file1 2>&1 & true > file2", make_config())
         assert result["status"] == "ask"

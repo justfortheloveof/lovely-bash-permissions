@@ -367,7 +367,7 @@ class TestTestClauses:
 
 
 class TestTestClauseRedirections:
-    """[[ ]] statements with attached redirections (BUGZ-011)."""
+    """[[ ]] statements with attached redirections."""
 
     def test_testclause_output_redirection_synthetic_segment(self) -> None:
         segs = parse_segments("[[ -f file ]] > /tmp/out")
@@ -410,7 +410,7 @@ class TestTestClauseRedirections:
 
 
 class TestTestClauseRegexOperands:
-    """[[ ]] =~ and comparison operands must not be treated as commands (BUGZ-012)."""
+    """[[ ]] =~ and comparison operands must not be treated as commands."""
 
     def test_regex_match_rhs_not_a_command(self) -> None:
         assert parse_segments("[[ $var =~ pat ]]") == []

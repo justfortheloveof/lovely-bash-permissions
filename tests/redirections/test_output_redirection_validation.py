@@ -159,13 +159,13 @@ class TestOutputRedirectionValidation:
         assert (real_devin.is_file() and real_devin.read_bytes() == before) or not real_devin.is_file()
 
     def test_truncate_redir_denied(self, tmp_path: Path) -> None:
-        """BUGZ-014: `<>` (truncate) is treated as an output redirection."""
+        """`<>` (truncate) is treated as an output redirection."""
         write_local_config({"*": "allow", "output_redirection": "deny"}, tmp_path)
         r = run_test("cat <> /tmp/out.txt", project_dir=tmp_path, tmp_global_dir=tmp_path)
         assert decision_of(r) == "block"
 
     def test_truncate_redir_ask(self, tmp_path: Path) -> None:
-        """BUGZ-014: `<>` (truncate) triggers output_redirection ask policy."""
+        """`<>` (truncate) triggers output_redirection ask policy."""
         write_local_config({"*": "allow", "output_redirection": "ask"}, tmp_path)
         r = run_test("cat <> /tmp/out.txt", project_dir=tmp_path, tmp_global_dir=tmp_path)
         assert decision_of(r) == "ask"

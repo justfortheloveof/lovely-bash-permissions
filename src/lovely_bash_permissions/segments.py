@@ -188,7 +188,7 @@ def _extract_segments(
             # commands — `[[ -f x ]] > f`). Emit a synthetic segment carrying
             # the redirections so input/output redirection policies apply
             # instead of falling through to the empty-segment wildcard
-            # short-circuit (BUGZ-011). For `[[ ]]` this fires even when the
+            # short-circuit. For `[[ ]]` this fires even when the
             # body yielded pseudo-command segments: statement redirections must
             # not be scattered onto test-expression pseudo-commands.
             command = "[[" if isinstance(node.cmd, TestClause) else ""
@@ -374,7 +374,7 @@ def _extract_segments(
         # Note: statement-level redirections (e.g. `[[ -f x ]] > file`) are NOT
         # propagated here — they are surfaced by the Stmt handler's synthetic
         # segment, since test-expression nodes are pseudo-commands, not real
-        # command leaves (BUGZ-011).
+        # command leaves.
         if hasattr(node, "body") and node.body:
             segments.extend(_extract_segments(node.body, _in_test_expr=True))
 
@@ -383,7 +383,7 @@ def _extract_segments(
         # "command" to check. Every other operator's right operand is a value
         # (regex for =~, literal/glob for ==/!=, number for -eq, ...), never a
         # command name — recurse WITHOUT test-expr context so only nested
-        # command substitutions inside it are extracted (BUGZ-012).
+        # command substitutions inside it are extracted.
         if hasattr(node, "right") and node.right:
             in_test_expr = node.op in ("&&", "||")
             segments.extend(_extract_segments(node.right, _in_test_expr=in_test_expr))
