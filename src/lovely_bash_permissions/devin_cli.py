@@ -21,9 +21,8 @@ from .config.effective_bash import get_effective_bash_config
 from .config.jsonc import read_jsonc_file
 from .config.loader import get_permissions_config_file_paths
 from .config.manager import PermissionsManager
-from .hook import generate_hook_response, process_hook_event
+from .hook import HOOK_LABEL_PREFIX, generate_hook_response, process_hook_event
 
-HOOK_LABEL_PREFIX = "[♡ perms: "
 LABEL_EXEC_NAME = "Exec(: '[♡ perms:)"
 
 

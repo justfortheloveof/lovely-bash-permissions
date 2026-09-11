@@ -10,6 +10,29 @@ from .config.effective_bash import get_effective_bash_config
 from .config.manager import PermissionsManager
 from .evaluate import evaluate_bash_command
 
+HOOK_LABEL_PREFIX = "[♡ perms: "
+
+#: (emoji, status label) per decision action — single source for both the
+#: label prefix and the trailing marker after the label.
+HOOK_STATUS = {
+    "allow": ("💚", "auto-approved"),
+    "ask": ("💛", "REQUIRES-USER-APPROVAL"),
+    "block": ("❤️", "auto-rejected"),
+}
+
+
+def _hook_label(action: str, reason: str) -> str:
+    """Build e.g. '[♡ perms: 💚 auto-approved] reason'."""
+    emoji, status = HOOK_STATUS[action]
+    label = f"{HOOK_LABEL_PREFIX}{emoji} {status}]"
+    return f"{label} {reason}" if reason else label
+
+
+def _hook_command(action: str, reason: str, command: str) -> str:
+    """Wrap a command: ': '<label>' <emoji> ; <command>'."""
+    emoji, _ = HOOK_STATUS[action]
+    return f": '{_hook_label(action, reason)}' {emoji} ; {command}"
+
 
 def generate_hook_response(event: dict[str, Any], decision: dict[str, Any]) -> dict[str, Any] | None:
     """Generate hook response JSON for agent tool permission events.
@@ -36,32 +59,27 @@ def generate_hook_response(event: dict[str, Any], decision: dict[str, Any]) -> d
         if tool_name != "exec" or not command:
             return None
         if action == "allow":
-            label = f"[♡ perms: 💚 auto-approved] {reason}" if reason else "[♡ perms: 💚 auto-approved]"
             return {
                 "decision": "approve",
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
-                    "updatedInput": {"command": f": '{label}' ; {command}"},
+                    "updatedInput": {"command": _hook_command(action, reason, command)},
                 },
             }
         elif action == "block":
-            label = f"[♡ perms: ❤️ auto-rejected] {reason}" if reason else "[♡ perms: ❤️ auto-rejected]"
             return {
                 "decision": "block",
-                "reason": f"[♡ perms: ❤️ auto-rejected] {reason}" if reason else "[♡ perms: ❤️ auto-rejected]",
+                "reason": _hook_label(action, reason),
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
-                    "updatedInput": {"command": f": '{label}' ; {command}"},
+                    "updatedInput": {"command": _hook_command(action, reason, command)},
                 },
             }
         elif action == "ask":
-            label = (
-                f"[♡ perms: 💛 REQUIRES-USER-APPROVAL] {reason}" if reason else "[♡ perms: 💛 REQUIRES-USER-APPROVAL]"
-            )
             return {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
-                    "updatedInput": {"command": f": '{label}' ; {command}"},
+                    "updatedInput": {"command": _hook_command(action, reason, command)},
                 }
             }
 
@@ -71,8 +89,7 @@ def generate_hook_response(event: dict[str, Any], decision: dict[str, Any]) -> d
         if action == "allow":
             return {"decision": "approve"}
         elif action == "block":
-            label = f"[♡ perms: ❤️ auto-rejected] {reason}" if reason else "[♡ perms: ❤️ auto-rejected]"
-            return {"decision": "block", "reason": label}
+            return {"decision": "block", "reason": _hook_label(action, reason)}
         elif action == "ask":
             return None
 

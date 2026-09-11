@@ -24,7 +24,7 @@ def test_pretooluse_allow() -> None:
     output = result["hookSpecificOutput"]
     assert output["hookEventName"] == "PreToolUse"
     updated = output["updatedInput"]["command"]
-    assert updated == ": '[♡ perms: 💚 auto-approved]' ; ls"
+    assert updated == ": '[♡ perms: 💚 auto-approved]' 💚 ; ls"
 
 
 def test_pretooluse_block() -> None:
@@ -47,7 +47,7 @@ def test_pretooluse_ask() -> None:
     assert result is not None
     output = result["hookSpecificOutput"]
     updated = output["updatedInput"]["command"]
-    assert updated == ": '[♡ perms: 💛 REQUIRES-USER-APPROVAL]' ; ls"
+    assert updated == ": '[♡ perms: 💛 REQUIRES-USER-APPROVAL]' 💛 ; ls"
 
 
 def test_pretooluse_skip() -> None:
