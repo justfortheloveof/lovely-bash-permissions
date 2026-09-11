@@ -5,35 +5,7 @@ aggregation behavior, and edge cases.
 """
 
 from lovely_bash_permissions.evaluate import evaluate_bash_command
-
-
-def make_config(
-    allowed: list[str] | None = None,
-    blocked: list[str] | None = None,
-    output: str = "allow",
-    input_redir: str = "allow",
-    background: str = "allow",
-    subshell: str = "ask",
-    wildcard: str = "ask",
-    variable_assignment: str | None = None,
-) -> dict[str, list[str] | str]:
-    """Helper to create test configuration."""
-    config: dict[str, list[str] | str] = {"*": wildcard}
-    if allowed is not None:
-        config["allowed_cmds_regex"] = allowed
-    if blocked is not None:
-        config["blocked_paths_regex"] = blocked
-    if output != "allow":
-        config["output_redirection"] = output
-    if input_redir != "allow":
-        config["input_redirection"] = input_redir
-    if background != "allow":
-        config["background_execution"] = background
-    if subshell != "ask":
-        config["subshell"] = subshell
-    if variable_assignment is not None:
-        config["variable_assignment"] = variable_assignment
-    return config
+from tests.config.conftest import make_config
 
 
 class TestAllowedPatterns:

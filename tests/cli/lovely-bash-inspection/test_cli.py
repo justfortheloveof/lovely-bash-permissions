@@ -4,7 +4,7 @@ Tests for CLI output of redirection placement.
 The bug being regression-tested: redirections in multi-segment bash pipelines
 were being dropped by the CLI renderer. The fix reworked cli.py so each
 segment's redirection renders immediately after the command that owns it.
-Per-side AST data coverage lives in tests/test_binary_redirs.py.
+Per-side AST data coverage lives in tests/parsing/test_binary_redirs.py.
 """
 
 import pytest

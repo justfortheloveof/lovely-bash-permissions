@@ -105,39 +105,6 @@ def run_cli_in_process(
     return captured.getvalue()
 
 
-@pytest.fixture
-def tmp_project(tmp_path: Path) -> Path:
-    """Create a temporary project directory."""
-    project_dir = tmp_path / "test-project"
-    project_dir.mkdir()
-    return Path(project_dir)
-
-
-@pytest.fixture
-def project_with_bash_config(tmp_project: Path) -> Path:
-    """Create a project directory with a devin config for bash rules."""
-    project_dir = tmp_project
-    devin_dir = project_dir / ".devin"
-    devin_dir.mkdir()
-    # Create config with bash rules in the devin config location
-    config = {
-        "bash": {
-            "allowed_cmds_regex": ["^git", "^ls", "^cat"],
-            "blocked_paths_regex": ["curl"],
-        }
-    }
-    with open(devin_dir / "config.json", "w") as f:
-        json.dump(config, f)
-    with open(devin_dir / "lovely-permissions.local.jsonc", "w") as f:
-        json.dump({}, f)
-    # Also create the lovely-permissions.jsonc file
-    with open(devin_dir / "lovely-permissions.jsonc", "w") as f:
-        json.dump(config, f)
-    with open(devin_dir / "lovely-permissions.local.jsonc", "w") as f:
-        json.dump({}, f)
-    return Path(project_dir)
-
-
 class TestCliSetup:
     """Test --setup flag: adds label exec permission to devin global config."""
 

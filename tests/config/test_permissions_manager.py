@@ -12,17 +12,6 @@ from lovely_bash_permissions.config.manager import PermissionsManager
 pytestmark = pytest.mark.usefixtures("devin_global_config_dir")
 
 
-@pytest.fixture
-def mock_project(tmp_path: Path) -> Path:
-    """Create a temporary project directory with .devin subdirectory."""
-    devin_dir = tmp_path / ".devin"
-    devin_dir.mkdir()
-    # Create local config (empty) so no parse errors
-    with open(devin_dir / "lovely-permissions.local.jsonc", "w") as f:
-        json.dump({}, f)
-    return tmp_path
-
-
 class TestPermissionsManagerConstruction:
     """Test PermissionsManager constructor behavior."""
 

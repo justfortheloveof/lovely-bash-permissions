@@ -4,33 +4,10 @@ Tests generate_hook_response and process_hook_event across allow/block/ask/skip
 decision paths, plus config-load-failure fallback behavior.
 """
 
-from typing import Any
 from unittest.mock import patch
 
 from lovely_bash_permissions.hook import generate_hook_response, process_hook_event
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _pretooluse_exec_event(command: str = "ls") -> dict[str, Any]:
-    """Return a PreToolUse event for tool 'exec'."""
-    return {
-        "hook_event_name": "PreToolUse",
-        "tool_name": "exec",
-        "tool_input": {"command": command},
-    }
-
-
-def _permission_request_event(command: str = "ls") -> dict[str, Any]:
-    """Return a PermissionRequest event for tool 'exec'."""
-    return {
-        "hook_event_name": "PermissionRequest",
-        "tool_name": "exec",
-        "tool_input": {"command": command},
-    }
-
+from tests.integrations.conftest import _permission_request_event, _pretooluse_exec_event
 
 # ---------------------------------------------------------------------------
 # 1–4: PreToolUse decision paths via generate_hook_response
