@@ -127,14 +127,15 @@ EVIDENCE: <shfmt AST validation, if available>
 - `true > /file` (root)
 - `true > ~user/file` (home expansion)
 - `true > /path/with spaces/file` (spaces in path)
-**Results:** 21 tests run across 3 config environments (empty, env2, env3). 20 confirmed correct, 1 bug found.
+**Results:** 21 tests run across 3 config environments (empty, env2, env3). 20 confirmed correct, 1 bug found. ✅ **Re-reviewed & CONFIRMED STILL PRESENT (canonical #32, BUGZ-014)** — the suggested fix ("add <> to WRITE_REDIRECT_OPS") was never applied.
 
 BUG: <> (truncate) redirection not detected as output redirection
 COMMAND: cat <> file
 TOOL OUTPUT: {"decision": "approve", "hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": {"command": ": '[♡ perms: 💚 auto-approved] command matches allowed pattern ^cat.' ; cat <> file"}}}
 EXPECTED: Should require approval (ask) because <> opens the file for read/write AND truncates it (writes to the file).
 EVIDENCE: shfmt parses <> as: "Op": "<>". The tool's rules.py has WRITE_REDIRECT_OPS = {">", ">>", ">|", "&>", ">&", "&>>"} — does NOT include <>. check_input_redirection only looks for "<" or "<<". Since <> matches neither category, the tool treats it as a non-redirection and only checks the command pattern (^cat), which passes. But in bash, cat <> file creates/truncates file — it's a write operation.
-FIX: Add "<>" to WRITE_REDIRECT_OPS in src/lovely_bash_permissions/rules.py.
+FIX (proposed, NOT applied): Add "<>" to WRITE_REDIRECT_OPS in src/lovely_bash_permissions/rules.py.
+REPRO (2026-09-11, verified): config `{"bash":{"*":"allow","output_redirection":"deny","allowed_cmds_regex":["^cat"]}}` → `cat <> /tmp/out` → 💚 auto-approved (while `cat > /tmp/out`, `cat >> /tmp/out` → ❤️ auto-rejected, `cat < /tmp/out` → ask). `<>` bypasses `output_redirection` entirely.
 
 **Deliverable:** All tests run, results documented, bugs reported
 
@@ -200,26 +201,27 @@ All tests correctly required approval or allowed based on config. The tool corre
 - `var=$(echo test)` (no redirection in substitution)
 - `echo $(ls /) > file` (ls in substitution, redirect outside)
 - `$(echo hi > file)` (standalone substitution)
-**Results:** 20+ targeted tests across three environments (empty, env2 with basic allow rules, env3 with complex regex patterns). Found **3 confirmed bugs** in command substitution handling:
+**Results:** 20+ targeted tests across three environments (empty, env2 with basic allow rules, env3 with complex regex patterns). Found **3 confirmed bugs** in command substitution handling. ✅ **Re-reviewed 2026-09-11: 0 real bugs.**
 
 BUG #1: Substitution args not counted (env3)
 COMMAND: cat $(echo files.txt)
 TOOL OUTPUT: "REQUIRES-USER-APPROVAL"
 EXPECTED: Should be approved since cat with args is allowed in env3 (pattern ^cat\s+.*). But substitution args are not counted when matching the pattern.
+VERDICT: ❌ NOT A BUG (known limitation) — deliberate safety heuristic: `_command_string`/`_match_allowed_patterns` only matches the full command line when an argument holds a *real* value; opaque `$(...)` placeholders match on command name only (evaluate.py:101-111). Prevents `^cat\s+.*` from approving `cat $(rm -rf /)`. Conservative (asks more), never unsafe.
 
 BUG #2: Standalone substitution with redirection (env2)
 COMMAND: $(echo hello) > output.txt
 TOOL OUTPUT: "REQUIRES-USER-APPROVAL"
-EXPECTED: Should be approved since echo is allowed in env2. But the outer substitution wraps an allowed command but is treated as "$(...)" command.
+VERDICT: ❌ NOT A BUG — the ask is driven by the **output redirection** `> output.txt` (env2 `output_redirection` default = ask). The agent's expectation ignored the redirect. Reproduced: reason = `output redirection requires approval; "$(...)" command ...`.
 
 BUG #3: Variable assignment with substitution (env2)
 COMMAND: var=$(echo hello)
 TOOL OUTPUT: "REQUIRES-USER-APPROVAL"
-EXPECTED: Should be approved since echo is allowed in env2. But substitution in variable assignments isn't recognized as a separate command.
+VERDICT: ❌ NOT A BUG — env2 `variable_assignment` default is **ask**; `var=$(...)` is a variable assignment → ask is correct. The agent's expectation ignored the variable_assignment policy.
 
 Correct behavior verified: cat <(ls) → approve ✓, ls | cat $(ls) → approve ✓, cat $(ls) → approve ✓.
 
-Root cause: shfmt JSON treats command substitutions differently than literal arguments, and the segments extraction in segments.py doesn't recognize substitution-wrapped allowed commands.
+Root cause note: shfmt JSON treats command substitutions differently than literal arguments, and the segments extraction in segments.py doesn't count substitution-wrapped args toward arg-requiring patterns — a conservative design tradeoff, not a defect.
 
 **Deliverable:** All tests run, results documented, bugs reported
 
@@ -331,10 +333,11 @@ Tested 17 patterns across 3 isolated environments:
 - Empty config: All patterns require approval (expected)
 - Env2: 2 bugs found
 - Env3: 15 bugs found
+- ✅ **Re-reviewed 2026-09-11 with a config matching the agent's "Env3 (complex: variable_assignment allow, echo/cat allowed, all policies allow)": all 17 patterns AUTO-APPROVE today — 0 real bugs.** The reported env2 asks are caused by correct policy defaults (env2 `variable_assignment` default = ask; `> out`/`> file` output redirection default = ask), NOT by "var assignment overriding cat" or "substitution overriding" — the env2 ask reasons reproduce as `variable assignment requires approval: ['VAR=value']` and `output redirection requires approval`, identical to plain `cat f.txt > out`. Pattern #16 (`cmd $(echo hi)`) asks because `cmd` is not an allowed command — correct.
 
-**Total bugs found: 17**
+**Total bugs found: 17** (as originally counted — see verdicts below; 0 confirmed as real)
 
-**Bugs Found:**
+**Bugs Found:** (✅ re-reviewed 2026-09-11: all entries below = ❌ NOT BUGS / false positives — see batch verdict above; ask reasons trace to correct policy defaults, and all 17 patterns approve under the matching config)
 
 BUG: Variable assignment with allowed command in env2 (var assignment overrides)
 COMMAND: VAR=value cat /tmp/f.txt > /tmp/out
@@ -603,14 +606,14 @@ All tests passed. Complex nested constructs including: nested conditionals, for 
 ### Phase 13: Advanced Bash Constructs
 **Status:** complete
 **Results:**
-Found **1 bug**. coproc without redirection auto-approved in env2/env3 when it should require approval.
+Found **1 bug** (✅ **reviewed & CONFIRMED as REAL** — canonical bug #25, documented BUGZ-013).
 
 BUG: coproc without redirection auto-approved in env2/env3 when it should require approval
 - COMMAND: coproc myproc { echo hi; }
 - ENV: env2 (allowed: ^echo), env3 (allowed: ^echo)
 - EXPECTED: REQUIRES-USER-APPROVAL (coproc is a distinct bash construct that creates coprocesses)
 - ACTUAL: approve "command matches allowed pattern ^echo"
-- Root cause: parser extracts inner commands from coproc bodies and matches them against allowed patterns, but coproc itself is not in the allowed list.
+- Root cause (confirmed by re-review): `check_background_execution` in rules.py only inspects `stmt["Background"]`, and `_find_background_flags` only handles CallExpr/BinaryCmd/AndCmd/OrCmd. A `CoprocClause` is a separate AST node type and never triggers the `background_execution` policy, so `coproc NAME { cmd; }` bypasses `background_execution: deny/ask` — verified: `echo hi &` → rejected under deny, `coproc myproc { echo hi; }` → auto-approved. (The agent's stated cause "coproc not in allowed list" is wrong; it's a background-policy bypass.)
 **Objective:** Test process substitution, coproc, traps, functions
 **Test Families:**
 - Process substitution: `cat <(echo hi) > file`
@@ -630,47 +633,43 @@ BUG: coproc without redirection auto-approved in env2/env3 when it should requir
 ### Phase 14: Combined and Edge Cases
 **Status:** complete
 **Objective:** Test all features combined and unusual bash patterns
-**Results:** Ran 36 test families across all 3 environments (108 total). Found **65 bugs** (many duplicates of same root causes). Key unique bugs:
+**Results:** Ran 36 test families across all 3 environments (108 total). Found **65 bugs** (many duplicates of same root causes). ✅ **Orchestrator review: all 6 unique bugs below = NOT BUGS (false positives) — Phase 14 contributed 0 real bugs.** Per-bug verdicts:
 
 BUG #23: [ / test / [[ / ]] builtins not recognized as allowed
 COMMAND: if [ $(echo hi) ]; then cat <<< "x" | grep x > /tmp/out; fi
 ENV: env2 (allowed: ^ls, ^true, ^echo, ^cat, ^grep, ^find)
 TOOL OUTPUT: REQUIRES-USER-APPROVAL, "[" command does not match allowed patterns
-EXPECTED: Should be auto-approved — [ is a bash builtin, and all the commands inside ([, echo, cat, grep) match allowed patterns
-EVIDENCE: shfmt shows CallExpr with "[" as the command. test/[[/]] have the same issue. They're builtins that should be recognized.
-FILES: src/lovely_bash_permissions/evaluate.py
+EXPECTED: Should be auto-approved — [ is a bash builtin
+VERDICT: ❌ NOT A BUG — `[` is not in the env2 allow-list; ask is correct config behavior (same premise as Phase 9). `> /tmp/out` also asks independently.
 
 BUG #24: while read ... done <(...) construct fails to parse
 COMMAND: while read line; do echo $line > /tmp/out; done <(echo hi)
 ENV: env2
 TOOL OUTPUT: ParseError: Failed to parse: statements must be separated by &, ; or a newline
-EXPECTED: Should parse as a while loop with process substitution as input
-EVIDENCE: shfmt can parse `while read line; do echo $line; done <(echo hi)` but the redirect after done confuses it
-FILES: src/lovely_bash_permissions/shfmt_json.py (or shfmt itself)
+VERDICT: ❌ NOT A BUG — the command is genuinely **invalid bash**: `bash -n -c '...done <(echo hi)'` → syntax error (exit 2). Process substitution is only valid as `<(cmd)` inside an argument/redirection target; the valid form `done < <(echo hi)` parses and evaluates fine.
 
 BUG #25: Quoted redirect target becomes filename
 COMMAND: 'single' > /tmp/out
 ENV: env2
-TOOL OUTPUT: Approves as creating a file named 'single'
-EXPECTED: This is actually correct behavior — a quoted word followed by > is a redirect with the quoted word as filename
+VERDICT: ❌ NOT A BUG — agent itself concluded this is correct behavior (quoted word is a valid command name).
 
 BUG #26: Empty/whitespace-only commands
 COMMAND: (just whitespace)
 ENV: env_empty
-TOOL OUTPUT: Requires approval with "no commands to evaluate"
-EXPECTED: Empty commands should probably be trivially allowed
+TOOL OUTPUT: Requires approval via "ParseError: Empty command" → wildcard ask
+VERDICT: ❌ NOT A BUG — safe conservative default for a no-op; cosmetic at most. (Empty config with no rules already special-cases to "allow"; whitespace through `parse()` raises Empty command → ask.)
 
 BUG #27: Heredocs in pipelines
 COMMAND: cat << EOF | grep pattern > /tmp/out
 ENV: env2
-TOOL OUTPUT: Requires approval, cat/grep not matched
-EXPECTED: Should auto-approve — cat and grep match allowed patterns
+TOOL OUTPUT: ParseError: unclosed here-document `EOF`
+VERDICT: ❌ NOT A BUG — single-line heredoc without body is an unclosed heredoc (shfmt/basically invalid). Valid multiline `cat << EOF | grep pattern > /tmp/out\n...\nEOF` parses and correctly REQUIRES approval for the `> /tmp/out` output redirection (env2 output_redirection = ask), with cat/grep segments allowed.
 
 BUG #28: Nested substitution in conditionals
 COMMAND: if $(test -f <(echo hi)); then cat <<< $(echo ok) > /tmp/out; fi
 ENV: env2
-TOOL OUTPUT: ParseError: Failed to parse
-EXPECTED: Should parse the nested substitutions and approve
+TOOL OUTPUT: (reported ParseError) — NOT reproducible on current code
+VERDICT: ❌ NOT A BUG — command parses fine; output REQUIRES approval because `test` (inside `$(...)`) doesn't match env2 allow-list and `> /tmp/out` asks. Correct behavior.
 
 **Deliverable:** All tests run, results documented, bugs reported
 
@@ -716,30 +715,54 @@ lovely-bash-permissions parses bash commands into structured AST using shfmt-py,
 
 Total bugs documented: **87 / 50** (goal exceeded)
 
+> ⚠️ **Orchestrator review in progress:** Bugs 1–8 confirmed & fixed. Bugs 9–22
+> (Phase 9 "builtins not recognized") were re-reviewed against the env3 allow-list:
+> **#9–#22 except #14 = false positives (NOT BUGS)** — those commands simply aren't in
+> the env3 allow-list; "ask" is correct config-driven behavior. Review of #14 uncovered
+> **two genuine bugs (#23, #24): `[[ ]]` drops attached redirections and miscategorizes
+> `=~` operands**, documented in BUGZ.md. The **Phase 13 coproc bug (#25)** was confirmed
+> as a REAL bug: `CoprocClause` never triggers `background_execution` (BUGZ-013).
+> ✅ **Phase 4 (#3) & Phase 7 (17) candidate bugs re-reviewed: all NOT BUGS / false positives** (ask reasons are output_redirection / variable_assignment defaults; all approve under the matching config). Phase 14 contributed 0 real bugs.
+>
+> **CONFIRMED REAL bugs so far from review: #23 (`[[ ]]` drops redirs), #24 (`=~` RHS as command), #25 (coproc bg bypass), #32 (`<>` truncate bypass — STILL UNFIXED).**
+>
+> Effective 2026-09-11, the previously-"fixed" bugs #1–#8 were re-reviewed from git history + live repro (see BUGZ-015). No separate fix commits exist for #1–#7 beyond the redirection/kind rework (569eada "per-kind output redirection", a25ce78 "add >| to WRITE_REDIRECT_OPS") and the pattern/anchor rework (4aaa39b); #8 has a real fix (dd113cf + 886b48a). **#1–#3, #6–#8 verified working; #4 PARTIAL (tee gated by blocked_paths_regex but NOT by output_redirection); #5 NOT FIXED (no `tee -a` recognition) — #4/#5 flagged as residual for review.**
+> 🎯 **Still pending fix: #32 is the only one not yet fixed.** #23/#24/#25 are documented; fixes pending.
+
 Phases completed: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
 Phases remaining: none
 
 ### Bugs Found So Far:
-1. **Phase 0:** `>` vs `>>` indistinguishable by tool (fixed)
-2. **Phase 0:** `> file1 >> file2` treated as single write (fixed)
-3. **Phase 0:** `2> /dev/null` treated as stdout redirect (fixed)
-4. **Phase 1:** `tee` writes multiple targets but tool only checks stdin args (fixed)
-5. **Phase 1:** `tee -a` behaves like append but tool doesn't recognize it (fixed)
-6. **Phase 2:** `cp` doesn't match patterns (fixed)
-7. **Phase 2:** `rm -r` matches more broadly than needed (fixed)
-8. **Phase 7:** `variable_assignment` config key rejected as unknown (fixed)
-9. **Phase 9:** `cd` builtin not recognized as allowed (env3)
-10. **Phase 9:** `cd /` not recognized as allowed (env3)
-11. **Phase 9:** `cd ~` not recognized as allowed (env3)
-12. **Phase 9:** `test -f file` builtin not recognized (env3)
-13. **Phase 9:** `[ -f file ]` builtin not recognized (env3)
-14. **Phase 9:** `[[ -f file ]]` builtin not recognized (env3)
-15. **Phase 9:** `test -d /` builtin not recognized (env3)
-16. **Phase 9:** `[ -d / ]` builtin not recognized (env3)
-17. **Phase 9:** `test -r file && test -w file > out` builtin not recognized (env3)
-18. **Phase 9:** `[ -e file ] && cat file > out` cat allowed but [ not (env3)
-19. **Phase 9:** `[ -z "$var" ]` builtin not recognized (env3)
-20. **Phase 9:** `[ -n "$var" ]` builtin not recognized (env3)
-21. **Phase 9:** `eval "echo hi > file"` eval builtin not recognized (env3)
-22. **Phase 9:** `exec > file` exec builtin not recognized (env3)
+1. **Phase 0:** `>` vs `>>` indistinguishable by tool ✅ **re-reviewed: FIXED & VERIFIED** (`>`/`>>`/`>|`/`&>`/`>&`/`&>>` all in WRITE_REDIRECT_OPS; all denied under `output_redirection:deny`; no truncate-vs-append policy kind exists by design — BUGZ-015)
+2. **Phase 0:** `> file1 >> file2` treated as single write ✅ **re-reviewed: FIXED & VERIFIED** (multi-target redirs collected; reason lists both: "denied to /tmp/a, /tmp/b" — BUGZ-015)
+3. **Phase 0:** `2> /dev/null` treated as stdout redirect ✅ **re-reviewed: FIXED & VERIFIED** (fd-aware classification: `2>/dev/null`→`stderr_to_dev_null`, `>/dev/null`→`stdout_to_dev_null`, `2>&1`→`stderr_to_stdout`, `&>/dev/null`→both — BUGZ-015)
+4. **Phase 1:** `tee` writes multiple targets but tool only checks stdin args ⚠️ **re-reviewed: PARTIAL** — blocked_paths_regex DOES block tee file args (verified, incl. in pipes), BUT `output_redirection: deny` does NOT gate `tee /tmp/out` (auto-approved — BUGZ-015)
+5. **Phase 1:** `tee -a` behaves like append but tool doesn't recognize it ❌ **re-reviewed: NOT FIXED / unverifiable** — no `-a` handling exists anywhere; behaves identically to `tee` under all policies (plus same output_redirection gap as #4 — BUGZ-015)
+6. **Phase 2:** `cp` doesn't match patterns ✅ **re-reviewed: WORKS** (`^cp` approves `cp file1 file2` and `cp -r dir dest`; `^rm$`/`^cp$` anchors respected — expected raw-regex semantics — BUGZ-015)
+7. **Phase 2:** `rm -r` matches more broadly than needed ✅ **re-reviewed: WORKS / NOT A BUG** (`^rm$` rejects `rm -r`/`rm -rf`; raw `rm -r` prefix-matches `rm -rf` by standard regex semantics — anchor with `^rm -r$` to restrict — BUGZ-015)
+8. **Phase 7:** `variable_assignment` config key rejected as unknown ✅ **re-reviewed: FIXED & VERIFIED** (schema.py:54 recognized field + runtime policy in evaluate.py + typo warns "unknown config key"; `FOO=bar` denied under `variable_assignment:deny` — BUGZ-015)
+9. **Phase 9:** `cd` builtin not recognized as allowed (env3) ✅ processed — NOT A BUG (false positive: env3 allow-list has no `^cd`; config-driven behavior is correct; no builtin auto-approval in design)
+10. **Phase 9:** `cd /` not recognized as allowed (env3) ✅ processed — NOT A BUG (same root cause as #9)
+11. **Phase 9:** `cd ~` not recognized as allowed (env3) ✅ processed — NOT A BUG (same root cause as #9)
+12. **Phase 9:** `test -f file` builtin not recognized (env3) ✅ processed — NOT A BUG (same root cause as #9)
+13. **Phase 9:** `[ -f file ]` builtin not recognized (env3) ✅ processed — NOT A BUG (same root cause as #9)
+14. **Phase 9:** `[[ -f file ]]` builtin not recognized (env3) ✅ processed — reported symptom NOT A BUG, BUT review uncovered REAL bugs #23 + #24 below
+15. **Phase 9:** `test -d /` builtin not recognized (env3) ✅ processed — NOT A BUG (same root cause as #9)
+16. **Phase 9:** `[ -d / ]` builtin not recognized (env3) ✅ processed — NOT A BUG (same root cause as #9)
+17. **Phase 9:** `test -r file && test -w file > out` builtin not recognized (env3) ✅ processed — NOT A BUG (same root cause as #9)
+18. **Phase 9:** `[ -e file ] && cat file > out` cat allowed but [ not (env3) ✅ processed — NOT A BUG (cat is allowed; `[` not in allow-list; `> out` also asks)
+19. **Phase 9:** `[ -z "$var" ]` builtin not recognized (env3) ✅ processed — NOT A BUG (same root cause as #9)
+20. **Phase 9:** `[ -n "$var" ]` builtin not recognized (env3) ✅ processed — NOT A BUG (same root cause as #9)
+21. **Phase 9:** `eval "echo hi > file"` eval builtin not recognized (env3) ✅ processed — NOT A BUG (eval not in allow-list; eval string content is inherently opaque to static parsing)
+22. **Phase 9:** `exec > file` exec builtin not recognized (env3) ✅ processed — NOT A BUG (exec not in allow-list; `> file` correctly asks/denies)
+23. **Phase 9 (discovered during review):** `[[ ]]` TestClause drops attached redirections — output_redirection policy bypass (REAL BUG, see BUGZ-011)
+24. **Phase 9 (discovered during review):** `[[ x =~ regex ]]` treats regex RHS as a command name (REAL BUG, see BUGZ-012)
+25. **Phase 13:** `coproc NAME { cmd; }` bypasses `background_execution` policy (REAL BUG, confirmed — see BUGZ-013)
+26. **Phase 14:** `[`/`[[` in conditionals "not auto-approved" ✅ processed — NOT A BUG (not in allow-list; ask correct)
+27. **Phase 14:** `while...done <(...)` "parse error" ✅ processed — NOT A BUG (command is invalid bash)
+28. **Phase 14:** quoted redirect target interpreted as filename ✅ processed — NOT A BUG (correct bash semantics)
+29. **Phase 14:** whitespace-only command asks for approval ✅ processed — NOT A BUG (safe no-op default, cosmetic)
+30. **Phase 14:** heredoc in pipeline "cat/grep not matched" ✅ processed — NOT A BUG (unclosed heredoc; valid form correctly asks for output redirection)
+31. **Phase 14:** nested substitution in conditionals "parse error" ✅ processed — NOT A BUG (not reproducible; correct ask)
+32. **Phase 1:** `<>` truncate redirection bypasses `output_redirection` (REAL BUG, STILL UNFIXED — see BUGZ-014)
 
