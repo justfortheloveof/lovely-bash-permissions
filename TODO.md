@@ -1,9 +1,5 @@
 # TODOs
 
-## BUGs
-
-- ~~Invalid Config should raise and let the user know~~ — resolved in step 17 (test_invalid_json_all_files_raises, test_invalid_json_all_files_includes_paths)
-
 ## Commits to review/cleanup
 
 ### CLI + lib fix
