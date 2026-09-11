@@ -285,6 +285,21 @@ def _extract_segments(
                 elif a.value is not None:
                     args.append(_word_raw(a.value))
             segments.append({"command": "", "arguments": args, "redirections": redir_dicts})
+            # Recurse into assignment sub-expressions (values, indexes, arrays) so
+            # command substitutions inside them are extracted — e.g. the redirection
+            # in `x=$(echo hi > /etc/passwd)` must surface for blocked-path checks.
+            for a in node.assigns:
+                if a.index is not None:
+                    segments.extend(_extract_segments(a.index, redirs))
+                if a.value is not None:
+                    segments.extend(_extract_segments(a.value, redirs))
+                if a.array is not None and isinstance(a.array, ArrayExpr):
+                    for elem in a.array.elems:
+                        if isinstance(elem, ArrayElem):
+                            if elem.index is not None:
+                                segments.extend(_extract_segments(elem.index, redirs))
+                            if elem.value is not None:
+                                segments.extend(_extract_segments(elem.value, redirs))
 
     elif isinstance(node, DeclClause):
         # Declaration builtins (export/readonly/local/declare/typeset) are

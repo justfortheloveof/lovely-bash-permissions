@@ -1037,6 +1037,50 @@ class TestVariableAssignment:
         )
         assert result["status"] == "allow"
 
+    def test_assignment_subshell_redir_blocked_path_denied(self) -> None:
+        """A blocked-path write inside a `x=$(...)` substitution is denied.
+
+        Regression: `x=$(echo hi > /etc/passwd)` was auto-approved because the
+        standalone-assignment branch never flattened the inner command, so its
+        redirection target was invisible to the blocked-path check.
+        """
+        result = evaluate_bash_command(
+            "x=$(echo hi > /etc/passwd)",
+            make_config(blocked=[r"^/etc/passwd$"], subshell="allow", variable_assignment="allow"),
+        )
+        assert result["status"] == "deny"
+        assert "matches blocked path pattern" in result["reason"]
+
+    def test_assignment_subshell_output_redir_policy_applies(self) -> None:
+        """The output-redirection policy applies inside `x=$(...)` substitutions.
+
+        Regression: `x=$(echo hi > /tmp/out)` was approved even with
+        output_redirection=ask, because the inner segment (with its redirection)
+        was never surfaced.
+        """
+        result = evaluate_bash_command(
+            "x=$(echo hi > /tmp/out)",
+            make_config(allowed=[r"^echo(\s+.*)?$"], output="ask", subshell="allow", variable_assignment="allow"),
+        )
+        assert result["status"] == "ask"
+        assert "output redirection requires approval" in result["reason"]
+
+    def test_assignment_subshell_input_redir_blocked_path_denied(self) -> None:
+        """A blocked-path read inside `x=$(...)` substitutions is denied."""
+        result = evaluate_bash_command(
+            "x=$(cat </etc/passwd)",
+            make_config(blocked=[r"^/etc/passwd$"], subshell="allow", variable_assignment="allow"),
+        )
+        assert result["status"] == "deny"
+
+    def test_assignment_subshell_no_redir_still_allowed(self) -> None:
+        """Plain `x=$(cmd)` assignments stay allowed with allow policies."""
+        result = evaluate_bash_command(
+            "x=$(echo hi)",
+            make_config(allowed=[r"^echo(\s+.*)?$"], subshell="allow", variable_assignment="allow"),
+        )
+        assert result["status"] == "allow"
+
 
 class TestBackgroundExecutionCompound:
     """BUGZ-013: background_execution policy covers coproc and compound & forms.

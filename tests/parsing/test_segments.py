@@ -473,6 +473,22 @@ class TestNestedSubstitutionExtraction:
         segs = parse_segments("echo ${arr[$(cat idx)]}")
         assert [s["command"] for s in segs] == ["echo", "cat"]
 
+    def test_cmdsubst_in_standalone_assignment_extracted(self) -> None:
+        segs = parse_segments("x=$(date)")
+        assert [s["command"] for s in segs] == ["", "date"]
+
+    def test_cmdsubst_assignment_redirection_carried(self) -> None:
+        segs = parse_segments("x=$(echo hi > /etc/passwd)")
+        assert [s["command"] for s in segs] == ["", "echo"]
+        assert segs[1]["arguments"] == ["hi"]
+        assert segs[1]["redirections"][0]["Op"] == ">"
+        assert segs[1]["redirections"][0]["Word"]["Parts"][0]["Value"] == "/etc/passwd"
+
+    def test_array_assignment_value_cmdsubst_extracted(self) -> None:
+        segs = parse_segments("arr=($(ls > /tmp/out))")
+        assert [s["command"] for s in segs] == ["", "ls"]
+        assert segs[1]["redirections"][0]["Word"]["Parts"][0]["Value"] == "/tmp/out"
+
     def test_plain_parts_in_redirect_target_still_normal(self) -> None:
         segs = parse_segments("ls > /tmp/out")
         assert [s["command"] for s in segs] == ["ls"]
