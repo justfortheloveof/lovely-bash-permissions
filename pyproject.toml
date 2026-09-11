@@ -57,4 +57,4 @@ quote-style = "double"
 markers = [
     "linting: ruff lint and format checks (deselect with '-m not linting')",
 ]
-addopts = "-n auto"
+addopts = "--cov=lovely_bash_permissions --cov-report=term -n auto"
