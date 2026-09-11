@@ -366,6 +366,82 @@ class TestTestClauses:
         assert "ls" in commands
 
 
+class TestTestClauseRedirections:
+    """[[ ]] statements with attached redirections (BUGZ-011)."""
+
+    def test_testclause_output_redirection_synthetic_segment(self) -> None:
+        segs = parse_segments("[[ -f file ]] > /tmp/out")
+        assert len(segs) == 1
+        assert segs[0]["command"] == "[["
+        assert segs[0]["redirections"][0]["Op"] == ">"
+        assert segs[0]["redirections"][0]["Word"]["Parts"][0]["Value"] == "/tmp/out"
+
+    def test_testclause_stderr_redirection_normalized(self) -> None:
+        segs = parse_segments("[[ -f f ]] 2> /tmp/out")
+        redir = segs[0]["redirections"][0]
+        assert redir["Op"] == ">"
+        assert redir["N"] == {"Value": "2"}
+
+    def test_testclause_redir_with_command_body_keeps_single_redir(self) -> None:
+        # The statement redirection must appear exactly once, on the synthetic
+        # segment, and not be scattered onto the inner pseudo-command.
+        segs = parse_segments("[[ -d /tmp && ls ]] > /tmp/out")
+        carrying = [s for s in segs if s["redirections"]]
+        assert len(carrying) == 1
+        assert carrying[0]["command"] == "[["
+        assert any(s["command"] == "ls" and s["redirections"] == [] for s in segs)
+
+    def test_testclause_redir_with_nested_cmdsubst(self) -> None:
+        segs = parse_segments("[[ -d $(pwd) ]] > /tmp/out")
+        assert any(s["command"] == "pwd" for s in segs)
+        assert any(s["command"] == "[[" and s["redirections"] for s in segs)
+
+    def test_paren_test_redirection_synthetic_segment(self) -> None:
+        segs = parse_segments("[[ ( -d /tmp ) ]] > /tmp/out")
+        assert len(segs) == 1
+        assert segs[0]["command"] == "[["
+        assert segs[0]["redirections"]
+
+    def test_bare_redirection_only_statement(self) -> None:
+        segs = parse_segments("> /tmp/out")
+        assert len(segs) == 1
+        assert segs[0]["redirections"][0]["Op"] == ">"
+        assert segs[0]["redirections"][0]["Word"]["Parts"][0]["Value"] == "/tmp/out"
+
+
+class TestTestClauseRegexOperands:
+    """[[ ]] =~ and comparison operands must not be treated as commands (BUGZ-012)."""
+
+    def test_regex_match_rhs_not_a_command(self) -> None:
+        assert parse_segments("[[ $var =~ pat ]]") == []
+
+    def test_regex_metachars_rhs_not_a_command(self) -> None:
+        for cmd in ("[[ x =~ ^a.*$ ]]", "[[ x =~ (a|b) ]]", "[[ x =~ a.b$ ]]"):
+            assert parse_segments(cmd) == [], cmd
+
+    def test_glob_rhs_not_a_command(self) -> None:
+        assert parse_segments("[[ $a == *.txt ]]") == []
+        assert parse_segments("[[ $a != x ]]") == []
+
+    def test_arithmetic_rhs_not_a_command(self) -> None:
+        for cmd in ("[[ $n -eq 5 ]]", "[[ $n < 3 ]]", "[[ $n > 3 ]]", "[[ -f a -nt b ]]"):
+            assert parse_segments(cmd) == [], cmd
+
+    def test_cmdsubst_inside_regex_still_extracted(self) -> None:
+        segs = parse_segments("[[ $var =~ $(cmd) ]]")
+        assert [s["command"] for s in segs] == ["cmd"]
+
+    def test_logical_rhs_still_extracted(self) -> None:
+        commands = [s["command"] for s in parse_segments("[[ -d /tmp && ls ]]")]
+        assert "ls" in commands
+
+    def test_regex_rhs_with_redirection_no_phantom(self) -> None:
+        segs = parse_segments("[[ $var =~ pat ]] > /tmp/out")
+        commands = [s["command"] for s in segs]
+        assert "pat" not in commands
+        assert any(s["redirections"] for s in segs)
+
+
 class TestNestedSubstitutionExtraction:
     """Nested command/process substitutions inside parts are extracted (issue #2)."""
 

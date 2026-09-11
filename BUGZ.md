@@ -11,13 +11,13 @@ Entries pending review are added as they surface; verdicts are filled in by the 
 - **Phase 14 (#26–#31): all reviewed = NOT BUGS** (false positives) — see summary below.
 - **Phase 1 `<>` (#32): CONFIRMED REAL BUG, STILL UNFIXED** (truncate bypasses `output_redirection`) — BUGZ-014.
 - **Phase 4 (#1–#3) and Phase 7 (17): re-reviewed = NOT BUGS** (ask reasons trace to output_redirection / variable_assignment policy defaults; all 17 Phase 7 patterns approve under the matching config).
-- **Confirmed REAL bugs to date: #23, #24, #25, #32 (#32 unfixed).**
+- **Confirmed REAL bugs to date: #23, #24, #25, #32 (#32 unfixed). BUGZ-011 & BUGZ-012 fixed 2026-09-11.**
 
 ---
 
 ## Entry: BUGZ-011 — `[[ ]]` conditional drops attached redirections (output_redirection policy bypass)
 
-**Status:** ⏳ NEW REAL BUG (confirmed, not yet fixed)
+**Status:** ✅ FIXED (2026-09-11) — `segments.py` Stmt handler now emits a synthetic redirection-only segment whenever a statement carries redirections but produces no command segments (incl. `[[ ]]`, `(( ))`, bare `> f`); the test-expression handlers no longer need redirs propagation since inner test nodes are pseudo-commands. REPRO VERIFIED: `[[ -f file ]] > /tmp/out` → ❤️ auto-rejected "output redirection denied".
 
 **DISCOVERED:** reviewing PLAN.md Bug #14 (`[[ -f file ]]` builtin not recognized)
 
@@ -50,7 +50,7 @@ perms: 💚 auto-approved] <empty command> produced no parseable segments — de
 
 ## Entry: BUGZ-012 — `[[ x =~ regex ]]` treats regex RHS as a command name
 
-**Status:** ⏳ NEW REAL BUG (confirmed, not yet fixed)
+**Status:** ✅ FIXED (2026-09-11) — `segments.py` `BinaryTest` handler is now operator-aware: only `&&`/`||` right operands are treated as commands; `=~` (and `==`/`!=`/`-eq`/`<`/...) right operands are recursed WITHOUT test-expr context so only nested `$(...)` are extracted. REPRO VERIFIED: `[[ $var =~ pattern ]] > /tmp/out` → ❤️ auto-rejected, no phantom `"pattern"` report.
 
 **DISCOVERED:** reviewing PLAN.md Bug #14
 

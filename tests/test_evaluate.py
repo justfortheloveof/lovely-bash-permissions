@@ -875,6 +875,81 @@ class TestResultStructure:
         assert result["status"] == "allow"
 
 
+class TestTestClausePolicies:
+    """[[ ]] with attached redirections must honor redirection policies (BUGZ-011)."""
+
+    def test_testclause_output_redirection_denied(self) -> None:
+        result = evaluate_bash_command(
+            "[[ -f file ]] > /tmp/out",
+            make_config(wildcard="allow", output="deny"),
+        )
+        assert result["status"] == "deny"
+        assert "output redirection denied" in result["reason"]
+
+    def test_testclause_output_redirection_append_denied(self) -> None:
+        result = evaluate_bash_command(
+            "[[ -f file ]] >> /tmp/out",
+            make_config(wildcard="allow", output="deny"),
+        )
+        assert result["status"] == "deny"
+
+    def test_testclause_stderr_redirection_denied(self) -> None:
+        result = evaluate_bash_command(
+            "[[ -f file ]] 2> /tmp/out",
+            make_config(wildcard="allow", output="deny"),
+        )
+        assert result["status"] == "deny"
+
+    def test_testclause_output_redirection_asks(self) -> None:
+        result = evaluate_bash_command(
+            "[[ -f file ]] > /tmp/out",
+            make_config(wildcard="allow", output="ask"),
+        )
+        assert result["status"] == "ask"
+        assert "output redirection requires approval" in result["reason"]
+
+    def test_testclause_input_redirection_denied(self) -> None:
+        result = evaluate_bash_command(
+            "[[ -f file ]] < /tmp/in",
+            make_config(wildcard="allow", input_redir="deny"),
+        )
+        assert result["status"] == "deny"
+        assert "input redirection denied" in result["reason"]
+
+    def test_testclause_redirect_target_blocked(self) -> None:
+        result = evaluate_bash_command(
+            "[[ -f file ]] > /etc/passwd",
+            make_config(blocked=["/etc"]),
+        )
+        assert result["status"] == "deny"
+        assert "blocked path" in result["reason"]
+
+    def test_testclause_redir_with_command_body_denied(self) -> None:
+        result = evaluate_bash_command(
+            "[[ -d /tmp && ls ]] > /tmp/out",
+            make_config(wildcard="allow", output="deny"),
+        )
+        assert result["status"] == "deny"
+        assert "output redirection denied" in result["reason"]
+
+    def test_regex_rhs_no_false_phantom_command(self) -> None:
+        """=~ regex RHS must not be reported as an unmatched command (BUGZ-012)."""
+        result = evaluate_bash_command(
+            "[[ $var =~ pat ]] > /tmp/out",
+            make_config(allowed=["^ls$"], wildcard="allow", output="deny"),
+        )
+        assert result["status"] == "deny"
+        assert '"pat" command does not match' not in result["reason"]
+
+    def test_regex_rhs_redirection_still_denied(self) -> None:
+        result = evaluate_bash_command(
+            "[[ $var =~ pat ]] > /tmp/out",
+            make_config(wildcard="allow", output="deny"),
+        )
+        assert result["status"] == "deny"
+        assert "output redirection denied" in result["reason"]
+
+
 class TestVariableAssignment:
     """Tests for variable_assignment policy (standalone vs command-prefixed assignments)."""
 

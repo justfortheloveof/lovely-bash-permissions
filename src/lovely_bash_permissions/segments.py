@@ -73,6 +73,34 @@ _logger = logging.getLogger(__name__)
 DEFAULT_DIALECT = "bash"
 
 
+def _part_value(p: object) -> str:
+    """Extract string value from a Word part node."""
+    if isinstance(p, Lit):
+        return p.value
+    elif hasattr(p, "value"):
+        v = getattr(p, "value", None)
+        return v if isinstance(v, str) else ""
+    return ""
+
+
+def _redir_dicts(redirs: list[Redir]) -> list[dict[str, Any]]:
+    """Serialize Redir nodes into the segment dict format.
+
+    Mirrors the shape produced for CallExpr/DeclClause/LetClause segments so
+    callers (``_check_segments_output_redirs`` / ``_check_segments_input_redirs``)
+    can classify them uniformly. shfmt normalizes fd-prefixed operators into the
+    ``N`` field (e.g. ``2>`` -> ``Op: ">", N: {"Value": "2"}``).
+    """
+    return [
+        {
+            "Op": r.op,
+            "N": {"Value": str(r.n)} if r.n is not None else {},
+            "Word": {"Parts": [{"Value": _part_value(p)} for p in (r.word.parts if r.word else [])]},
+        }
+        for r in (redirs or [])
+    ]
+
+
 def _extract_redirs(node: object) -> list[Redir]:
     """Extract redirections from a typed AST node.
 
@@ -150,8 +178,21 @@ def _extract_segments(
         # Statement: merge redirections inherited from a parent compound
         # command (e.g. `{ ...; } > file`) with the statement's own.
         inherited = list(redirs or []) + list(node.redirs)
+        sub: list[dict[str, Any]] = []
         if node.cmd:
-            segments.extend(_extract_segments(node.cmd, inherited))
+            sub = _extract_segments(node.cmd, inherited)
+            segments.extend(sub)
+        if inherited and (not sub or isinstance(node.cmd, TestClause)):
+            # The statement carries redirections but no command segments (e.g.
+            # `> f` alone, `((x)) > f`, or a `[[ ... ]]` whose body has no
+            # commands — `[[ -f x ]] > f`). Emit a synthetic segment carrying
+            # the redirections so input/output redirection policies apply
+            # instead of falling through to the empty-segment wildcard
+            # short-circuit (BUGZ-011). For `[[ ]]` this fires even when the
+            # body yielded pseudo-command segments: statement redirections must
+            # not be scattered onto test-expression pseudo-commands.
+            command = "[[" if isinstance(node.cmd, TestClause) else ""
+            segments.append({"command": command, "arguments": [], "redirections": _redir_dicts(inherited)})
 
     elif isinstance(node, CallExpr):
         # Simple command: extract command, arguments, and inherited redirections
@@ -180,14 +221,6 @@ def _extract_segments(
                 if not has_cmdsubst:
                     var_assign_args = []
 
-                    def _part_value(p: object) -> str:
-                        if isinstance(p, Lit):
-                            return p.value
-                        elif hasattr(p, "value"):
-                            v = getattr(p, "value", None)
-                            return v if isinstance(v, str) else ""
-                        return ""
-
                     for a in node.assigns:
                         name = a.name.value if a.name is not None and a.name.value else ""
                         if a.naked:
@@ -212,23 +245,7 @@ def _extract_segments(
                         # Add variable assignment segment before the command segment
                         segments.append({"command": "", "arguments": var_assign_args, "redirections": []})
 
-            def _part_value(p: object) -> str:
-                """Extract string value from a Word part node."""
-                if isinstance(p, Lit):
-                    return p.value
-                elif hasattr(p, "value"):
-                    v = getattr(p, "value", None)
-                    return v if isinstance(v, str) else ""
-                return ""
-
-            redir_dicts = [
-                {
-                    "Op": r.op,
-                    "N": {"Value": str(r.n)} if r.n is not None else {},
-                    "Word": {"Parts": [{"Value": _part_value(p)} for p in (r.word.parts if r.word else [])]},
-                }
-                for r in (redirs or [])
-            ]
+            redir_dicts = _redir_dicts(redirs or [])
             segments.append(
                 {
                     "command": _word_value(node.args[0]),
@@ -247,22 +264,7 @@ def _extract_segments(
         elif node.assigns:
             # Standalone variable assignment (no Args, only Assigns)
             # Create a segment so it can be evaluated against allowed patterns.
-            def _part_value(p: object) -> str:
-                if isinstance(p, Lit):
-                    return p.value
-                elif hasattr(p, "value"):
-                    v = getattr(p, "value", None)
-                    return v if isinstance(v, str) else ""
-                return ""
-
-            redir_dicts = [
-                {
-                    "Op": r.op,
-                    "N": {"Value": str(r.n)} if r.n is not None else {},
-                    "Word": {"Parts": [{"Value": _part_value(p)} for p in (r.word.parts if r.word else [])]},
-                }
-                for r in (redirs or [])
-            ]
+            redir_dicts = _redir_dicts(redirs or [])
             args = []
             for a in node.assigns:
                 name = a.name.value if a.name is not None and a.name.value else ""
@@ -292,23 +294,7 @@ def _extract_segments(
         # substitutions inside them are still extracted (export FOO=$(rm x)).
         # Inherit redirections from the parent statement/compound the same
         # way CallExpr does.
-        def _part_value(p: object) -> str:
-            """Extract string value from a Word part node."""
-            if isinstance(p, Lit):
-                return p.value
-            elif hasattr(p, "value"):
-                v = getattr(p, "value", None)
-                return v if isinstance(v, str) else ""
-            return ""
-
-        redir_dicts = [
-            {
-                "Op": r.op,
-                "N": {"Value": str(r.n)} if r.n is not None else {},
-                "Word": {"Parts": [{"Value": _part_value(p)} for p in (r.word.parts if r.word else [])]},
-            }
-            for r in (redirs or [])
-        ]
+        redir_dicts = _redir_dicts(redirs or [])
 
         operands: list[str] = []
         for assign in node.assigns or []:
@@ -369,14 +355,23 @@ def _extract_segments(
                 segments.extend(_extract_segments(stmt, redirs))
 
     elif isinstance(node, TestClause):
-        # Recurse into test expression — UnaryTest/BinaryTest may contain commands in args
+        # Recurse into test expression — UnaryTest/BinaryTest may contain commands in args.
+        # Note: statement-level redirections (e.g. `[[ -f x ]] > file`) are NOT
+        # propagated here — they are surfaced by the Stmt handler's synthetic
+        # segment, since test-expression nodes are pseudo-commands, not real
+        # command leaves (BUGZ-011).
         if hasattr(node, "body") and node.body:
             segments.extend(_extract_segments(node.body, _in_test_expr=True))
 
     elif isinstance(node, BinaryTest):
-        # Test expression: only right operand of &&/|| is a "command" to check
+        # Test expression: only the right operand of a logical && / || is a
+        # "command" to check. Every other operator's right operand is a value
+        # (regex for =~, literal/glob for ==/!=, number for -eq, ...), never a
+        # command name — recurse WITHOUT test-expr context so only nested
+        # command substitutions inside it are extracted (BUGZ-012).
         if hasattr(node, "right") and node.right:
-            segments.extend(_extract_segments(node.right, _in_test_expr=True))
+            in_test_expr = node.op in ("&&", "||")
+            segments.extend(_extract_segments(node.right, _in_test_expr=in_test_expr))
 
     elif isinstance(node, UnaryTest):
         # Unary test op (-d/-n/-z ...): the operand is a path/variable, not a
@@ -434,22 +429,7 @@ def _extract_segments(
             segments.extend(_extract_segments(expr))
         if args:
             # Inherit redirections from parent Stmt (same as CallExpr)
-            def _part_value(p: object) -> str:
-                if isinstance(p, Lit):
-                    return p.value
-                elif hasattr(p, "value"):
-                    v = getattr(p, "value", None)
-                    return v if isinstance(v, str) else ""
-                return ""
-
-            redir_dicts = [
-                {
-                    "Op": r.op,
-                    "N": {"Value": str(r.n)} if r.n is not None else {},
-                    "Word": {"Parts": [{"Value": _part_value(p)} for p in (r.word.parts if r.word else [])]},
-                }
-                for r in (redirs or [])
-            ]
+            redir_dicts = _redir_dicts(redirs or [])
             segments.append({"command": "", "arguments": args, "redirections": redir_dicts})
 
     elif isinstance(node, CoprocClause):
