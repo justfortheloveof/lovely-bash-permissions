@@ -399,6 +399,30 @@ def test_heredoc_input_redirection_denied() -> None:
     assert "EOF" in result["reason"]
 
 
+def test_here_string_input_redirection_ask() -> None:
+    """Here-string (<<<) input redirection triggers ask when policy is ask."""
+    tree = parse("echo hello <<< world")
+    result = check_input_redirection(tree, {"input_redirection": "ask"})
+    assert result["status"] == "ask"
+    assert result["reason"] == "input redirection requires approval"
+
+
+def test_here_string_input_redirection_allowed() -> None:
+    """Here-string (<<<) is allowed when policy is allow."""
+    tree = parse("echo hello <<< world")
+    result = check_input_redirection(tree, {"input_redirection": "allow"})
+    assert result["status"] == "allow"
+    assert "world" in result["reason"]
+
+
+def test_here_string_input_redirection_denied() -> None:
+    """Here-string (<<<) is denied when policy is deny."""
+    tree = parse("echo hello <<< world")
+    result = check_input_redirection(tree, {"input_redirection": "deny"})
+    assert result["status"] == "deny"
+    assert "world" in result["reason"]
+
+
 def test_mixed_input_output_rules() -> None:
     """Input and output redirection rules are independent."""
     # Input allowed, output denied

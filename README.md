@@ -418,7 +418,7 @@ Files that don't exist are treated as empty objects `{}`. Configs are deep-merge
 - **allowed_cmds_regex**: Regular expressions for allowed command names. Commands matching any pattern are allowed.
 - **blocked_paths_regex**: Patterns for paths that should be blocked. If any argument matches, the command is denied.
 - **output_redirection**: `allow`, `ask`, or `deny` for output redirections (`>`, `>>`)
-- **input_redirection**: `allow`, `ask`, or `deny` for input redirections (`<`, `<<`)
+- **input_redirection**: `allow`, `ask`, or `deny` for input redirections (`<`, `<<`, `<<<`)
 - **background_execution**: `allow`, `ask`, or `deny` for background execution (`&`)
 
 ### Allowed Patterns

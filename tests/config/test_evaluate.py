@@ -765,6 +765,28 @@ class TestResultStructure:
         assert result["status"] == "ask"
         assert "input redirection requires approval" in result["reason"]
 
+    def test_here_string_input_redirection_ask(self) -> None:
+        """Here-string (<<<) input redirection goes through approval flow."""
+        result = evaluate_bash_command(
+            "echo hello <<< 'world'",
+            make_config(input_redir="ask"),
+        )
+        assert result["status"] == "ask"
+        assert "input redirection requires approval" in result["reason"]
+
+    def test_here_string_not_bypassed_by_allowed_pattern(self) -> None:
+        """Here-string (<<<) still requires approval even with a matching allowed pattern."""
+        result = evaluate_bash_command(
+            "echo hello <<< 'world'",
+            {
+                "*": "ask",
+                "input_redirection": "ask",
+                "allowed_cmds_regex": [r"^echo(\s+.*)?$"],
+            },
+        )
+        assert result["status"] == "ask"
+        assert "input redirection requires approval" in result["reason"]
+
     def test_incomplete_heredoc_ask(self) -> None:
         """Incomplete heredoc (unclosed) goes through approval flow."""
         result = evaluate_bash_command("cat << EOF", make_config())
