@@ -486,12 +486,18 @@ class Redir(Node):
         n: File descriptor number (e.g., 2 in ``2>file``), or None
             when no explicit descriptor is given.
         word: Word specifying the file target
+        hdoc: Heredoc body (``Hdoc`` from shfmt) — the content between
+            the delimiter and the closing marker.  Only present for
+            ``<<`` / ``<<-`` redirections.  Bash expands ``$(…)``,
+            backticks and ``$(<file)`` inside **unquoted** heredocs, so
+            this body must be scanned by security checks.
         op_pos: Source position of the redirection operator itself
     """
 
     op: str = ""
     n: int | None = None
     word: Word | None = None
+    hdoc: Word | None = None
     op_pos: Position | None = None
 
 

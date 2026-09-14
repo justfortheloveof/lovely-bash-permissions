@@ -283,6 +283,7 @@ def _convert_redir(data: dict[str, Any]) -> Redir:
         op=data.get("Op", ""),
         n=n_val,
         word=_convert_word(data.get("Word")),
+        hdoc=_convert_word(data.get("Hdoc")),
         pos=pos,
         end=end,
         op_pos=_parse_position(data.get("OpPos")),

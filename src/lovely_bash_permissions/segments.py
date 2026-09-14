@@ -258,9 +258,14 @@ def _extract_segments(
                 segments.extend(_extract_segments(arg, redirs))
             # Recurse into redirection target words so nested command/process
             # substitutions are extracted (e.g. `cmd > $(generate_name)`).
+            # Also recurse into heredoc bodies (Hdoc) so command substitutions
+            # inside unquoted heredocs (e.g. `cmd <<EOF\n$(cat /etc/passwd)\nEOF`)
+            # are discovered by security checks.
             for r in redirs or []:
                 if r.word is not None:
                     segments.extend(_extract_segments(r.word))
+                if r.hdoc is not None:
+                    segments.extend(_extract_segments(r.hdoc))
         elif node.assigns:
             # Standalone variable assignment (no Args, only Assigns)
             # Create a segment so it can be evaluated against allowed patterns.
@@ -334,9 +339,13 @@ def _extract_segments(
             segments.append({"command": node.variant, "arguments": operands, "redirections": redir_dicts})
         # Recurse into redirection target words so nested command/process
         # substitutions are extracted (e.g. `export F=$(generate_name)`).
+        # Also recurse into heredoc bodies (Hdoc) for the same reason as
+        # the CallExpr handler above.
         for r in redirs or []:
             if r.word is not None:
                 segments.extend(_extract_segments(r.word))
+            if r.hdoc is not None:
+                segments.extend(_extract_segments(r.hdoc))
         for assign in node.assigns or []:
             if assign.index is not None:
                 segments.extend(_extract_segments(assign.index, redirs))

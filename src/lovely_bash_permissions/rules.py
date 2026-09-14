@@ -90,6 +90,10 @@ def _find_redirs(node: dict[str, Any]) -> list[dict[str, Any]]:
     Walks CallExpr.Redirs, BinaryCmd.X/Y/Redirs (merged list), and recurses into
     AndCmd/OrCmd operands so redirections nested inside pipes are found.
 
+    Also recurses into heredoc bodies (``Hdoc.Parts``) so that command
+    substitutions inside unquoted heredocs (``<<EOF … $(cmd) … EOF``)
+    are discovered — bash expands these at runtime.
+
     Args:
         node: A dict representing an AST node from shfmt's JSON output.
 
@@ -132,6 +136,14 @@ def _find_redirs(node: dict[str, Any]) -> list[dict[str, Any]]:
     if node.get("Parts"):
         for part in node["Parts"]:
             redirs.extend(_find_redirs(part))
+
+    # Redir: recurse into Hdoc.Parts so heredoc body command substitutions
+    # (e.g. $(cat /etc/passwd) inside <<EOF … EOF) are discovered.
+    if node.get("Type") == "Redir":
+        hdoc = node.get("Hdoc", {})
+        if isinstance(hdoc, dict):
+            for part in hdoc.get("Parts", []):
+                redirs.extend(_find_redirs(part))
 
     return redirs
 
