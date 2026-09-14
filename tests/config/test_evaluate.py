@@ -369,6 +369,61 @@ class TestWildcardPolicy:
         assert result["status"] == "deny"
 
 
+class TestInheritance:
+    """Options inherit their immediate wildcard parent, falling back to '*' (default ask)."""
+
+    def test_subshell_inherits_wildcard_deny(self) -> None:
+        """Deny '*' denies a command substitution."""
+        result = evaluate_bash_command("echo $(cat x)", make_config(wildcard="deny"))
+        assert result["status"] == "deny"
+
+    def test_subshell_inherits_wildcard_allow(self) -> None:
+        """Allow '*' lets a command substitution run."""
+        result = evaluate_bash_command("echo $(cat x)", make_config(wildcard="allow"))
+        assert result["status"] == "allow"
+
+    def test_variable_assignment_inherits_wildcard_deny(self) -> None:
+        """Deny '*' denies a standalone variable assignment."""
+        result = evaluate_bash_command("FOO=bar", make_config(wildcard="deny"))
+        assert result["status"] == "deny"
+
+    def test_variable_assignment_inherits_wildcard_allow(self) -> None:
+        """Allow '*' allows a standalone variable assignment."""
+        result = evaluate_bash_command("FOO=bar", make_config(wildcard="allow"))
+        assert result["status"] == "allow"
+
+    def test_output_redirection_inherits_wildcard_deny(self) -> None:
+        """Deny '*' denies output redirection."""
+        result = evaluate_bash_command("echo hi > /tmp/out", make_config(wildcard="deny"))
+        assert result["status"] == "deny"
+
+    def test_input_redirection_inherits_wildcard_deny(self) -> None:
+        """Deny '*' denies input redirection."""
+        result = evaluate_bash_command("cat < /tmp/in", make_config(wildcard="deny"))
+        assert result["status"] == "deny"
+
+    def test_background_execution_inherits_wildcard_deny(self) -> None:
+        """Deny '*' denies background execution."""
+        result = evaluate_bash_command("sleep 1 &", make_config(wildcard="deny"))
+        assert result["status"] == "deny"
+
+    def test_output_redirection_kind_inherits_wildcard(self) -> None:
+        """A kind omitted from output_redirection inherits the wildcard."""
+        result = evaluate_bash_command(
+            "echo hi > /dev/null",
+            {"*": "deny", "output_redirection": {"stderr_to_dev_null": "ask"}},
+        )
+        assert result["status"] == "deny"
+
+    def test_explicit_option_overrides_wildcard(self) -> None:
+        """An explicit option beats an inherited allow."""
+        result = evaluate_bash_command(
+            "echo $(cat x)",
+            make_config(wildcard="allow", subshell="deny"),
+        )
+        assert result["status"] == "deny"
+
+
 class TestSubshellHandling:
     """Tests for subshell/command substitution handling."""
 
@@ -517,12 +572,19 @@ class TestSubshellHandling:
         assert result["status"] == "allow"
         assert result["reason"].count(r"^export(\s+.*)?$") == 1
 
-    def test_declclause_substitution_value_not_silently_allowed(self) -> None:
-        """Nested substitution in a decl variant value requires approval."""
+    def test_declclause_substitution_value_inherits_wildcard_allow(self) -> None:
+        """Nested substitution in a decl variant value inherits wildcard allow."""
         result = evaluate_bash_command(
             "declare FOO=$(cat x)",
             make_config(wildcard="allow"),
         )
+        assert result["status"] == "allow"
+
+    def test_declclause_substitution_value_not_silently_allowed(self) -> None:
+        """Nested substitution in a decl variant value asks when subshell=ask."""
+        config = make_config(wildcard="allow")
+        config["subshell"] = "ask"
+        result = evaluate_bash_command("declare FOO=$(cat x)", config)
         assert result["status"] == "ask"
 
     def test_declclause_substitution_blocked_path_denied(self) -> None:

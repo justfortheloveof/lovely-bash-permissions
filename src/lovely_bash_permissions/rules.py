@@ -299,7 +299,7 @@ def check_output_redirection(tree: dict[str, Any], rules: dict[str, Any]) -> dic
         If no output redirection is found, returns
         {"status": "allow", "reason": "no output redirection"}.
     """
-    policy = rules.get("output_redirection", "allow")
+    policy = rules.get("output_redirection", "ask")
 
     redirs = []
     for stmt in tree.get("Stmts", []):
@@ -373,7 +373,7 @@ def _resolve_output_level(kinds: list[str], policy: dict[str, Any]) -> str:
     Returns:
         "allow", "ask", or "deny".
     """
-    wildcard_level = policy.get("*", "allow")
+    wildcard_level = policy.get("*", "ask")
 
     has_deny = False
     has_ask = False
@@ -416,11 +416,11 @@ def check_input_redirection(tree: dict[str, Any], rules: dict[str, Any] | None =
         {"status": "allow", "reason": "no input redirection"}.
     """
     rules = rules or {}
-    policy = rules.get("input_redirection", "allow")
+    policy = rules.get("input_redirection", "ask")
 
     # If policy is an object, use the wildcard level.
     # (TS version only uses wildcard for input redirection)
-    level = policy.get("*", "allow") if isinstance(policy, dict) else policy
+    level = policy.get("*", "ask") if isinstance(policy, dict) else policy
 
     redirs = []
     for stmt in tree.get("Stmts", []):
@@ -492,7 +492,7 @@ def _check_segments_output_redirs(segments: list[dict[str, Any]], rules: dict[st
     Returns:
         dict with ``status`` and ``reason``.
     """
-    policy = rules.get("output_redirection", "allow")
+    policy = rules.get("output_redirection", "ask")
 
     redirections: list[dict[str, Any]] = []
     for seg in segments:
@@ -546,8 +546,8 @@ def _check_segments_input_redirs(segments: list[dict[str, Any]], rules: dict[str
         dict with ``status`` and ``reason``.
     """
     rules = rules or {}
-    policy = rules.get("input_redirection", "allow")
-    level = policy.get("*", "allow") if isinstance(policy, dict) else policy
+    policy = rules.get("input_redirection", "ask")
+    level = policy.get("*", "ask") if isinstance(policy, dict) else policy
 
     input_redirs: list[dict[str, Any]] = []
     for seg in segments:
@@ -624,7 +624,7 @@ def check_background_execution(tree: dict[str, Any], rules: dict[str, Any]) -> d
 
     # If policy is an object, use the wildcard level for now
     # (per-type policies handled in the evaluator layer)
-    level = policy.get("*", policy.get("allow", "allow")) if isinstance(policy, dict) else policy
+    level = policy.get("*", "ask") if isinstance(policy, dict) else policy
 
     background_commands: list[str] = []
     _collect_background_command_names(tree, background_commands)

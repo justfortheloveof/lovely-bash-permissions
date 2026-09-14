@@ -149,7 +149,7 @@ def handle_show_config() -> None:
 
     raw_bash = manager.get_lovely_config()
     try:
-        bash = get_effective_bash_config(raw_bash.get("bash"), project_dir)
+        bash = get_effective_bash_config(raw_bash.get("bash"), project_dir, raw_bash.get("*", "ask"))
     except (ValueError, FileNotFoundError, OSError):
         print(with_error_prefix("effective bash config load failed"), file=sys.stderr)
         sys.exit(1)

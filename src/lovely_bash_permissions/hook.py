@@ -134,7 +134,7 @@ def process_hook_event(event: dict[str, Any]) -> dict[str, Any]:
         return {"action": "ask", "reason": f"config error (fallback to ask): {reason}"}
 
     try:
-        config = get_effective_bash_config(raw_config.get("bash"), project_dir)
+        config = get_effective_bash_config(raw_config.get("bash"), project_dir, raw_config.get("*", "ask"))
     except (ValueError, FileNotFoundError, OSError):
         reason = manager.get_error() or "effective bash config load failed"
         return {"action": "ask", "reason": f"config error (fallback to ask): {reason}"}

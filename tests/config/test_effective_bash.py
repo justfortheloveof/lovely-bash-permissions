@@ -170,3 +170,47 @@ class TestGetEffectiveBashConfig:
         result = get_effective_bash_config(raw, "/project")
 
         assert result["*"] == "ask"
+
+    def test_root_wildcard_propagates_without_bash(self) -> None:
+        """Top-level wildcard flows into the effective '*' when bash block is absent."""
+        result = get_effective_bash_config(None, "/project", top_level_wildcard="deny")
+
+        assert result["*"] == "deny"
+
+    def test_root_wildcard_fallback_without_bash(self) -> None:
+        """Absent bash '*' falls back to the top-level wildcard, then to ask."""
+        assert get_effective_bash_config({"allow": ["ls"]}, "/project", top_level_wildcard="deny")["*"] == "deny"
+        assert get_effective_bash_config({"allow": ["ls"]}, "/project")["*"] == "ask"
+
+    def test_bash_star_overrides_root_wildcard(self) -> None:
+        """bash.* takes precedence over the top-level wildcard."""
+        raw = {"*": "deny"}
+        result = get_effective_bash_config(raw, "/project", top_level_wildcard="allow")
+
+        assert result["*"] == "deny"
+
+    def test_options_inherit_resolved_star(self) -> None:
+        """Options absent from the bash block inherit the effective '*' value."""
+        raw = {"*": "deny"}
+        result = get_effective_bash_config(raw, "/project")
+
+        assert result["subshell"] == "deny"
+        assert result["variable_assignment"] == "deny"
+        assert result["input_redirection"] == "deny"
+        assert result["background_execution"] == "deny"
+        assert result["output_redirection"] == "deny"
+
+    def test_explicit_option_beats_star(self) -> None:
+        """An explicitly set option keeps its value over an inherited '*'."""
+        raw = {"*": "deny", "subshell": "ask", "output_redirection": {"stderr_to_dev_null": "allow"}}
+        result = get_effective_bash_config(raw, "/project")
+
+        assert result["subshell"] == "ask"
+        assert result["output_redirection"] == {"*": "deny", "stderr_to_dev_null": "allow"}
+
+    def test_output_redirection_dict_gets_star(self) -> None:
+        """Dict-form output_redirection receives the resolved '*' for its kinds."""
+        raw = {"*": "ask", "output_redirection": {"stdout_to_dev_null": "deny"}}
+        result = get_effective_bash_config(raw, "/project")
+
+        assert result["output_redirection"] == {"stdout_to_dev_null": "deny", "*": "ask"}

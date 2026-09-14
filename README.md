@@ -397,6 +397,7 @@ Files that don't exist are treated as empty objects `{}`. Configs are deep-merge
 
 ```jsonc
 {
+  "*": "ask",
   "bash": {
     "allowed_cmds_regex": [
       "^ls$",
@@ -410,16 +411,23 @@ Files that don't exist are treated as empty objects `{}`. Configs are deep-merge
     ],
     "output_redirection": "allow",
     "input_redirection": "ask",
-    "background_execution": "deny"
+    "background_execution": "deny",
+    "subshell": "ask",
+    "variable_assignment": "ask"
   }
 }
 ```
 
+- **`*`** (top-level): wildcard policy for the whole config, in effect for any option below that is not set. Defaults to `ask`.
 - **allowed_cmds_regex**: Regular expressions for allowed command names. Commands matching any pattern are allowed.
 - **blocked_paths_regex**: Patterns for paths that should be blocked. If any argument matches, the command is denied.
 - **output_redirection**: `allow`, `ask`, or `deny` for output redirections (`>`, `>>`)
 - **input_redirection**: `allow`, `ask`, or `deny` for input redirections (`<`, `<<`, `<<<`)
 - **background_execution**: `allow`, `ask`, or `deny` for background execution (`&`)
+- **subshell**: `allow`, `ask`, or `deny` for subshells and command substitutions (`$(...)`)
+- **variable_assignment**: `allow`, `ask`, or `deny` for standalone variable assignments (`FOO=bar`)
+
+Any option omitted inside `bash` inherits `bash.*`, then the top-level `*`, then `ask`.
 
 ### Allowed Patterns
 
@@ -459,10 +467,10 @@ long_running_command &
 
 ### Command Substitution
 
-Commands with substitution (like `$(...)`) require approval regardless of other rules:
+Commands with substitution (like `$(...)`) are governed by the `subshell` policy — which, like every option, inherits `bash.*`, then the top-level `*`, then defaults to `ask`:
 
 ```bash
-# Always asks, even if inner commands are allowed
+# Asks when the effective subshell policy is "ask" (the default)
 echo "$(ls)"
 ```
 

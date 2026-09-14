@@ -203,6 +203,20 @@ def _match_allowed_patterns(name: str, args: list[str], allowed_patterns: list[s
     return matched
 
 
+def _resolve_level(config: dict[str, Any], key: str) -> Any:  # noqa: ANN401
+    """Resolve a policy option against the config wildcard.
+
+    An explicit value wins. Dict-form policies (``output_redirection``,
+    ``input_redirection``, ``background_execution``) get their missing ``*``
+    injected from the wildcard — the *immediate wildcard parent* for the
+    per-kind levels. Otherwise the value inherits the wildcard.
+    """
+    value = config.get(key)
+    if isinstance(value, dict):
+        return {**value, "*": value.get("*") or config.get("*", "ask")}
+    return value if value is not None else config.get("*", "ask")
+
+
 def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any]:
     """Evaluate a bash command against a permission configuration.
 
@@ -216,13 +230,15 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     Args:
         command: The bash command to evaluate.
         config: Permission configuration dict with keys:
-            - 'allowed_cmds_regex': list of regex patterns for allowed commands
-            - 'blocked_paths_regex': list of regex patterns for blocked paths
             - 'output_redirection': allow/ask/deny policy
             - 'input_redirection': allow/ask/deny policy
             - 'background_execution': allow/ask/deny policy
-            - 'subshell': allow/ask/deny policy (default "ask")
-            - Other policy keys from devin config
+            - 'subshell': allow/ask/deny policy
+            - 'variable_assignment': allow/ask/deny policy
+            - 'allowed_cmds_regex': list of regex patterns for allowed commands
+            - 'blocked_paths_regex': list of regex patterns for blocked paths
+            - '*': wildcard policy; any option omitted above inherits it
+              (default "ask")
 
     Returns:
         dict with keys:
@@ -237,11 +253,11 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     blocked_patterns = config.get("blocked_paths_regex", [])
 
     rules = {
-        "output_redirection": config.get("output_redirection", "ask"),
-        "input_redirection": config.get("input_redirection", "ask"),
-        "background_execution": config.get("background_execution", "ask"),
-        "subshell": config.get("subshell", "ask"),
-        "variable_assignment": config.get("variable_assignment", "ask"),
+        "output_redirection": _resolve_level(config, "output_redirection"),
+        "input_redirection": _resolve_level(config, "input_redirection"),
+        "background_execution": _resolve_level(config, "background_execution"),
+        "subshell": _resolve_level(config, "subshell"),
+        "variable_assignment": _resolve_level(config, "variable_assignment"),
         "blocked_paths_regex": blocked_patterns,
     }
 
@@ -278,6 +294,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     reasons = []
     any_segment_not_allowed = False
     variable_assignment_policy = rules.get("variable_assignment", "ask")
+    _va_segment_evaluated = False
 
     # Default values for redirection results (initialized before loop so they're always defined).
     output_result: dict[str, Any] = {"status": "allow", "matched": False, "reason": "no output redirection"}
@@ -320,6 +337,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
 
         # Handle standalone variable assignments (no command name, only assignments)
         if cmd_name == "" and args:
+            _va_segment_evaluated = True
             if variable_assignment_policy == "allow":
                 segment_result["allowed"] = True
                 # If variable_assignment is explicitly "allow", don't override with wildcard policy
@@ -468,7 +486,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     _redir_matched = output_result.get("matched", True)
     _input_matched = input_result.get("matched", True)
     _bg_matched = bg_result.get("matched", True)
-    _va_applied = variable_assignment_policy != "ask"
+    _va_applied = _va_segment_evaluated
     if (
         not allowed_patterns
         and not blocked_patterns

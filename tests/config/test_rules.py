@@ -221,11 +221,11 @@ def test_multiple_redirections_denied() -> None:
     assert "/tmp/err.txt" in result["reason"]
 
 
-def test_default_policy_is_allow() -> None:
-    """When rules dict has no output_redirection key, default is allow."""
+def test_default_policy_is_ask() -> None:
+    """When rules dict has no output_redirection key, default is ask."""
     tree = parse("echo hello > /tmp/out.txt")
     result = check_output_redirection(tree, {})
-    assert result["status"] == "allow"
+    assert result["status"] == "ask"
 
 
 def test_object_form_policy_wildcard() -> None:
@@ -445,11 +445,11 @@ def test_multiple_input_redirections_allowed() -> None:
     assert "/tmp/in1.txt" in result["reason"]
 
 
-def test_default_input_policy_is_allow() -> None:
-    """When rules dict has no input_redirection key, default is allow."""
+def test_default_input_policy_is_ask() -> None:
+    """When rules dict has no input_redirection key, default is ask."""
     tree = parse("cat < /tmp/in.txt")
     result = check_input_redirection(tree, {})
-    assert result["status"] == "allow"
+    assert result["status"] == "ask"
 
 
 def test_object_form_input_policy_wildcard() -> None:

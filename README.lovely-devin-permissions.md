@@ -2,6 +2,7 @@
 
 A Devin CLI permission hook implemented in Python. It reads local `lovely-permissions.jsonc` rules and merges in `Exec(...)` allow rules from your Devin config, so commands you have already approved for Devin are not double-prompted.
 See [README.md](README.md) for the underlying bash-AST library API.
+
 ## Usage
 
 ### Install
@@ -91,6 +92,7 @@ If either source approves the command, the hook lets it run. If neither matches,
 
 - Patterns in `allowed_cmds_regex` and `blocked_paths_regex` are unanchored substring matches unless you anchor them. For example, `git` also matches `rm -rf /var/git`. Anchor with `^git(\s|$)` or similar.
 - This is a policy layer, not a sandbox. It can be bypassed by backtick command substitution and brace groups. Environment assignment prefixes like `a=1 rm -rf /` are detected and evaluated separately (see `variable_assignment` policy). Use it as guard-rails against accidental execution, not as a security boundary around untrusted input.
+
 ## Configuration files
 
 ### `lovely-permissions.jsonc`
@@ -107,27 +109,33 @@ A typical project config:
 
 ```json
 {
+  "*": "ask",
   "bash": {
     "*": "ask",
     "allowed_cmds_regex": ["^git status$", "^git (log|ls-files)$"],
-    "blocked_paths_regex": ["^/etc"]
+    "blocked_paths_regex": ["^/etc"],
+    "subshell": "ask",
+    "variable_assignment": "ask"
   }
 }
 ```
+
+At the config root, `*` sets the overall wildcard (default `"ask"`). Inside `bash`, `*` is the bash-scope wildcard and falls back to the config-root `*`. Any bash option that is omitted inherits the bash-scope `*`, then the config-root `*`, then defaults to `"ask"`.
 
 The `bash` config key supports these keys:
 
 | Key                                     | Type                                   | Description                                                                                                                                         |
 | --------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `*`                                     | `"allow" \| "ask" \| "deny"`           | Top-level wildcard. If omitted, this hook defaults to `"ask"` so unknown commands prompt the user for approval instead of being denied              |
-| `background_execution`                  | `"allow" \| "ask" \| "deny"`           | Policy for trailing `&` background execution. If omitted, inherits from `*`                                                                         |
-| `input_redirection`                     | `"allow" \| "ask" \| "deny"`           | Policy for input/read redirections (`<`, `<<`, `<<<`, `<&`). If omitted, inherits from `*`                                                          |
-| `output_redirection.*`                  | `"allow" \| "ask" \| "deny"`           | `output_redirection` level wildcard. Default permission for any output redirection not otherwise matched                                            |
+| `*`                                     | `"allow" \| "ask" \| "deny"`           | Bash-scope wildcard. If omitted, inherits the config-root `*`, which defaults to `"ask"`, so unknown commands prompt the user for approval            |
+| `subshell`                              | `"allow" \| "ask" \| "deny"`           | Policy for subshells and command substitutions (`$(...)`, backticks). If omitted, inherits `*`                                                      |
+| `background_execution`                  | `"allow" \| "ask" \| "deny"`           | Policy for trailing `&` background execution. If omitted, inherits `*`                                                                              |
+| `input_redirection`                     | `"allow" \| "ask" \| "deny"`           | Policy for input/read redirections (`<`, `<<`, `<<<`, `<&`). If omitted, inherits `*`                                                               |
+| `output_redirection.*`                  | `"allow" \| "ask" \| "deny"`           | `output_redirection` level wildcard. Default permission for any output redirection not otherwise matched. If omitted, inherits `*`                   |
 | `output_redirection.stderr_to_dev_null` | `"allow" \| "ask" \| "deny"`           | Permission for discarding stderr with `2>/dev/null`                                                                                                 |
 | `output_redirection.stderr_to_stdout`   | `"allow" \| "ask" \| "deny"`           | Permission for duplicating stderr to stdout with `2>&1`                                                                                             |
 | `output_redirection.stdout_to_dev_null` | `"allow" \| "ask" \| "deny"`           | Permission for discarding stdout with `>/dev/null`                                                                                                  |
-| `output_redirection`                    | `"allow" \| "ask" \| "deny"` or object | Parent key for output redirection policy. A string applies to all output redirections. An object uses the keys below. If omitted, inherits from `*` |
-| `variable_assignment`                  | `"allow" \| "ask" \| "deny"`           | Policy for standalone variable assignments (`FOO=bar`) and variable assignment before commands (`FOO=bar ls`). If omitted, defaults to `"ask"` |
+| `output_redirection`                    | `"allow" \| "ask" \| "deny"` or object | Parent key for output redirection policy. A string applies to all output redirections. An object uses the keys below. If omitted, inherits `*`      |
+| `variable_assignment`                   | `"allow" \| "ask" \| "deny"`           | Policy for standalone variable assignments (`FOO=bar`) and variable assignment before commands (`FOO=bar ls`). If omitted, inherits `*`              |
 | `allowed_cmds_regex`                    | `string[]`                             | Regexes that approve a command when matched against the full command line of each segment. Unanchored - anchor with `^` and `$`                     |
 | `blocked_paths_regex`                   | `string[]`                             | Regexes that block a command when matched in arguments or redirection targets. Unanchored substrings - anchor as needed                             |
 
@@ -264,6 +272,8 @@ Example `lovely-permissions.jsonc`:
       "stderr_to_dev_null": "allow",
       "stderr_to_stdout": "allow"
     },
+    "variable_assignment": "ask"
+    "subshell": "allow",
     "blocked_paths_regex": ["\\/etc", "\\.env$", "\\.envrc$"],
     "allowed_cmds_regex": [
       "^cat\\s+.+$",
