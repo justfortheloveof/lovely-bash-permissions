@@ -221,28 +221,6 @@ allow-listed `cat`/`head`/`tail`/`grep`.
 
 ---
 
-## 8. 🟡 Duplicated "Blocked by bash permissions" reason messages
-
-**Area:** `src/lovely_bash_permissions/evaluate.py` — segment loop plus
-subshell-contents loop, no de-dup
-
-The same blocked-path message is appended once per pass:
-
-```bash
-uv run lovely-devin-permissions -t 'echo $(cat /etc/passwd)'
-# → block, reason repeats the /etc/passwd message ×2
-
-uv run lovely-devin-permissions -t 'export FOO=$(cat /etc/passwd)'
-# → block, reason repeats the /etc/passwd message ×3
-
-uv run lovely-devin-permissions -t 'echo $(echo $(echo $(cat /etc/passwd)))'
-# → block, duplicated ×2
-```
-
-**Impact:** cosmetic — noisy `reason` for agents parsing hook output.
-
----
-
 ## 10. ⚪ Parameter expansions inside double quotes dropped → false "ask"
 
 **Area:** `src/lovely_bash_permissions/inspect.py` (`_word_raw`/`_word_value`
@@ -274,5 +252,4 @@ argument is a double-quoted expansion.
 | 5 | 🟠 | Mismatched-quote corruption (`"rm`→`^r$`, `'""'`→`^$`) | `rules.py` quote handling |
 | 6 | 🟠 | `python3 -m json.tool` missing trailing `$` | default config line 46 |
 | 7 | 🟠 | `\.env$` misses `.env.production`/`.env.local` variants | default config line 12 |
-| 8 | 🟡 | Duplicated blocked-path reason messages | `evaluate.py` de-dup |
 | 10 | ⚪ | `cat "$f"` false "ask" (ParamExp dropped from args) | `inspect.py` |

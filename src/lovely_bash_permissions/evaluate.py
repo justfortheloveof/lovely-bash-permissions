@@ -422,7 +422,11 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         approval_reason = f"command matches allowed {noun}: {', '.join(all_matched_patterns)}"
         reasons.append(approval_reason)
     if reasons:
-        reason_str = "; ".join(reasons)
+        seen: list[str] = []
+        for r in reasons:
+            if r not in seen:
+                seen.append(r)
+        reason_str = "; ".join(seen)
     elif all_matched_patterns:
         noun = "pattern" if len(all_matched_patterns) == 1 else "patterns"
         reason_str = f"command matches allowed {noun}: {', '.join(all_matched_patterns)}"

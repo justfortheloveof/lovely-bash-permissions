@@ -4,6 +4,8 @@ Tests the evaluate_bash_command function across different rule types,
 aggregation behavior, and edge cases.
 """
 
+from typing import ClassVar
+
 from lovely_bash_permissions.evaluate import evaluate_bash_command
 from tests.config.conftest import make_config
 
@@ -151,6 +153,56 @@ class TestBlockedPatterns:
             make_config(blocked=["/etc/passwd"]),
         )
         assert result["status"] == "allow"
+
+
+class TestBlockedReasonDedup:
+    """Blocked-path reason messages must not repeat (bug #8).
+
+    The same blocked path was reported once per pass: the segment loop and the
+    subshell-contents pass each appended the identical message, so the final
+    reason repeated it once per nesting level. These tests assert it appears
+    exactly once.
+    """
+
+    BLOCKED: ClassVar[list[str]] = [r"\/etc"]
+    MESSAGE = "Blocked by bash permissions"
+
+    def test_blocked_reason_dedup_subshell(self) -> None:
+        """`echo $(cat /etc/passwd)` reports the blocked path once (was ×2)."""
+        result = evaluate_bash_command(
+            "echo $(cat /etc/passwd)",
+            make_config(blocked=self.BLOCKED),
+        )
+        assert result["status"] == "deny"
+        assert result["reason"].count(self.MESSAGE) == 1
+        assert r"\/etc" in result["reason"]
+
+    def test_blocked_reason_dedup_variable_assignment(self) -> None:
+        """`export FOO=$(cat /etc/passwd)` reports the blocked path once (was ×3)."""
+        result = evaluate_bash_command(
+            "export FOO=$(cat /etc/passwd)",
+            make_config(blocked=self.BLOCKED),
+        )
+        assert result["status"] == "deny"
+        assert result["reason"].count(self.MESSAGE) == 1
+
+    def test_blocked_reason_dedup_deeply_nested(self) -> None:
+        """Deeply nested subshells do not multiply the blocked-path reason."""
+        result = evaluate_bash_command(
+            "echo $(echo $(echo $(cat /etc/passwd)))",
+            make_config(blocked=self.BLOCKED),
+        )
+        assert result["status"] == "deny"
+        assert result["reason"].count(self.MESSAGE) == 1
+
+    def test_blocked_reason_dedup_same_path_multiple_flags(self) -> None:
+        """Distinct blocked paths are each reported once (no cross re-dup)."""
+        result = evaluate_bash_command(
+            "echo $(cat /etc/passwd) $(cat /etc/shadow)",
+            make_config(blocked=[r"\/etc/passwd", r"\/etc/shadow"]),
+        )
+        assert result["status"] == "deny"
+        assert result["reason"].count(self.MESSAGE) == 2
 
 
 class TestAggregation:
