@@ -172,6 +172,38 @@ From the example above, the hook adds `^git log(\s|$)` and `^git ls-files(\s|$)`
 - If `lovely-permissions.jsonc` has no bash config but Devin has `Exec(...)` rules, the hook synthesizes a bash config with `"*": "ask"` and the Devin-derived regexes, so Devin-allowed commands auto-approve while everything else still prompts.
 - Malformed `Exec(...)` entries (for example `Exec()` or `Exec((unclosed`) cause the hook to block with `[♡ perms: ERROR]` until they are fixed.
 
+## Devin CLI Hook
+
+The hook is registered for both `PreToolUse` and `PermissionRequest` on `exec` tool calls. Both receive the event as JSON on `stdin` and return their response as JSON on `stdout`.
+
+### PreToolUse
+
+```mermaid
+flowchart TD
+    A[Devin CLI Agent] -->|"JSON on stdin"| B[lovely-devin-permissions]
+    B -->|"JSON on stdout"| C{verdict}
+    C -->|"✅ allow"| D["<pre style=text-align:left>{<br/>  &quot;decision&quot;: &quot;approve&quot;,<br/>  &quot;hookSpecificOutput&quot;: {<br/>    &quot;hookEventName&quot;: &quot;PreToolUse&quot;,<br/>    &quot;updatedInput&quot;: {<br/>      &quot;command&quot;: &quot;: '[♡ perms: 💚 auto-approved] &lt;reason&gt' 💚 ; &lt;cmd&gt;&quot;<br/>    }<br/>  }<br/>}</pre>"]
+    C -->|"❌ block"| E["<pre style=text-align:left>{<br/>  &quot;decision&quot;: &quot;block&quot;,<br/>  &quot;reason&quot;: &quot;[♡ perms: ❤️ auto-rejected]&quot;,<br/>  &quot;hookSpecificOutput&quot;: {<br/>    &quot;hookEventName&quot;: &quot;PreToolUse&quot;,<br/>    &quot;updatedInput&quot;: {<br/>      &quot;command&quot;: &quot;: '[♡ perms: ❤️ auto-rejected] &lt;reason&gt;' ❤️ ; &lt;cmd&gt;&quot;<br/>    }<br/>  }<br/>}</pre>"]
+    C -->|"❔ ask"| F["<pre style=text-align:left>{<br/>  &quot;hookSpecificOutput&quot;: {<br/>    &quot;hookEventName&quot;: &quot;PreToolUse&quot;,<br/>    &quot;updatedInput&quot;: {<br/>      &quot;command&quot;: &quot;: '[♡ perms: 💛 REQUIRES-USER-APPROVAL] &lt;reason&gt' 💛 ; &lt;cmd&gt&quot;<br/>    }<br/>  }<br/>}</pre>"]
+```
+
+Fired *before* the command runs. The hook modifies the command by prepending a no-op `:` label with user-facing status info — green 💚 for auto-approved, red ❤️ for auto-rejected, yellow 💛 for commands needing user approval. The label matches `Exec(: '[♡ perms:)` in Devin's `permissions.allow` (added by `--setup`), so Devin auto-approves the label — but the actual command after `;` is still assessed by Devin's permission system.
+
+### PermissionRequest
+
+```mermaid
+flowchart TD
+    A[Devin CLI Agent] -->|"JSON on stdin"| B[lovely-devin-permissions]
+    B -->|"JSON on stdout"| C{verdict}
+    C -->|"approve"| D["<pre style=text-align:left>{ &quot;decision&quot;: &quot;approve&quot; }</pre>"]
+    C -->|"block"| E["<pre style=text-align:left>{ &quot;decision&quot;: &quot;block&quot;, &quot;reason&quot;: &quot;...&quot; }</pre>"]
+    C -->|"skip"| F["no response<br/>(Devin CLI prompts the user with the built-in prompt)"]
+```
+
+Fired when the permission system needs a decision on an `exec` tool call. The hook responds with a simple approve / block decision, or returns nothing so Devin falls through to its own user prompt.
+
+Both hooks share the same evaluation engine: config is loaded from `lovely-permissions.jsonc` (merged across global / project / local) and any `Exec(...)` rules from Devin's `permissions.allow` are appended to `allowed_cmds_regex`. The command is parsed with shfmt, walked segment-by-segment, and the overall allow / ask / block verdict is returned.
+
 ## Hook output and exit codes
 
 The hook prints a JSON object to `stdout` and exits with a code:
