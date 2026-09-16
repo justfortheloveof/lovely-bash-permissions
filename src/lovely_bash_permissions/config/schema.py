@@ -41,6 +41,11 @@ class ToolConfig(BaseModel):
     @model_validator(mode="after")
     def _warn_extra_fields(self) -> ToolConfig:
         for key in self.model_extra or {}:
+            if key in ("allow", "deny"):
+                raise ValueError(
+                    f"config key '{key}' is not supported — "
+                    f"use {('allowed_cmds_regex' if key == 'allow' else 'blocked_paths_regex')} instead"
+                )
             log.warning("unknown config key '%s' — unrecognized tool field or typo?", key)
         return self
 

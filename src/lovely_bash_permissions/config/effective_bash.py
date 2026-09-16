@@ -7,7 +7,6 @@ the hook label pass through the allowed pattern check.
 
 from typing import Any
 
-from ..rules import _item_to_anchored_pattern
 from .devin import exec_permission_to_regex, load_devin_exec_regexes
 
 HOOK_COMMAND_PREFIX = ": '[♡ perms:"
@@ -32,11 +31,6 @@ def get_effective_bash_config(raw_bash: object, project_dir: str, top_level_wild
     allowed_patterns: list[str] = []
     if raw_bash:
         bash: dict[str, Any] = raw_bash  # type: ignore[assignment]
-        # Convert allow list to allowed patterns (shared helper, issue #3)
-        allow_items = bash.get("allow", [])
-        for item in allow_items:
-            allowed_patterns.append(_item_to_anchored_pattern(item))
-        # Also include explicit allowed_cmds_regex patterns
         for p in bash.get("allowed_cmds_regex", []):
             allowed_patterns.append(p)  # noqa: PERF402 — patterns used as-is
     allowed_patterns.append(HOOK_LABEL_REGEX)
@@ -45,12 +39,9 @@ def get_effective_bash_config(raw_bash: object, project_dir: str, top_level_wild
     allowed_patterns = list(dict.fromkeys(allowed_patterns))
 
     if raw_bash:
-        # Load blocked_paths_regex directly from config, then merge deny list items
         blocked_patterns: list[str] = []
         for p in bash.get("blocked_paths_regex", []):
             blocked_patterns.append(p)  # noqa: PERF402 — patterns used as-is
-        deny_items = bash.get("deny", [])
-        blocked_patterns.extend(_item_to_anchored_pattern(d) for d in deny_items)
 
         resolved_star = bash.get("*") or top_level_wildcard or "ask"
 

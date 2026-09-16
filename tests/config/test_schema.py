@@ -231,15 +231,12 @@ def test_tool_config_output_redirection_dict() -> None:
     assert policy.stderr_to_stdout == PermissionLevel.ask
 
 
-def test_allow_deny_shorthand_rejected(caplog: pytest.LogCaptureFixture) -> None:
-    """Shorthand allow/deny fields are unrecognized and logged as warnings."""
-    config = {"bash": {"allow": ["git"], "deny": ["rm"]}}
-    result = PermissionsConfig.model_validate(config)
-    assert result is not None
-    # Both unknown keys log warnings
-    warnings = [r[2] for r in caplog.record_tuples]
-    assert any("unknown config key 'allow'" in m for m in warnings)
-    assert any("unknown config key 'deny'" in m for m in warnings)
+def test_allow_deny_shorthand_rejected() -> None:
+    """Legacy allow/deny shortcut fields are rejected as config errors."""
+    with pytest.raises(ValueError, match="config key 'allow' is not supported.*allowed_cmds_regex"):
+        PermissionsConfig.model_validate({"bash": {"allow": ["git"]}})
+    with pytest.raises(ValueError, match="config key 'deny' is not supported.*blocked_paths_regex"):
+        PermissionsConfig.model_validate({"bash": {"deny": ["rm"]}})
 
 
 def test_tool_config_input_background_subshell_levels() -> None:

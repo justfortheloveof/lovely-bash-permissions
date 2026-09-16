@@ -175,8 +175,8 @@ def _opaque_match_unreliable(pattern: str) -> bool:
     # line, so a substitute token never appears in the matched string.
     if "(?!" in pattern:
         return True
-    # Bare-name anchor produced by _item_to_anchored_pattern (^name$): accept
-    # no arguments, so any argument hidden behind $(...) invalidates the match.
+    # Bare-name anchor (e.g. ^name$ from allowed_cmds_regex): accept no
+    # arguments, so any argument hidden behind $(...) invalidates the match.
     # The body must be plain escaped text with no regex metacharacters.
     body = pattern[1:-1] if pattern.startswith("^") and pattern.endswith("$") else None
     if body is None:

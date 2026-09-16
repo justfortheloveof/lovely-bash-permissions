@@ -16,46 +16,6 @@ COMBINED_OPS: frozenset[str] = frozenset({">&", "&>", "&>>"})
 DEV_NULL: str = "/dev/null"
 
 
-def _item_to_anchored_pattern(item: str) -> str:
-    """Convert a list item (allow or deny) to an anchored regex pattern.
-
-    Items can be bare command names ("curl") or command patterns
-    ("rm -rf /"). Escapes regex-special chars and anchors with ``^...$``.
-
-    Args:
-        item: A list entry (from allow or deny config), optionally quoted.
-
-    Returns:
-        An anchored regex pattern string.
-    """
-    item = item.strip()
-    if item.startswith(("'", '"')):
-        item = item[1:-1]
-    if item.endswith(("'", '"')):
-        item = item[:-1]
-
-    # If it contains spaces, it's a command pattern — escape only the command name
-    if " " in item:
-        cmd = item.split(" ", 1)[0]
-        return f"^{re.escape(cmd)}(\\s.*)?$"
-    else:
-        return f"^{re.escape(item)}$"
-
-
-def deny_item_to_pattern(item: str) -> str:
-    """Convert a deny-list item to an anchored regex pattern.
-
-    Alias for :func:`_item_to_anchored_pattern`; kept for backward compatibility.
-
-    Args:
-        item: A deny-list entry, optionally quoted.
-
-    Returns:
-        An anchored regex pattern string.
-    """
-    return _item_to_anchored_pattern(item)
-
-
 @lru_cache(maxsize=512)
 def _compile_pattern(pattern: str) -> re.Pattern[str]:
     """Compile and cache a regex pattern. Raises ValueError on invalid pattern."""

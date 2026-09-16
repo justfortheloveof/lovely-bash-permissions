@@ -1,7 +1,5 @@
 """Tests for permission rules engine."""
 
-import re
-
 import pytest
 
 from lovely_bash_permissions.parser import parse
@@ -71,18 +69,6 @@ def test_compile_pattern_invalid_raises_message() -> None:
 
     exc = pytest.raises(ValueError, lambda: _compile_pattern("[invalid"))
     assert "invalid pattern" in str(exc.value)
-
-
-def test_item_to_anchored_pattern_valid_compiles() -> None:
-    """Valid item returns compiled pattern (no exception)."""
-    result = _compile_pattern("^curl$")
-    assert isinstance(result, type(re.compile("")))
-
-
-def test_item_to_anchored_pattern_invalid_raises() -> None:
-    """Bad regex pattern raises ValueError (not re.error)."""
-    with pytest.raises(ValueError):
-        _compile_pattern("[invalid")
 
 
 # Tests for check_blocked_patterns

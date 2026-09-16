@@ -19,8 +19,12 @@ Config under test: `~/.config/devin/lovely-permissions.jsonc` (default wildcard
 
 ## 3. 🔴 `_item_to_anchored_pattern` matches only the first word
 
-**Area:** `src/lovely_bash_permissions/rules.py:38-40` (fed by
-`config/effective_bash.py:36` for `allow` and `:51` for `deny`)
+**Status:** ✅ RESOLVED — the legacy `allow`/`deny` list feature was removed.
+Only `allowed_cmds_regex` / `blocked_paths_regex` are supported now and are used
+as-is (no conversion), so the first-word split can no longer occur. Configs that
+still contain `allow`/`deny` keys fail validation.
+
+**Area:** `config/effective_bash.py` (removed — previously fed by allow/deny lists)
 
 Items containing spaces are split at the first token and the argument tail is
 swallowed by `(\s.*)?$` — the full command is never matched:
@@ -85,7 +89,10 @@ intended to prevent exactly this is inert.
 
 ## 5. 🟠 Mismatched-quote corruption in `_item_to_anchored_pattern`
 
-**Area:** `src/lovely_bash_permissions/rules.py:31-35`
+**Status:** ✅ RESOLVED — the legacy `allow`/`deny` list feature was removed,
+so `_item_to_anchored_pattern` (and its quote handling) no longer exists.
+
+**Area:** `rules.py` (function removed)
 
 A leading quote unconditionally strips the last character too:
 
@@ -175,9 +182,9 @@ argument is a double-quoted expansion.
 
 | # | Severity | Bug | Fix area |
 | --- | ---------- | ----- | ---------- |
-| 3 | 🔴 | `_item_to_anchored_pattern` matches first word only → narrow allow/deny rules over-grant/over-block | `rules.py` |
+| 3 | 🔴 | `_item_to_anchored_pattern` matches first word only → narrow allow/deny rules over-grant/over-block | ✅ RESOLVED — allow/deny lists removed |
 | 4 | 🔴 | Hook label regex dead — every rewritten command re-asks in production | quote-stripping vs label regex |
-| 5 | 🟠 | Mismatched-quote corruption (`"rm`→`^r$`, `'""'`→`^$`) | `rules.py` quote handling |
+| 5 | 🟠 | Mismatched-quote corruption (`"rm`→`^r$`, `'""'`→`^$`) | ✅ RESOLVED — allow/deny lists removed |
 | 6 | 🟠 | `python3 -m json.tool` missing trailing `$` | default config line 46 |
 | 7 | 🟠 | `\.env$` misses `.env.production`/`.env.local` variants | default config line 12 |
 | 10 | ⚪ | `cat "$f"` false "ask" (ParamExp dropped from args) | `inspect.py` |
