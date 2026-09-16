@@ -96,6 +96,21 @@ def generate_hook_response(event: dict[str, Any], decision: dict[str, Any]) -> d
     return None
 
 
+_LEVEL_TO_ACTION = {"allow": "allow", "ask": "ask", "deny": "block"}
+
+
+def _error_action(config: dict[str, Any], exc: BaseException) -> dict[str, Any]:
+    """Map a failure to the configured ``error`` policy.
+
+    ``bash.error`` (or its wildcard default, resolved by
+    :func:`get_effective_bash_config`) decides the action for any command we
+    could not analyse.  Falls back to ask when the config is unavailable.
+    """
+    level = config.get("error") or config.get("*") or "ask"
+    action = _LEVEL_TO_ACTION.get(level, "ask")
+    return {"action": action, "reason": f"error evaluating command (policy '{level}'): {exc}"}
+
+
 def process_hook_event(event: dict[str, Any]) -> dict[str, Any]:
     """Process a hook event and decide allow/ask/block/skip.
 
@@ -139,9 +154,13 @@ def process_hook_event(event: dict[str, Any]) -> dict[str, Any]:
         reason = manager.get_error() or "effective bash config load failed"
         return {"action": "ask", "reason": f"config error (fallback to ask): {reason}"}
 
-    result = evaluate_bash_command(command, config)
+    try:
+        result = evaluate_bash_command(command, config)
+    except Exception as exc:  # noqa: BLE001 — uniform routing through the `error` policy
+        return _error_action(config, exc)
+
     status = result.get("status", "ask")
     reason = result.get("reason", "")
 
-    action = {"allow": "allow", "ask": "ask", "deny": "block"}[status]
+    action = _LEVEL_TO_ACTION[status]
     return {"action": action, "reason": reason}

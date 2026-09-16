@@ -112,6 +112,7 @@ A typical project config:
   "*": "ask",
   "bash": {
     "*": "ask",
+    "error": "ask",
     "allowed_cmds_regex": ["^git status$", "^git (log|ls-files)$"],
     "blocked_paths_regex": ["^/etc"],
     "subshell": "ask",
@@ -127,6 +128,7 @@ The `bash` config key supports these keys:
 | Key                                     | Type                                   | Description                                                                                                                                         |
 | --------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `*`                                     | `"allow" \| "ask" \| "deny"`           | Bash-scope wildcard. If omitted, inherits the config-root `*`, which defaults to `"ask"`, so unknown commands prompt the user for approval            |
+| `error`                                 | `"allow" \| "ask" \| "deny"`           | Policy applied when a command cannot be analysed (unparseable/malformed bash, shfmt failure). If omitted, inherits `*`. Set to `"ask"` or `"deny"` so broken syntax is not silently auto-approved under `"*": "allow"` |
 | `subshell`                              | `"allow" \| "ask" \| "deny"`           | Policy for subshells and command substitutions (`$(...)`, backticks). If omitted, inherits `*`                                                      |
 | `background_execution`                  | `"allow" \| "ask" \| "deny"`           | Policy for trailing `&` background execution. If omitted, inherits `*`                                                                              |
 | `input_redirection`                     | `"allow" \| "ask" \| "deny"`           | Policy for input/read redirections (`<`, `<<`, `<<<`, `<&`). If omitted, inherits `*`                                                               |
@@ -138,6 +140,8 @@ The `bash` config key supports these keys:
 | `variable_assignment`                   | `"allow" \| "ask" \| "deny"`           | Policy for standalone variable assignments (`FOO=bar`) and variable assignment before commands (`FOO=bar ls`). If omitted, inherits `*`              |
 | `allowed_cmds_regex`                    | `string[]`                             | Regexes that approve a command when matched against the full command line of each segment. Unanchored - anchor with `^` and `$`                     |
 | `blocked_paths_regex`                   | `string[]`                             | Regexes that block a command when matched in arguments or redirection targets. Unanchored substrings - anchor as needed                             |
+
+>`error` covers commands the parser cannot handle (e.g. `echo "unclosed`, `(((invalid`). Because both `allowed_cmds_regex` and `blocked_paths_regex` are skipped for such input, the `error` policy decides the outcome — defaulting to the bash `*` wildcard. Set it to `"ask"` (recommended) or `"deny"` so malformed but bash-accepted syntax is never silently auto-approved under `"*": "allow"`.
 
 ### Devin config
 
@@ -267,12 +271,13 @@ Example `lovely-permissions.jsonc`:
 {
   "bash": {
     "*": "ask",
+    "error": "ask",
     "output_redirection": {
       "*": "ask",
       "stderr_to_dev_null": "allow",
       "stderr_to_stdout": "allow"
     },
-    "variable_assignment": "ask"
+    "variable_assignment": "ask",
     "subshell": "allow",
     "blocked_paths_regex": ["\\/etc", "\\.env$", "\\.envrc$"],
     "allowed_cmds_regex": [

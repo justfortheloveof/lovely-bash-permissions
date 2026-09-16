@@ -922,7 +922,8 @@ def parse_ast(command: str) -> File:
         Root File node of the parsed AST tree
 
     Raises:
-        ParseError: If shfmt cannot parse the command
+        LovelyDevinPermissionsError: If shfmt cannot parse the command or
+            the shfmt binary is unavailable.
     """
     from .parser import parse
 

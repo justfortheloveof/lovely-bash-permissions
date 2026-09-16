@@ -64,8 +64,9 @@ from .ast import (
     Word,
 )
 from .converter import node_from_json
+from .errors import LovelyDevinPermissionsError
 from .inspect import _word_raw, _word_value
-from .parser import ParseError, parse
+from .parser import parse
 
 _logger = logging.getLogger(__name__)
 
@@ -612,7 +613,7 @@ def parse_segments(command: str, dialect: str = DEFAULT_DIALECT) -> list[dict[st
     try:
         raw_ast = parse(command, dialect)
         ast = node_from_json(raw_ast)
-    except (ParseError, FileNotFoundError):
+    except LovelyDevinPermissionsError:
         return []
 
     if ast is None:

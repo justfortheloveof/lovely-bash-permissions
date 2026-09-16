@@ -6,6 +6,9 @@ aggregation behavior, and edge cases.
 
 from typing import ClassVar
 
+import pytest
+
+from lovely_bash_permissions.errors import LovelyDevinPermissionsError
 from lovely_bash_permissions.evaluate import evaluate_bash_command
 from tests.config.conftest import make_config
 
@@ -655,14 +658,14 @@ class TestEdgeCases:
     """Tests for edge cases."""
 
     def test_empty_command(self) -> None:
-        """Empty command goes through approval flow (default wildcard=ask)."""
-        result = evaluate_bash_command("", make_config())
-        assert result["status"] == "ask"
+        """Empty command cannot be parsed → raises, routed via error policy."""
+        with pytest.raises(LovelyDevinPermissionsError):
+            evaluate_bash_command("", make_config())
 
     def test_whitespace_only(self) -> None:
-        """Whitespace-only command goes through approval flow (default wildcard=ask)."""
-        result = evaluate_bash_command("   ", make_config())
-        assert result["status"] == "ask"
+        """Whitespace-only command cannot be parsed → raises."""
+        with pytest.raises(LovelyDevinPermissionsError):
+            evaluate_bash_command("   ", make_config())
 
     def test_single_command(self) -> None:
         """Single command."""
@@ -1037,10 +1040,10 @@ class TestResultStructure:
         assert result["status"] == "ask"
         assert "input redirection requires approval" in result["reason"]
 
-    def test_incomplete_heredoc_ask(self) -> None:
-        """Incomplete heredoc (unclosed) goes through approval flow."""
-        result = evaluate_bash_command("cat << EOF", make_config())
-        assert result["status"] == "ask"
+    def test_incomplete_heredoc_raises(self) -> None:
+        """Incomplete heredoc (unclosed) cannot be parsed → raises (bug #2 fix)."""
+        with pytest.raises(LovelyDevinPermissionsError):
+            evaluate_bash_command("cat << EOF", make_config())
 
     def test_input_redirect_to_blocked_path_denied(self) -> None:
         """Input redirect to blocked path is denied."""

@@ -33,8 +33,8 @@ from .ast import (
     Word,
 )
 from .converter import parse_ast
+from .errors import LovelyDevinPermissionsError
 from .inspect import _word_value, has_pipe, has_variable, iter_children
-from .parser import ParseError
 
 PROG = "lovely-bash-inspection"
 INDENT = "  "
@@ -360,7 +360,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         tree = parse_ast(source)
-    except (ParseError, FileNotFoundError) as exc:
+    except LovelyDevinPermissionsError as exc:
         print(f"{PROG}: error: failed to parse input: {exc}", file=sys.stderr)
         return 3
 

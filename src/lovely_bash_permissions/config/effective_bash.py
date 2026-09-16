@@ -24,8 +24,8 @@ def get_effective_bash_config(raw_bash: object, project_dir: str, top_level_wild
             fallback for the bash-level ``*`` (default "ask").
 
     Returns:
-        dict with at least "*" : "ask", "allowed_cmds_regex" list,
-        and "blocked_paths_regex" list
+        dict with at least "*" : "ask", "error" : (bash error or wildcard),
+        "allowed_cmds_regex" list, and "blocked_paths_regex" list
     """
     devin_regexes = load_devin_exec_regexes(project_dir)
 
@@ -64,6 +64,7 @@ def get_effective_bash_config(raw_bash: object, project_dir: str, top_level_wild
         return {
             **bash,
             "*": resolved_star,
+            "error": _resolve("error"),
             "subshell": _resolve("subshell"),
             "variable_assignment": _resolve("variable_assignment"),
             "input_redirection": _resolve("input_redirection"),
@@ -75,6 +76,7 @@ def get_effective_bash_config(raw_bash: object, project_dir: str, top_level_wild
 
     return {
         "*": top_level_wildcard or "ask",
+        "error": top_level_wildcard or "ask",
         "allowed_cmds_regex": allowed_patterns,
         "blocked_paths_regex": [],
     }

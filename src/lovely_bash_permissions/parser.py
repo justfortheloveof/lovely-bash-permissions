@@ -22,6 +22,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .errors import LovelyDevinPermissionsError
+
 _VALID_DIALECTS = frozenset({"bash", "posix", "mksh", "bats", "zsh"})
 
 
@@ -38,30 +40,39 @@ def parse(command: str, dialect: str = "bash") -> dict[str, Any]:
         dict[str, Any]: The shfmt JSON AST representation as a Python dictionary.
 
     Raises:
-        ParseError: If parsing fails (syntax error, invalid JSON, missing binary).
+        ParseError: If parsing fails (syntax error, invalid JSON).
+        LovelyDevinPermissionsError: If the shfmt binary is missing or
+            shfmt could not be run (timeout, OS error).
         ValueError: If *dialect* is not a recognised shell dialect.
-        FileNotFoundError: If no shfmt binary can be located.
     """
     if dialect not in _VALID_DIALECTS:
         raise ValueError(f"Unknown dialect {dialect!r}. Must be one of: {', '.join(sorted(_VALID_DIALECTS))}")
 
-    shfmt_path = find_shfmt()
+    try:
+        shfmt_path = find_shfmt()
+    except FileNotFoundError as e:
+        raise LovelyDevinPermissionsError(str(e)) from e
 
     if not command.strip():
         raise ParseError("Empty command", command=command)
 
-    result = subprocess.run(
-        [
-            shfmt_path,
-            f"--language-dialect={dialect}",
-            "--to-json",
-        ],
-        input=command,
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            [
+                shfmt_path,
+                f"--language-dialect={dialect}",
+                "--to-json",
+            ],
+            input=command,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise LovelyDevinPermissionsError(f"shfmt timed out while parsing command: {e}") from e
+    except OSError as e:
+        raise LovelyDevinPermissionsError(f"failed to run shfmt: {e}") from e
 
     if result.returncode != 0:
         raise ParseError(
@@ -141,7 +152,7 @@ def find_shfmt() -> str:
     return _shfmt_cache
 
 
-class ParseError(Exception):
+class ParseError(LovelyDevinPermissionsError):
     """Exception raised when bash command parsing fails.
 
     Attributes:

@@ -69,6 +69,7 @@ from .ast import (
     structurally_equal,
 )
 from .converter import parse_ast
+from .errors import LovelyDevinPermissionsError
 from .inspect import (
     RedirectionInfo,
     find_arguments,
@@ -117,6 +118,7 @@ __all__ = [
     "IfClause",
     "LetClause",
     "Lit",
+    "LovelyDevinPermissionsError",
     "Node",
     "OrCmd",
     "ParamExp",

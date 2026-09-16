@@ -59,7 +59,12 @@ class TestGetEffectiveBashConfig:
 
         result = get_effective_bash_config(None, "/project")
 
-        assert result == {"*": "ask", "allowed_cmds_regex": [HOOK_LABEL_REGEX], "blocked_paths_regex": []}
+        assert result == {
+            "*": "ask",
+            "error": "ask",
+            "allowed_cmds_regex": [HOOK_LABEL_REGEX],
+            "blocked_paths_regex": [],
+        }
 
     def test_raw_bash_empty(self) -> None:
         """Empty bash config -> ask, no patterns."""
@@ -214,3 +219,23 @@ class TestGetEffectiveBashConfig:
         result = get_effective_bash_config(raw, "/project")
 
         assert result["output_redirection"] == {"stdout_to_dev_null": "deny", "*": "ask"}
+
+    def test_error_defaults_to_resolved_star(self) -> None:
+        """'error' absent -> inherits the effective '*' value."""
+        raw = {"*": "deny"}
+        result = get_effective_bash_config(raw, "/project")
+
+        assert result["error"] == "deny"
+
+    def test_explicit_error_beats_star(self) -> None:
+        """Explicit bash 'error' overrides the wildcard."""
+        raw = {"*": "ask", "error": "deny"}
+        result = get_effective_bash_config(raw, "/project")
+
+        assert result["error"] == "deny"
+
+    def test_error_root_wildcard_without_bash(self) -> None:
+        """Without a bash block, 'error' mirrors the top-level wildcard."""
+        result = get_effective_bash_config(None, "/project", top_level_wildcard="deny")
+
+        assert result["error"] == "deny"

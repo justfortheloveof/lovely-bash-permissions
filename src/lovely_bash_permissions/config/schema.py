@@ -45,6 +45,9 @@ class ToolConfig(BaseModel):
         return self
 
     wildcard: PermissionLevel | None = Field(None, alias="*")  # default permission for unmatched tools
+    #: Policy applied when a command cannot be analysed (parse/shfmt/config
+    #: failure).  Defaults to the wildcard (bash `*`) when unset.
+    error: PermissionLevel | None = None
     blocked_paths_regex: list[str] = []
     allowed_cmds_regex: list[str] = []
     output_redirection: OutputRedirectionPolicy | PermissionLevel | None = None

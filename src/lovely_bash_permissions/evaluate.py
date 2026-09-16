@@ -15,7 +15,7 @@ from typing import Any
 from .ast import CallExpr, CmdSubst, Node, ProcSubst
 from .converter import node_from_json
 from .inspect import _traverse, _word_raw, _word_value, iter_children
-from .parser import ParseError, parse
+from .parser import parse
 from .rules import (
     _check_segments_input_redirs,
     _check_segments_output_redirs,
@@ -247,6 +247,10 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
             - 'segments': list of per-segment results, each with 'command',
               'arguments', 'allowed', 'blocked' (allowed/blocked are
               evaluate-added metadata, absent from parse_segments output)
+
+    Raises:
+        LovelyDevinPermissionsError: If the command cannot be parsed or shfmt
+            fails.  The caller (hook) maps this to the ``error`` policy.
     """
     # Extract rules from config
     allowed_patterns = config.get("allowed_cmds_regex", [])
@@ -261,15 +265,11 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         "blocked_paths_regex": blocked_patterns,
     }
 
-    # Parse the command to check for command substitution
-    try:
-        raw_tree = parse(command)
-    except ParseError as e:
-        _wildcard = config.get("*", "ask")
-        return {
-            "status": _wildcard,
-            "reason": f"ParseError: {e}, defaulting approval decision to bash permission configuration ({_wildcard})",
-        }
+    # Parse the command to check for command substitution.  Any parse or
+    # shfmt infrastructure failure raises LovelyDevinPermissionsError; the
+    # top-level hook handler maps it to the configurable `error` policy
+    # instead of silently falling back to the wildcard (bug #2).
+    raw_tree = parse(command)
 
     has_subshell = _has_cmd_subst(raw_tree)
 

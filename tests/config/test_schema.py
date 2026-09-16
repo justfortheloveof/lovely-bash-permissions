@@ -162,6 +162,30 @@ def test_unknown_top_level_key_rejected(caplog: pytest.LogCaptureFixture) -> Non
     assert "unknown config key" in caplog.text
 
 
+def test_tool_config_error_valid() -> None:
+    config = PermissionsConfig.model_validate({"bash": {"error": "deny"}})
+    assert config.bash is not None
+    assert config.bash.error == PermissionLevel.deny
+
+
+def test_tool_config_error_allows_all_levels() -> None:
+    for level in ("allow", "ask", "deny"):
+        config = PermissionsConfig.model_validate({"bash": {"error": level}})
+        assert config.bash is not None
+        assert config.bash.error == PermissionLevel(level)
+
+
+def test_tool_config_error_invalid_rejected() -> None:
+    config = {"bash": {"error": "deny-all"}}
+    try:
+        PermissionsConfig.model_validate(config)
+        raise AssertionError("expected ValidationError")
+    except ValidationError as exc:
+        errors = exc.errors()
+        assert len(errors) == 1
+        assert "allow" in errors[0]["msg"]
+
+
 def test_unrecognized_tool_field_warns(caplog: pytest.LogCaptureFixture) -> None:
     config = {"bash": {"blocked_path_regex": ["^/tmp/"]}}  # typo: missing s
     result = PermissionsConfig.model_validate(config)

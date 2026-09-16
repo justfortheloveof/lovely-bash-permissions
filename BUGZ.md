@@ -17,36 +17,6 @@ Config under test: `~/.config/devin/lovely-permissions.jsonc` (default wildcard
 
 ---
 
-## 2. 🔴 ParseError falls back to `*` wildcard, bypassing all checks
-
-**Area:** `src/lovely_bash_permissions/evaluate.py:205-212`
-
-`evaluate_bash_command` returns `{"status": _wildcard}` immediately when
-`parse()` raises (shfmt fails), before allowed-pattern / blocked-path /
-redirection / background checks run.
-
-```bash
-# even with default *:ask, a blocked path is downgraded deny → ask
-uv run lovely-devin-permissions -t 'cat /etc/passwd'        # → block
-uv run lovely-devin-permissions -t "cat /etc/passwd '"      # → ask (ParseError path!)
-```
-
-With `"*": "allow"` in config, **any** malformed bash is auto-approved with no
-content inspection at all:
-
-```bash
-uv run lovely-devin-permissions -t '(((invalid'     # ParseError + *:allow → allow
-uv run lovely-devin-permissions -t '; ; ;'          # ParseError + *:allow → allow
-uv run lovely-devin-permissions -t 'echo "unclosed' # ParseError + *:allow → allow
-```
-
-**Impact:** any syntax shfmt rejects but real bash accepts silently disables
-the permission layer. Under `*: allow` it is a hard bypass; under default
-`*: ask` it downgrades hard blocks to soft asks (an auto-accepting agent
-runs them).
-
----
-
 ## 3. 🔴 `_item_to_anchored_pattern` matches only the first word
 
 **Area:** `src/lovely_bash_permissions/rules.py:38-40` (fed by
@@ -205,7 +175,6 @@ argument is a double-quoted expansion.
 
 | # | Severity | Bug | Fix area |
 | --- | ---------- | ----- | ---------- |
-| 2 | 🔴 | ParseError → `*` wildcard; downgrades deny→ask, auto-approves under `*: allow` | `evaluate.py` ParseError branch |
 | 3 | 🔴 | `_item_to_anchored_pattern` matches first word only → narrow allow/deny rules over-grant/over-block | `rules.py` |
 | 4 | 🔴 | Hook label regex dead — every rewritten command re-asks in production | quote-stripping vs label regex |
 | 5 | 🟠 | Mismatched-quote corruption (`"rm`→`^r$`, `'""'`→`^$`) | `rules.py` quote handling |

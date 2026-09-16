@@ -888,3 +888,64 @@ class TestErrorHandling:
         # The exact exit code depends on config validation
         # at least the CLI should not crash
         assert result.returncode in [0, 1]
+
+    def test_main_catches_unexpected_exceptions(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """An escaping exception exits 1 with an error on stderr (fail closed)."""
+        from lovely_bash_permissions.devin_cli import main
+
+        orig_argv = sys.argv
+        sys.argv = ["lovely-devin-permissions", "-t", "ls"]
+
+        def _boom(_command: str) -> None:
+            raise RuntimeError("internal boom")
+
+        monkeypatch.setattr("lovely_bash_permissions.devin_cli.handle_test", _boom)
+        try:
+            with pytest.raises(SystemExit) as exc:
+                main()
+            assert exc.value.code == 1
+        finally:
+            sys.argv = orig_argv
+
+        err = capsys.readouterr().err
+        assert "unexpected error: internal boom" in err
+
+
+class TestCliTestErrorPolicy(_NodeCoverageBase):
+    """Malformed bash routes through the bash `error` policy (bug #2)."""
+
+    def test_error_deny_blocks_malformed(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/-t: error=deny blocks unparseable bash even under wildcard allow."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        self._write_config(tmp_project, {"bash": {"*": "allow", "error": "deny"}})
+        result = self._test('echo "unclosed', tmp_project, global_dir)
+
+        assert result.returncode == 2
+        response = json.loads(result.stdout)
+        assert response["decision"] == "block"
+        assert "error evaluating command" in response["reason"]
+        assert "policy 'deny'" in response["reason"]
+
+    def test_error_ask_asks_for_malformed(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/-t: error=ask surfaces an ask (no decision key) for unparseable bash."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        self._write_config(tmp_project, {"bash": {"*": "allow", "error": "ask"}})
+        result = self._test("(((invalid", tmp_project, global_dir, flag="-t")
+
+        assert result.returncode == 0
+        response = json.loads(result.stdout)
+        assert "decision" not in response
+        assert "error evaluating command" in str(response["hookSpecificOutput"]["updatedInput"]["command"])
+
+    def test_error_defaults_to_wildcard(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/-t: no 'error' key means malformed bash inherits bash '*' (documented default)."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        self._write_config(tmp_project, {"bash": {"*": "allow"}})
+        result = self._test('echo "unclosed', tmp_project, global_dir, flag="-t")
+
+        assert result.returncode == 0
+        response = json.loads(result.stdout)
+        # error inherits '*' → allow auto-approves; users set error: ask/deny to harden
+        assert response["decision"] == "approve"

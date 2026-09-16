@@ -185,40 +185,44 @@ def main() -> None:
     args = parser.parse_args()
 
     # CLI flags take precedence
-    if args.setup:
-        handle_setup()
-    elif args.test is not None:
-        handle_test(args.test)
-    elif args.show_config:
-        handle_show_config()
-    else:
-        # Hook mode: check if stdin has data
-        if sys.stdin.isatty():
-            # No input in interactive mode, exit silently
-            sys.exit(0)
-        try:
-            raw = sys.stdin.read().strip()
-            if not raw:
+    try:
+        if args.setup:
+            handle_setup()
+        elif args.test is not None:
+            handle_test(args.test)
+        elif args.show_config:
+            handle_show_config()
+        else:
+            # Hook mode: check if stdin has data
+            if sys.stdin.isatty():
+                # No input in interactive mode, exit silently
                 sys.exit(0)
-            event = json.loads(raw)
-        except json.JSONDecodeError:
-            sys.exit(0)
+            try:
+                raw = sys.stdin.read().strip()
+                if not raw:
+                    sys.exit(0)
+                event = json.loads(raw)
+            except json.JSONDecodeError:
+                sys.exit(0)
 
-        # Validate structure
-        tool_name = event.get("tool_name", "")
-        tool_input = event.get("tool_input", {})
-        if tool_name != "exec":
-            sys.exit(0)
-        if not isinstance(tool_input, dict):
-            sys.exit(0)
-        command = tool_input.get("command", "")
-        if not command:
-            sys.exit(0)
+            # Validate structure
+            tool_name = event.get("tool_name", "")
+            tool_input = event.get("tool_input", {})
+            if tool_name != "exec":
+                sys.exit(0)
+            if not isinstance(tool_input, dict):
+                sys.exit(0)
+            command = tool_input.get("command", "")
+            if not command:
+                sys.exit(0)
 
-        response = handle_hook_event(event)
-        if response is not None:
-            print(json.dumps(response, ensure_ascii=False))
-        sys.exit(0)
+            response = handle_hook_event(event)
+            if response is not None:
+                print(json.dumps(response, ensure_ascii=False))
+            sys.exit(0)
+    except Exception as exc:  # noqa: BLE001 — fail closed (no decision emitted)
+        print(with_error_prefix(f"unexpected error: {exc}"), file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

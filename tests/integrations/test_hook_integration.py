@@ -6,8 +6,22 @@ decision paths, plus config-load-failure fallback behavior.
 
 from unittest.mock import patch
 
-from lovely_bash_permissions.hook import generate_hook_response, process_hook_event
+from lovely_bash_permissions.hook import _error_action, generate_hook_response, process_hook_event
 from tests.integrations.conftest import _permission_request_event, _pretooluse_exec_event
+
+
+def test_error_action_fallback_to_wildcard() -> None:
+    """Config without an 'error' key falls back to '*' then 'ask'."""
+    assert _error_action({"*": "deny"}, ValueError("x"))["action"] == "block"
+    assert _error_action({}, ValueError("x"))["action"] == "ask"
+
+
+def test_error_action_invalid_level_falls_back_to_ask() -> None:
+    """An unparseable error level degrades to ask, never crashes."""
+    result = _error_action({"error": "banana", "*": "deny"}, ValueError("x"))
+    assert result["action"] == "ask"
+    assert "policy 'banana'" in result["reason"]
+
 
 # ---------------------------------------------------------------------------
 # 1–4: PreToolUse decision paths via generate_hook_response
@@ -165,3 +179,79 @@ def test_reason_preserved_in_block() -> None:
     assert reason_text in result["reason"]
     # Also check updatedInput contains the label with reason
     assert reason_text in result["hookSpecificOutput"]["updatedInput"]["command"]
+
+
+# ---------------------------------------------------------------------------
+# 13–16: evaluate failures route through the bash 'error' policy
+# ---------------------------------------------------------------------------
+
+
+def _effective_config(error: str = "ask", wildcard: str = "ask") -> dict[str, str | list[str]]:
+    return {"*": wildcard, "error": error, "allowed_cmds_regex": [], "blocked_paths_regex": []}
+
+
+def test_error_policy_defaults_to_wildcard_ask() -> None:
+    """Unparseable command with error unset (→ wildcard ask) produces ask."""
+    event = _pretooluse_exec_event("echo 'unclosed")
+
+    with (
+        patch("lovely_bash_permissions.hook.PermissionsManager") as MockMgr,
+        patch("lovely_bash_permissions.hook.get_effective_bash_config", return_value=_effective_config()),
+    ):
+        instance = MockMgr.return_value
+        instance.get_lovely_config.return_value = {"bash": {}}
+        result = process_hook_event(event)
+
+    assert result["action"] == "ask"
+    assert "error evaluating command" in result["reason"]
+
+
+def test_error_policy_deny_blocks_unparseable() -> None:
+    """error=deny blocks even commands the parser rejects (bug #2 fix)."""
+    event = _pretooluse_exec_event("cat /etc/passwd '")
+
+    with (
+        patch("lovely_bash_permissions.hook.PermissionsManager") as MockMgr,
+        patch("lovely_bash_permissions.hook.get_effective_bash_config", return_value=_effective_config(error="deny")),
+    ):
+        instance = MockMgr.return_value
+        instance.get_lovely_config.return_value = {"bash": {}}
+        result = process_hook_event(event)
+
+    assert result["action"] == "block"
+    assert "policy 'deny'" in result["reason"]
+
+
+def test_error_policy_allow_overrides_deny_wildcard() -> None:
+    """error=allow auto-approves unparseable commands even under wildcard deny."""
+    event = _pretooluse_exec_event("(((invalid")
+
+    with (
+        patch("lovely_bash_permissions.hook.PermissionsManager") as MockMgr,
+        patch(
+            "lovely_bash_permissions.hook.get_effective_bash_config",
+            return_value=_effective_config(error="allow", wildcard="deny"),
+        ),
+    ):
+        instance = MockMgr.return_value
+        instance.get_lovely_config.return_value = {"bash": {}}
+        result = process_hook_event(event)
+
+    assert result["action"] == "allow"
+
+
+def test_unexpected_exception_routed_through_error_policy() -> None:
+    """Unexpected internal exceptions also map via the error policy."""
+    event = _pretooluse_exec_event("ls")
+
+    with (
+        patch("lovely_bash_permissions.hook.PermissionsManager") as MockMgr,
+        patch("lovely_bash_permissions.hook.get_effective_bash_config", return_value=_effective_config(error="deny")),
+        patch("lovely_bash_permissions.hook.evaluate_bash_command", side_effect=RuntimeError("internal bug")),
+    ):
+        instance = MockMgr.return_value
+        instance.get_lovely_config.return_value = {"bash": {}}
+        result = process_hook_event(event)
+
+    assert result["action"] == "block"
+    assert "internal bug" in result["reason"]
