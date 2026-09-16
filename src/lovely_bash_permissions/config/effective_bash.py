@@ -1,16 +1,16 @@
 """Compute effective bash permission config.
 
 Combines the raw lovely-permissions bash config with Devin exec permission
-regexes. Always includes the hook label regex so commands prefixed with
-the hook label pass through the allowed pattern check.
+regexes.
+
+The hook's own ``: '<label>'`` wrapper is not part of the allowed patterns:
+it is inert (the ``:`` builtin ignores its arguments) and is recognized
+structurally by the evaluator so re-evaluated rewrites don't spuriously ask.
 """
 
 from typing import Any
 
-from .devin import exec_permission_to_regex, load_devin_exec_regexes
-
-HOOK_COMMAND_PREFIX = ": '[♡ perms:"
-HOOK_LABEL_REGEX = exec_permission_to_regex(HOOK_COMMAND_PREFIX)
+from .devin import load_devin_exec_regexes
 
 
 def get_effective_bash_config(raw_bash: object, project_dir: str, top_level_wildcard: str = "ask") -> dict[str, Any]:
@@ -33,7 +33,6 @@ def get_effective_bash_config(raw_bash: object, project_dir: str, top_level_wild
         bash: dict[str, Any] = raw_bash  # type: ignore[assignment]
         for p in bash.get("allowed_cmds_regex", []):
             allowed_patterns.append(p)  # noqa: PERF402 — patterns used as-is
-    allowed_patterns.append(HOOK_LABEL_REGEX)
     allowed_patterns.extend(devin_regexes)
     # Remove duplicates while preserving order
     allowed_patterns = list(dict.fromkeys(allowed_patterns))

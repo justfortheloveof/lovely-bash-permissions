@@ -5,10 +5,7 @@ Verifies that blocked_paths_regex from config is loaded correctly.
 
 import pytest
 
-from lovely_bash_permissions.config.effective_bash import (
-    HOOK_LABEL_REGEX,
-    get_effective_bash_config,
-)
+from lovely_bash_permissions.config.effective_bash import get_effective_bash_config
 
 pytestmark = pytest.mark.usefixtures("devin_global_config_dir")
 
@@ -17,14 +14,14 @@ class TestGetEffectiveBashConfig:
     """Tests for get_effective_bash_config."""
 
     def test_no_raw_bash(self) -> None:
-        """No raw bash config -> ask mode, hook label regex only."""
+        """No raw bash config -> ask mode, no allowed patterns."""
 
         result = get_effective_bash_config(None, "/project")
 
         assert result == {
             "*": "ask",
             "error": "ask",
-            "allowed_cmds_regex": [HOOK_LABEL_REGEX],
+            "allowed_cmds_regex": [],
             "blocked_paths_regex": [],
         }
 
@@ -34,7 +31,7 @@ class TestGetEffectiveBashConfig:
         result = get_effective_bash_config({}, "/project")
 
         assert result["*"] == "ask"
-        assert result["allowed_cmds_regex"] == [HOOK_LABEL_REGEX]
+        assert result["allowed_cmds_regex"] == []
 
     def test_blocked_paths_regex_loaded(self) -> None:
         """blocked_paths_regex from config is loaded directly."""
@@ -55,11 +52,12 @@ class TestGetEffectiveBashConfig:
 
         assert result["blocked_paths_regex"] == ["^/tmp/", "cat", "\\.env$"]
 
-    def test_hook_label_always_present(self) -> None:
-        """Hook label regex is always included in allowed patterns."""
+    def test_hook_label_regex_not_injected(self) -> None:
+        """The hook `:` label is recognized structurally by the evaluator, not
+        via a quote-anchored regex in allowed patterns (bug #4 fix)."""
 
         result = get_effective_bash_config(None, "/project")
-        assert HOOK_LABEL_REGEX in result["allowed_cmds_regex"]
+        assert not any("♡ perms" in p for p in result["allowed_cmds_regex"])
 
     def test_allowed_cmds_regex_contributes_patterns(self) -> None:
         """allowed_cmds_regex patterns contribute to allowed patterns."""

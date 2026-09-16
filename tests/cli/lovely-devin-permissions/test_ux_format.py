@@ -122,7 +122,7 @@ class TestPreToolUseResponseFormat:
                 config = get_effective_bash_config(lovely_config.get("bash", {}), devin_dir)
                 result = evaluate_bash_command("curl https://example.com", config)
                 assert result["status"] == "deny"
-                assert "command does not match allowed patterns" in result["reason"]
+                assert "wildcard policy is deny" in result["reason"]
                 from lovely_bash_permissions.hook import (
                     generate_hook_response,
                     process_hook_event,
@@ -217,8 +217,7 @@ class TestEvaluateReasonFormats:
                 # TypeScript: "Blocked by bash permissions: ...
                 #  The tool has not been run."
                 assert result is not None
-                assert "command does not match allowed patterns" in result["reason"]
-                assert "command does not match allowed patterns" in result["reason"]
+                assert "wildcard policy is deny" in result["reason"]
 
     def test_ask_reason_format(self) -> None:
         """Ask reason should match TypeScript format."""
@@ -229,10 +228,12 @@ class TestEvaluateReasonFormats:
             from lovely_bash_permissions.config.effective_bash import (
                 get_effective_bash_config,
             )
+            from lovely_bash_permissions.config.loader import load_permissions_config
             from lovely_bash_permissions.evaluate import evaluate_bash_command
 
             with patch.dict(os.environ, {"DEVIN_GLOBAL_CONFIG_DIR": devin_dir}):
-                config = get_effective_bash_config(None, devin_dir)
+                lovely_config, _, _ = load_permissions_config(devin_dir)
+                config = get_effective_bash_config(lovely_config.get("bash", {}), devin_dir)
                 result = evaluate_bash_command("ls", config)
                 # TypeScript: '"ls" command does not match allowed patterns'
                 assert '"ls" command does not match allowed patterns' in result["reason"]
@@ -283,7 +284,7 @@ class TestPermissionRequestResponse:
                 result = evaluate_bash_command("curl https://example.com", config)
                 # TypeScript: reason includes "[♡ perms: ❤️ auto-rejected]"
                 assert result["status"] == "deny"
-                assert "command does not match allowed patterns" in result["reason"]
+                assert "wildcard policy is deny" in result["reason"]
 
 
 class TestJsonOutputFormat:

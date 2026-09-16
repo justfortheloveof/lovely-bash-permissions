@@ -160,6 +160,27 @@ def _command_string(name: str, args: list[str]) -> str:
     return name
 
 
+#: Raw first-argument prefixes emitted by the hook for its own ``:`` no-op label.
+#: The bare ``:`` builtin ignores its arguments, so a matching segment carries
+#: no behavior — it is recognized (not "approved") so re-evaluated rewrites do
+#: not spuriously ask. Uses the raw (quote-preserving) argument form so the
+#: label's literal quoting is honored regardless of ``_strip_quotes``.
+_HOOK_LABEL_ARG_PREFIXES = ("'[♡ perms: ", '"[♡ perms: ')
+
+
+def _is_hook_label_segment(cmd_name: str, args: list[str]) -> bool:
+    """True when the segment is the hook's own inert ``:`` label wrapper.
+
+    The hook wraps approved/asked/blocked commands as
+    ``: '<label>' <emoji> ; <cmd>``. When Devin feeds that rewritten command
+    back through evaluation, the ``:`` wrapper must not be flagged as an
+    unmatched command. It is exempted from the allowed-pattern check; the
+    payload command(s) after ``;`` are still evaluated normally, so a forged
+    label cannot smuggle an unauthorized command past the rules.
+    """
+    return cmd_name == ":" and bool(args) and args[0].startswith(_HOOK_LABEL_ARG_PREFIXES)
+
+
 def _opaque_match_unreliable(pattern: str) -> bool:
     """True when an opaque ``$(...)`` argument can hide the token a pattern
     constrains, making a literal match on the placeholder unsafe to approve.
@@ -351,6 +372,12 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                 segment_result["allowed"] = False
                 overall_status = "ask"
                 reasons.append(f"variable assignment requires approval: {args}")
+        elif _is_hook_label_segment(cmd_name, args):
+            # The hook's own `:` no-op label wrapper — inert (the `:` builtin
+            # ignores its args) and exempted from the allowed-pattern check so
+            # re-evaluated rewrites don't spuriously ask. Payload segments are
+            # still evaluated normally below.
+            segment_result["allowed"] = True
         elif allowed_patterns:
             # Check allowed patterns against command name.
             # If arguments contain real values (not "$(...)" placeholders),
