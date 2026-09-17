@@ -29,24 +29,24 @@ Create `.devin/hooks.v1.json` in the project root:
 {
   "PreToolUse": [
     {
-      "matcher": "exec",
+      "matcher": "^(exec|write_to_process)$",
       "hooks": [
         {
           "type": "command",
           "command": "uv run lovely-devin-permissions",
-          "timeout": 5
+          "timeout": 10
         }
       ]
     }
   ],
   "PermissionRequest": [
     {
-      "matcher": "exec",
+      "matcher": "^(exec|write_to_process)$",
       "hooks": [
         {
           "type": "command",
           "command": "uv run lovely-devin-permissions",
-          "timeout": 5
+          "timeout": 10
         }
       ]
     }
