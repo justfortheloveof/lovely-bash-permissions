@@ -1092,6 +1092,32 @@ class TestResultStructure:
         assert result["status"] == "ask"
         assert "input redirection requires approval" in result["reason"]
 
+    def test_dup_input_redirection_ask(self) -> None:
+        """Input fd duplication (cat <&2) goes through approval flow."""
+        result = evaluate_bash_command(
+            "cat <&2",
+            {"*": "ask", "input_redirection": "ask"},
+        )
+        assert result["status"] == "ask"
+        assert "input redirection requires approval" in result["reason"]
+
+    def test_dup_input_redirection_allowed_when_policy_allow(self) -> None:
+        """Input fd duplication allowed when input_redirection=allow."""
+        result = evaluate_bash_command(
+            "cat <&2",
+            {"*": "ask", "input_redirection": "allow"},
+        )
+        assert result["status"] == "allow"
+
+    def test_dup_input_redirection_deny_when_policy_deny(self) -> None:
+        """Input fd duplication denied when input_redirection=deny."""
+        result = evaluate_bash_command(
+            "cat <&2",
+            {"*": "ask", "input_redirection": "deny"},
+        )
+        assert result["status"] == "deny"
+        assert "input redirection denied from" in result["reason"]
+
     def test_incomplete_heredoc_raises(self) -> None:
         """Incomplete heredoc (unclosed) cannot be parsed → raises (bug #2 fix)."""
         with pytest.raises(LovelyDevinPermissionsError):

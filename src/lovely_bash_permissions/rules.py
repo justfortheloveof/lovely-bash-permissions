@@ -393,7 +393,7 @@ def check_input_redirection(tree: dict[str, Any], rules: dict[str, Any] | None =
     redirections = []
     for redir in redirs:
         op = redir.get("Op", "")
-        if op in ("<", "<<", "<<<"):
+        if op in ("<", "<<", "<<<", "<&"):
             target = ""
             word = redir.get("Word", {})
             parts = word.get("Parts", [])
@@ -512,7 +512,7 @@ def _check_segments_input_redirs(segments: list[dict[str, Any]], rules: dict[str
     input_redirs: list[dict[str, Any]] = []
     for seg in segments:
         for r in seg.get("redirections", []):
-            if r.get("Op") in ("<", "<<", "<<<"):
+            if r.get("Op") in ("<", "<<", "<<<", "<&"):
                 word = r.get("Word", {})
                 target = ""
                 parts = word.get("Parts", [])

@@ -409,6 +409,30 @@ def test_here_string_input_redirection_denied() -> None:
     assert "world" in result["reason"]
 
 
+def test_dup_input_redirection_ask() -> None:
+    """Input fd duplication (<&) triggers ask when policy is ask."""
+    tree = parse("cat <&2")
+    result = check_input_redirection(tree, {"input_redirection": "ask"})
+    assert result["status"] == "ask"
+    assert result["reason"] == "input redirection requires approval"
+
+
+def test_dup_input_redirection_allowed() -> None:
+    """Input fd duplication (<&) is allowed when policy is allow."""
+    tree = parse("cat <&2")
+    result = check_input_redirection(tree, {"input_redirection": "allow"})
+    assert result["status"] == "allow"
+    assert "2" in result["reason"]
+
+
+def test_dup_input_redirection_denied() -> None:
+    """Input fd duplication (<&) is denied when policy is deny."""
+    tree = parse("cat <&2")
+    result = check_input_redirection(tree, {"input_redirection": "deny"})
+    assert result["status"] == "deny"
+    assert "2" in result["reason"]
+
+
 def test_mixed_input_output_rules() -> None:
     """Input and output redirection rules are independent."""
     # Input allowed, output denied
