@@ -174,17 +174,32 @@ From the example above, the hook adds `^git log(\s|$)` and `^git ls-files(\s|$)`
 
 ## Devin CLI Hook
 
-The hook is registered for both `PreToolUse` and `PermissionRequest` on `exec` tool calls. Both receive the event as JSON on `stdin` and return their response as JSON on `stdout`.
+The hook is registered for both `PreToolUse` and `PermissionRequest` on `exec` and `write_to_process` tool calls. Both receive the event as JSON on `stdin` and return their response as JSON on `stdout`.
 
 ### PreToolUse
 
 ```mermaid
+---
+config:
+  flowchart:
+    subGraphTitlePosition: top-left
+---
 flowchart TD
-    A[Devin CLI Agent] -->|"JSON on stdin"| B[lovely-devin-permissions]
-    B -->|"JSON on stdout"| C{verdict}
-    C -->|"✅ allow"| D["<pre style=text-align:left>{<br/>  &quot;decision&quot;: &quot;approve&quot;,<br/>  &quot;hookSpecificOutput&quot;: {<br/>    &quot;hookEventName&quot;: &quot;PreToolUse&quot;,<br/>    &quot;updatedInput&quot;: {<br/>      &quot;command&quot;: &quot;: '[♡ perms: 💚 auto-approved] &lt;reason&gt' 💚 ; &lt;cmd&gt;&quot;<br/>    }<br/>  }<br/>}</pre>"]
-    C -->|"❌ block"| E["<pre style=text-align:left>{<br/>  &quot;decision&quot;: &quot;block&quot;,<br/>  &quot;reason&quot;: &quot;[♡ perms: ❤️ auto-rejected]&quot;,<br/>  &quot;hookSpecificOutput&quot;: {<br/>    &quot;hookEventName&quot;: &quot;PreToolUse&quot;,<br/>    &quot;updatedInput&quot;: {<br/>      &quot;command&quot;: &quot;: '[♡ perms: ❤️ auto-rejected] &lt;reason&gt;' ❤️ ; &lt;cmd&gt;&quot;<br/>    }<br/>  }<br/>}</pre>"]
-    C -->|"❔ ask"| F["<pre style=text-align:left>{<br/>  &quot;hookSpecificOutput&quot;: {<br/>    &quot;hookEventName&quot;: &quot;PreToolUse&quot;,<br/>    &quot;updatedInput&quot;: {<br/>      &quot;command&quot;: &quot;: '[♡ perms: 💛 REQUIRES-USER-APPROVAL] &lt;reason&gt' 💛 ; &lt;cmd&gt&quot;<br/>    }<br/>  }<br/>}</pre>"]
+    A[Devin CLI Agent] -->|"JSON on stdin"| C{verdict}
+
+    subgraph lovely[lovely-devin-permissions]
+        C -->|"✅ allow"| D["<pre style=text-align:left>{<br/>  &quot;decision&quot;: &quot;approve&quot;,<br/>  &quot;hookSpecificOutput&quot;: {<br/>    &quot;hookEventName&quot;: &quot;PreToolUse&quot;,<br/>    &quot;updatedInput&quot;: {<br/>      &quot;command&quot;: &quot;: '[♡ perms: 💚 auto-approved] &lt;reason&gt' 💚 ; &lt;cmd&gt;&quot;<br/>    }<br/>  }<br/>}</pre>"]
+        C -->|"❌ deny"| E["<pre style=text-align:left>{<br/>  &quot;decision&quot;: &quot;block&quot;,<br/>  &quot;reason&quot;: &quot;[♡ perms: ❤️ auto-rejected] &lt;reason&gt;&quot;,<br/>  &quot;hookSpecificOutput&quot;: {<br/>    &quot;hookEventName&quot;: &quot;PreToolUse&quot;,<br/>    &quot;updatedInput&quot;: {<br/>      &quot;command&quot;: &quot;: '[♡ perms: ❤️ auto-rejected] &lt;reason&gt;' ❤️ ; &lt;cmd&gt;&quot;<br/>    }<br/>  }<br/>}</pre>"]
+        C -->|"❔ ask"| F["<pre style=text-align:left>{<br/>  &quot;hookSpecificOutput&quot;: {<br/>    &quot;hookEventName&quot;: &quot;PreToolUse&quot;,<br/>    &quot;updatedInput&quot;: {<br/>      &quot;command&quot;: &quot;: '[♡ perms: 💛 REQUIRES-USER-APPROVAL] &lt;reason&gt' 💛 ; &lt;cmd&gt&quot;<br/>    }<br/>  }<br/>}</pre>"]
+    end
+
+    D -->|"JSON stdout, exit code 0"| R[Devin CLI Agent]
+    E -->|"JSON stdout, exit code 2"| R
+    F -->|"JSON stdout, exit code 0"| R
+
+    style lovely fill:#000000,stroke:#22c55e,stroke-width:2px
+    style A stroke:#0000ff,stroke-width:2px
+    style R stroke:#0000ff,stroke-width:2px
 ```
 
 Fired *before* the command runs. The hook modifies the command by prepending a no-op `:` label with user-facing status info — green 💚 for auto-approved, red ❤️ for auto-rejected, yellow 💛 for commands needing user approval. The label matches `Exec(: '[♡ perms:)` in Devin's `permissions.allow` (added by `--setup`), so Devin auto-approves the label — but the actual command after `;` is still assessed by Devin's permission system.
@@ -192,12 +207,27 @@ Fired *before* the command runs. The hook modifies the command by prepending a n
 ### PermissionRequest
 
 ```mermaid
+---
+config:
+  flowchart:
+    subGraphTitlePosition: top-left
+---
 flowchart TD
-    A[Devin CLI Agent] -->|"JSON on stdin"| B[lovely-devin-permissions]
-    B -->|"JSON on stdout"| C{verdict}
-    C -->|"approve"| D["<pre style=text-align:left>{ &quot;decision&quot;: &quot;approve&quot; }</pre>"]
-    C -->|"block"| E["<pre style=text-align:left>{ &quot;decision&quot;: &quot;block&quot;, &quot;reason&quot;: &quot;...&quot; }</pre>"]
-    C -->|"skip"| F["no response<br/>(Devin CLI prompts the user with the built-in prompt)"]
+    A[Devin CLI Agent] -->|"JSON on stdin"| C{verdict}
+
+    subgraph lovely[lovely-devin-permissions]
+        C -->|"✅ allow"| D["<pre style=text-align:left>{ &quot;decision&quot;: &quot;approve&quot; }</pre>"]
+        C -->|"❌ deny"| E["<pre style=text-align:left>{<br/>  &quot;decision&quot;: &quot;block&quot;,<br/>  &quot;reason&quot;: &quot;[♡ perms: ❤️ auto-rejected] &lt;reason&gt;&quot; <br/>}</pre>"]
+        C -->|"❔ ask"| F["empty response<br/>(Devin CLI prompts the user with the built-in prompt)"]
+    end
+
+    D -->|"JSON stdout, exit code 0"| R[Devin CLI Agent]
+    E -->|"JSON stdout, exit code 2"| R
+    F -->|"empty stdout, exit code 0"| R
+
+    style lovely fill:#000000,stroke:#22c55e,stroke-width:2px
+    style A stroke:#0000ff,stroke-width:2px
+    style R stroke:#0000ff,stroke-width:2px
 ```
 
 Fired when the permission system needs a decision on an `exec` tool call. The hook responds with a simple approve / block decision, or returns nothing so Devin falls through to its own user prompt.
