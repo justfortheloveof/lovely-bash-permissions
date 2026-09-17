@@ -56,7 +56,7 @@ def generate_hook_response(event: dict[str, Any], decision: dict[str, Any]) -> d
         return None
 
     if event_name == "PreToolUse":
-        if tool_name != "exec" or not command:
+        if tool_name not in ("exec", "write_to_process") or not command:
             return None
         if action == "allow":
             return {
@@ -84,7 +84,7 @@ def generate_hook_response(event: dict[str, Any], decision: dict[str, Any]) -> d
             }
 
     if event_name == "PermissionRequest":
-        if tool_name != "exec" or not command:
+        if tool_name not in ("exec", "write_to_process") or not command:
             return None
         if action == "allow":
             return {"decision": "approve"}
@@ -114,9 +114,9 @@ def _error_action(config: dict[str, Any], exc: BaseException) -> dict[str, Any]:
 def process_hook_event(event: dict[str, Any]) -> dict[str, Any]:
     """Process a hook event and decide allow/ask/block/skip.
 
-    Extracts tool_name and command from the event. If tool_name != "exec"
-    or command is empty, returns skip. Otherwise loads config via
-    PermissionsManager and evaluates the command.
+    Extracts tool_name and command from the event. If tool_name is neither
+    "exec" nor "write_to_process", or command is empty, returns skip. Otherwise
+    loads config via PermissionsManager and evaluates the command.
 
     Args:
         event: Hook event dict with keys:
@@ -135,7 +135,7 @@ def process_hook_event(event: dict[str, Any]) -> dict[str, Any]:
 
     command = tool_input.get("command", "")
 
-    if tool_name != "exec" or not command:
+    if tool_name not in ("exec", "write_to_process") or not command:
         return {"action": "skip"}
 
     project_dir = event.get("project_dir", ".")

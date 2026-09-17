@@ -821,6 +821,22 @@ class TestHookMode:
         assert result.returncode == 0
         assert result.stdout.strip() == ""
 
+    def test_hook_write_to_process_evaluated(self, project_with_bash_config: Path) -> None:
+        """Hook mode evaluates write_to_process commands like exec."""
+        event = {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "write_to_process",
+            "tool_input": {"command": "git status"},
+        }
+        result = run_cli(
+            input_data=json.dumps(event),
+            env={"DEVIN_PROJECT_DIR": str(project_with_bash_config)},
+        )
+        assert result.returncode == 0
+        response = json.loads(result.stdout)
+        assert response is not None
+        assert response["hookSpecificOutput"]["hookEventName"] == "PreToolUse"
+
     def test_hook_empty_stdin_exits(self, project_with_bash_config: Path) -> None:
         """Hook mode with empty stdin should exit silently."""
         result = run_cli(

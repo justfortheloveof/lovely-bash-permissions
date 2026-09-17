@@ -140,6 +140,62 @@ def test_missing_config_real_path_falls_back_ask(monkeypatch: pytest.MonkeyPatch
     assert "wildcard policy is ask" in result["reason"]
 
 
+# ---------------------------------------------------------------------------
+# write_to_process events: evaluated like exec
+# ---------------------------------------------------------------------------
+
+
+def test_write_to_process_pretooluse_evaluated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """PreToolUse write_to_process with a command → evaluated like exec."""
+    empty_global = tmp_path / ".config" / "devin"
+    empty_global.mkdir(parents=True)
+    monkeypatch.setattr(
+        "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+        lambda: empty_global,
+    )
+    monkeypatch.setattr(
+        "lovely_bash_permissions.config.devin.get_devin_global_config_dir",
+        lambda: empty_global,
+    )
+    project = tmp_path / "proj"
+    (project / ".devin").mkdir(parents=True)
+    (project / ".devin" / "lovely-permissions.jsonc").write_text(
+        '{"bash": {"*": "ask", "allowed_cmds_regex": ["^ls"]}}'
+    )
+    event = _pretooluse_exec_event("ls")
+    event["tool_name"] = "write_to_process"
+    event["project_dir"] = str(project)
+
+    result = process_hook_event(event)
+    assert result["action"] == "allow"
+
+    response = generate_hook_response(event, result)
+    assert response is not None
+    assert response["hookSpecificOutput"]["hookEventName"] == "PreToolUse"
+    assert response["hookSpecificOutput"]["updatedInput"]["command"].endswith(" ; ls")
+
+
+def test_write_to_process_without_command_skipped() -> None:
+    """write_to_process with no command → skip."""
+    event = {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "write_to_process",
+        "tool_input": {},
+    }
+    assert process_hook_event(event) == {"action": "skip"}
+
+
+def test_permission_request_write_to_process_block() -> None:
+    """PermissionRequest write_to_process block → simple decision response."""
+    event = {
+        "hook_event_name": "PermissionRequest",
+        "tool_name": "write_to_process",
+        "tool_input": {"command": "rm -rf /"},
+    }
+    result = generate_hook_response(event, {"action": "block", "reason": "denied"})
+    assert result == {"decision": "block", "reason": "[♡ perms: ❤️ auto-rejected] denied"}
+
+
 def test_effective_bash_config_failure_fallback_ask() -> None:
     """Invalid bash config → effective_bash raises, fallback to ask."""
     event = _pretooluse_exec_event("ls")

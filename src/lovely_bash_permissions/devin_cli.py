@@ -208,7 +208,7 @@ def main() -> None:
             # Validate structure
             tool_name = event.get("tool_name", "")
             tool_input = event.get("tool_input", {})
-            if tool_name != "exec":
+            if tool_name not in ("exec", "write_to_process"):
                 sys.exit(0)
             if not isinstance(tool_input, dict):
                 sys.exit(0)
