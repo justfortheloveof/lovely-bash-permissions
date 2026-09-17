@@ -94,7 +94,7 @@ If either source approves the command, the hook lets it run. If neither matches,
 ## Security notes
 
 - Patterns in `allowed_cmds_regex` and `blocked_paths_regex` are unanchored substring matches unless you anchor them. For example, `git` also matches `echo git`. Anchor with `^git log$` or similar.
-- This is a policy layer, not a sandbox. It can be bypassed by backtick command substitution and brace groups. Environment assignment prefixes like `a=1 rm -rf /` are detected and evaluated separately (see `variable_assignment` policy). Use it as guard-rails against accidental execution, not as a security boundary around untrusted input.
+- This is a policy layer, not a sandbox. It statically analyzes the command as written: backtick and `$(...)` command substitutions, process substitutions, brace groups (`{ ...; }`), subshells, functions, loops, conditionals, and heredoc bodies are all walked and their inner commands checked, so no syntax form silently skips evaluation. Environment assignment prefixes like `a=1 rm -rf /` are detected and evaluated separately via the `variable_assignment` policy. It is still best-effort static analysis, not a runtime boundary: things bash only reveals at runtime (expansion results, substitution output) cannot be verified, and anything the parser cannot analyze falls through to the `error` policy. Use it as guard-rails against accidental execution, not as a security boundary around untrusted input.
 
 ## Configuration files
 
@@ -124,7 +124,7 @@ A typical project config:
 }
 ```
 
-At the config root, `*` sets the overall wildcard (default `"ask"`). Inside `bash`, `*` is the bash-scope wildcard and falls back to the config-root `*`. Any bash option that is omitted inherits the bash-scope `*`, then the config-root `*`, then defaults to `"ask"`.
+At the config root, `*` sets the overall wildcard (default `"ask"`). Inside `bash`, `*` is the bash-scope wildcard and falls back to the config-root `*`. Any permission-level bash option that is omitted (`error`, `subshell`, `variable_assignment`, redirection, and background policies) inherits the bash-scope `*`, then the config-root `*`, then defaults to `"ask"`. The regex list keys (`allowed_cmds_regex`, `blocked_paths_regex`) instead default to empty lists.
 
 The `bash` config key supports these keys:
 
