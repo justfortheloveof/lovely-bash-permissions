@@ -80,6 +80,23 @@ class TestAllowedPatterns:
         )
         assert result["status"] == "ask"
 
+    def test_allowed_pattern_unanchored_substring(self) -> None:
+        """Unanchored allowed pattern matches anywhere in the command line."""
+        result = evaluate_bash_command(
+            "echo git",
+            make_config(allowed=["git"]),
+        )
+        assert result["status"] == "allow"
+        assert "command matches allowed pattern: git" in result["reason"]
+
+    def test_allowed_pattern_unanchored_absent_still_asks(self) -> None:
+        """Unanchored allowed pattern still asks when it matches nowhere."""
+        result = evaluate_bash_command(
+            "echo hi",
+            make_config(allowed=["git"]),
+        )
+        assert result["status"] == "ask"
+
     def test_declclause_export_segment_extracted(self) -> None:
         """DeclClause export is evaluated as the export command."""
         result = evaluate_bash_command(

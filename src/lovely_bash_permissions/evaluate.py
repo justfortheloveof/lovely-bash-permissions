@@ -216,7 +216,7 @@ def _match_allowed_patterns(name: str, args: list[str], allowed_patterns: list[s
     has_opaque = any("$(...)" in a for a in args)
     matched: list[str] = []
     for pattern in allowed_patterns:
-        if not re.match(pattern, full):
+        if not re.search(pattern, full):
             continue
         if has_opaque and _opaque_match_unreliable(pattern):
             continue
