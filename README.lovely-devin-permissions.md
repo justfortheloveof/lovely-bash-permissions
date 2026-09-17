@@ -3,6 +3,9 @@
 A Devin CLI permission hook implemented in Python. It reads local `lovely-permissions.jsonc` rules and merges in `Exec(...)` allow rules from your Devin config, so commands you have already approved for Devin are not double-prompted.
 See [README.md](README.md) for the underlying bash-AST library API.
 
+> [!WARNING]
+> NO GUARANTEE OF SAFETY - USE AT YOUR OWN RISK
+
 ## Usage
 
 ### Install
@@ -81,7 +84,7 @@ To add it manually, put this in `~/.config/devin/config.json`:
 
 ## What it does
 
-The hook is invoked by Devin **only on `exec` tool calls** (bash shell commands). It does not affect other tools like `read`, `write`, or `edit`. It evaluates the command against:
+The hook is invoked by Devin **only on `exec` and `write_to_process` tool calls** (bash shell commands). It does not affect other tools like `read`, `write`, or `edit`. It evaluates the command against:
 
 1. `lovely-permissions.jsonc` configuration (parsed via shfmt-py)
 2. Devin `permissions.allow` entries that look like `Exec(prefix)`
@@ -90,7 +93,7 @@ If either source approves the command, the hook lets it run. If neither matches,
 
 ## Security notes
 
-- Patterns in `allowed_cmds_regex` and `blocked_paths_regex` are unanchored substring matches unless you anchor them. For example, `git` also matches `rm -rf /var/git`. Anchor with `^git(\s|$)` or similar.
+- Patterns in `allowed_cmds_regex` and `blocked_paths_regex` are unanchored substring matches unless you anchor them. For example, `git` also matches `echo git`. Anchor with `^git log$` or similar.
 - This is a policy layer, not a sandbox. It can be bypassed by backtick command substitution and brace groups. Environment assignment prefixes like `a=1 rm -rf /` are detected and evaluated separately (see `variable_assignment` policy). Use it as guard-rails against accidental execution, not as a security boundary around untrusted input.
 
 ## Configuration files
@@ -202,7 +205,7 @@ flowchart TD
     style R stroke:#0000ff,stroke-width:2px
 ```
 
-Fired *before* the command runs. The hook modifies the command by prepending a no-op `:` label with user-facing status info — green 💚 for auto-approved, red ❤️ for auto-rejected, yellow 💛 for commands needing user approval. The label matches `Exec(: '[♡ perms:)` in Devin's `permissions.allow` (added by `--setup`), so Devin auto-approves the label — but the actual command after `;` is still assessed by Devin's permission system.
+Fired *before* the command runs. The hook modifies the command by prepending a no-op `:` label with user-facing status info — green 💚 for auto-approved, red ❤️ for auto-rejected, yellow 💛 for commands needing user approval. The label matches `Exec(: '[♡ perms:)` in Devin's `permissions.allow` (added by `--setup`), so Devin auto-approves the label — but the actual command after `;` is still assessed by both lovely-devin-permissions and Devin's permission system.
 
 ### PermissionRequest
 
