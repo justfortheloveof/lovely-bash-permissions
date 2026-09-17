@@ -4,7 +4,10 @@ Tests generate_hook_response and process_hook_event across allow/block/ask/skip
 decision paths, plus config-load-failure fallback behavior.
 """
 
+from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 from lovely_bash_permissions.hook import _error_action, generate_hook_response, process_hook_event
 from tests.integrations.conftest import _permission_request_event, _pretooluse_exec_event
@@ -114,6 +117,27 @@ def test_config_load_failure_fallback_ask() -> None:
 
     assert result["action"] == "ask"
     assert "config error (fallback to ask)" in result["reason"]
+
+
+def test_missing_config_real_path_falls_back_ask(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """No config anywhere (real loader path) → safe ask default, no error."""
+    empty_global = tmp_path / ".config" / "devin"
+    empty_global.mkdir(parents=True)
+    monkeypatch.setattr(
+        "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+        lambda: empty_global,
+    )
+    monkeypatch.setattr(
+        "lovely_bash_permissions.config.devin.get_devin_global_config_dir",
+        lambda: empty_global,
+    )
+    event = _pretooluse_exec_event("ls")
+    event["project_dir"] = str(tmp_path / "no-config-project")
+
+    result = process_hook_event(event)
+
+    assert result["action"] == "ask"
+    assert "wildcard policy is ask" in result["reason"]
 
 
 def test_effective_bash_config_failure_fallback_ask() -> None:

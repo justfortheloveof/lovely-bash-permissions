@@ -71,8 +71,10 @@ def load_permissions_config(project_dir: str) -> tuple[dict[str, Any], list[str]
     Returns:
         Tuple of (merged config dict, warnings list, validation_errors list).
 
-    Raises:
-        FileNotFoundError: if none of the config files exist (all missing).
+    When no config file exists anywhere the result is a valid empty config
+    (``{}``) with a warning, so callers fall back to the safe default (ask).
+    When config files exist but none can be parsed, validation_errors is
+    populated and the merged config is ``{}``.
     """
     paths = get_permissions_config_file_paths(project_dir)
 
@@ -91,12 +93,17 @@ def load_permissions_config(project_dir: str) -> tuple[dict[str, Any], list[str]
             reason = result.error if result.error else "invalid JSONC"
             parse_errors.append((path, reason))
 
-    if not loaded_any:
-        details = "\n".join(f"  {p}: {r}" for p, r in parse_errors)
-        raise FileNotFoundError(f"no valid lovely-permissions config found\n{details}")
-
     warnings: list[str] = []
     validation_errors: list[str] = []
+    if not loaded_any:
+        details = "\n".join(f"  {p}: {r}" for p, r in parse_errors)
+        if all(reason.startswith("file not found:") for _, reason in parse_errors):
+            warnings.append("no lovely-permissions config file found; using safe default (ask for everything)")
+            return {}, warnings, []
+        warnings.append(f"no valid lovely-permissions config found\n{details}")
+        validation_errors.append(f"no valid lovely-permissions config found\n{details}")
+        return {}, warnings, validation_errors
+
     for path, reason in parse_errors:
         warnings.append(f"skipped invalid config file: {path} ({reason})")
 

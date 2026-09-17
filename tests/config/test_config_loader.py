@@ -138,14 +138,18 @@ class TestLoadPermissionsConfig:
         """Write data as JSONC to path."""
         path.write_text(json.dumps(data))
 
-    def test_all_files_missing_raises(self, monkeypatch: pytest.MonkeyPatch, temp_global: tuple[Path, Path]) -> None:
-        """No config files exist anywhere -> raises meaningful error."""
+    def test_all_files_missing_falls_back_to_default(
+        self, monkeypatch: pytest.MonkeyPatch, temp_global: tuple[Path, Path]
+    ) -> None:
+        """No config files exist anywhere -> valid empty config (safe ask default)."""
         monkeypatch.setattr(
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
             lambda: temp_global[1],
         )
-        with pytest.raises(FileNotFoundError, match="no valid lovely-permissions config found"):
-            load_permissions_config(str(temp_global[0]))
+        merged, warnings, validation_errors = load_permissions_config(str(temp_global[0]))
+        assert merged == {}
+        assert validation_errors == []
+        assert any("using safe default" in w for w in warnings)
 
     def test_global_only(self, monkeypatch: pytest.MonkeyPatch, temp_global: tuple[Path, Path]) -> None:
         """Only global config exists."""
@@ -329,8 +333,9 @@ class TestLoadPermissionsConfig:
         )
         project_file = temp_project[1] / "lovely-permissions.jsonc"
         project_file.write_text("{invalid json}")
-        with pytest.raises(FileNotFoundError, match="no valid lovely-permissions config found"):
-            load_permissions_config(str(temp_project[0]))
+        merged, _, validation_errors = load_permissions_config(str(temp_project[0]))
+        assert merged == {}
+        assert any("no valid lovely-permissions config found" in e for e in validation_errors)
 
     def test_invalid_json_all_files_includes_paths(
         self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
@@ -349,17 +354,16 @@ class TestLoadPermissionsConfig:
         local_file = temp_project[1] / "lovely-permissions.local.jsonc"
         local_file.write_text("not valid json")
 
-        with pytest.raises(FileNotFoundError) as exc_info:
-            load_permissions_config(str(temp_project[0]))
+        _, _, validation_errors = load_permissions_config(str(temp_project[0]))
 
-        error_msg = str(exc_info.value)
+        error_msg = "\n".join(validation_errors)
         paths = get_permissions_config_file_paths(str(temp_project[0]))
         # All three paths should appear in the error message
         for path in paths:
             assert path in error_msg
 
     def test_non_dict_value_all_files_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """All config files contain non-dict values (arrays) → raises with paths in error."""
+        """All config files contain non-dict values (arrays) → error message lists paths."""
         tmpdir = tempfile.mkdtemp()
         config_dir = Path(tmpdir) / ".config" / "devin"
         config_dir.mkdir(parents=True)
@@ -376,10 +380,9 @@ class TestLoadPermissionsConfig:
         local_file = devin_dir / "lovely-permissions.local.jsonc"
         local_file.write_text("['a', 'b']")
 
-        with pytest.raises(FileNotFoundError) as exc_info:
-            load_permissions_config(str(project_dir))
+        _, _, validation_errors = load_permissions_config(str(project_dir))
 
-        error_msg = str(exc_info.value)
+        error_msg = "\n".join(validation_errors)
         paths = get_permissions_config_file_paths(str(project_dir))
         for path in paths:
             assert path in error_msg
