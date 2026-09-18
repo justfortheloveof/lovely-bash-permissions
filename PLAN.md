@@ -311,7 +311,7 @@ def _convert_word_iter(data: dict[str, Any]) -> WordIter:
 
 ## Step 4 — `segments.py`: extract commands from C-style preludes and for-loop lists
 
-**Status: not started**
+**Status: done**
 
 **File:** `src/lovely_bash_permissions/segments.py` (only file touched)
 
