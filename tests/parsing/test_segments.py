@@ -552,3 +552,71 @@ class TestErrorHandling:
     def test_parse_error_returns_empty(self) -> None:
         segs = parse_segments("(((((")
         assert segs == []
+
+
+class TestForLoopListSegments:
+    """for-loop list words are evaluated before the body (bug #5)."""
+
+    def test_cmdsubst_in_loop_list_extracted(self) -> None:
+        assert [s["command"] for s in parse_segments("for i in $(seq 3); do echo $i; done")] == ["seq", "echo"]
+
+    def test_cmdsubst_among_literal_words(self) -> None:
+        assert [s["command"] for s in parse_segments("for f in a $(ls) b; do echo $f; done")] == ["ls", "echo"]
+
+    def test_literal_loop_list_unchanged(self) -> None:
+        assert [s["command"] for s in parse_segments("for i in 1 2 3; do echo hi; done")] == ["echo"]
+
+
+class TestCStyleLoopSegments:
+    """C-style for ((init; cond; post)) preludes are extracted (security-critical)."""
+
+    def test_prelude_cmdsubst_extracted(self) -> None:
+        segs = parse_segments("for ((i=$(seq 3); i < $n; i++)); do echo $i; done")
+        assert [s["command"] for s in segs] == ["seq", "echo"]
+
+    def test_literal_prelude_unchanged(self) -> None:
+        assert [s["command"] for s in parse_segments("for ((i=0; i<10; i++)); do echo x; done")] == ["echo"]
+
+    def test_degenerate_prelude(self) -> None:
+        assert [s["command"] for s in parse_segments("for ((;;)); do :; done")] == [":"]
+
+
+class TestBinaryTestLeftOperand:
+    """Left operands of [[ ]] binary tests hold nested substitutions (bug #5)."""
+
+    def test_left_operand_cmdsubst_extracted(self) -> None:
+        assert [s["command"] for s in parse_segments("[[ $(pwd) == /root* ]]")] == ["pwd"]
+
+    def test_both_sides_cmdsubst(self) -> None:
+        assert [s["command"] for s in parse_segments("[[ $(a) == $(b) ]]")] == ["a", "b"]
+
+    def test_literal_left_operand_still_no_phantom(self) -> None:
+        commands = [s["command"] for s in parse_segments("[[ -d /tmp && ls ]]")]
+        assert "ls" in commands
+        assert "d" not in commands and "tmp" not in commands
+
+
+class TestNoPhantomTestCommands:
+    """$(...)/$var inside [[ ]] are not emitted as literal command names (bug #6)."""
+
+    def test_cmdsubst_operand_is_real_command(self) -> None:
+        assert [s["command"] for s in parse_segments("[[ $(cmd) ]]")] == ["cmd"]
+
+    def test_cmdsubst_after_logical_and(self) -> None:
+        assert [s["command"] for s in parse_segments("[[ -f x && $(c2) ]] && echo and")] == ["c2", "echo"]
+
+    def test_quoted_cmdsubst(self) -> None:
+        assert [s["command"] for s in parse_segments('[[ cond && "$(cmd)" ]]')] == ["cmd"]
+
+    def test_bare_param_exp_not_a_command(self) -> None:
+        assert parse_segments("[[ $var ]]") == []
+
+    def test_quoted_param_exp_not_a_command(self) -> None:
+        assert parse_segments('[[ "$var" ]]') == []
+
+    def test_logical_and_literal_operand_still_extracted(self) -> None:
+        commands = [s["command"] for s in parse_segments("[[ -d /tmp && ls ]]")]
+        assert "ls" in commands
+
+    def test_bare_literal_operand_still_extracted(self) -> None:
+        assert [s["command"] for s in parse_segments("[[ foo ]]")] == ["foo"]

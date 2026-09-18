@@ -553,7 +553,7 @@ EOF
 
 ## Step 7 — `tests/parsing/test_segments.py`: regression tests for bugs #5 + #6
 
-**Status: not started**
+**Status: done**
 
 **File:** `tests/parsing/test_segments.py` (only file touched)
 
