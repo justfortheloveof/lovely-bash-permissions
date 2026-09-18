@@ -446,11 +446,14 @@ class ForClause(Node):
         var: The loop variable name as a string
         words: List of Word objects to iterate over
         body: List of Stmt objects executed in each iteration
+        cstyle: C-style for ((init; cond; post)) prelude, when this is a
+            C-style loop (the loop body stays in ``body``)
     """
 
     var: str | None = None
     words: list[Word] = field(default_factory=list)
     body: list[Stmt] = field(default_factory=list)
+    cstyle: CStyleLoop | None = None
 
 
 @dataclass(slots=True, repr=False)
