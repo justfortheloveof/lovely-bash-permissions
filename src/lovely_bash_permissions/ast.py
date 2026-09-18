@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass, field
-from typing import Any
 
 
 def _node_repr(obj: object, depth: int = 1) -> str:
@@ -132,18 +131,61 @@ class ParamExp(Node):
     Attributes:
         param: The parameter name (e.g., "HOME", "@", "0")
         short: True for $VAR form, False for ${VAR} form
-        exp: Expansion expression dict with Op/Word fields
+        exp: Expansion expression (${var:-word}, ${var%word}, ...) or None
         index: Array index Word node (for ${arr[0]})
         length: True for ${#VAR} length expansion
+        all: True for ${var//pat/rep} (replace all matches), False for ${var/pat}
+        orig: The pattern part of ${var/pat/rep} (Repl.Orig), or None
+        replacement: The replacement part of ${var/pat/rep} (Repl.With), or None
+        slice: Array/substring slice (${var:offset:length}), or None
         dollar_pos: Position of the $ character
     """
 
     param: str = ""
     short: bool = False
-    exp: dict[str, Any] | None = None
+    exp: ParamExpExp | None = None
     index: Word | None = None
     length: bool = False
+    all: bool = False
+    orig: Word | None = None
+    replacement: Word | None = None
+    slice: ParamExpSlice | None = None
     dollar_pos: Position | None = None
+
+
+@dataclass(slots=True, repr=False)
+class ParamExpExp(Node):
+    """The operator/operand part of a parameter expansion (${var:-word} etc.).
+
+    shfmt encodes the ``Exp`` field as ``{Op, Word}``.  The ``Word`` operand
+    is expanded at runtime (e.g. ``$(cmd)`` inside ``${var:-$(cmd)}``), so it
+    must be traversed by security checks.
+
+    Attributes:
+        op: The operator string (":-", ":=", ":+", ":?", "=", "+", "?", "%",
+            "%%", "#", "##", "^", ",", ...)
+        word: The operand word of the expansion, or None (e.g. ${var^} has no
+            word)
+    """
+
+    op: str = ""
+    word: Word | None = None
+
+
+@dataclass(slots=True, repr=False)
+class ParamExpSlice(Node):
+    """The slicing part of a parameter expansion (${var:offset:length}).
+
+    shfmt encodes the ``Slice`` field as ``{Offset, Length}``.  Either operand
+    may embed arithmetic or command substitutions that run at expansion time.
+
+    Attributes:
+        offset: Offset expression (Word/ArithmExp), or None
+        length: Length expression (Word/ArithmExp), or None
+    """
+
+    offset: Node | None = None
+    length: Node | None = None
 
 
 @dataclass(slots=True, repr=False)

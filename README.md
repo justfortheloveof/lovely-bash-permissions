@@ -33,7 +33,7 @@ from lovely_bash_permissions import parse_ast, get_commands, get_arguments
 tree = parse_ast("ls -la | grep txt")
 
 # Extract commands and arguments
-print(get_commands(tree))   # ['ls', 'grep']
+print(get_commands(tree))  # ['ls', 'grep']
 print(get_arguments(tree))  # [['-la'], ['txt']]
 ```
 
@@ -53,8 +53,8 @@ Parse a bash command string into a typed AST rooted at a `File` node. This is th
 from lovely_bash_permissions import parse_ast
 
 tree = parse_ast("ls -la")
-print(tree.type)          # 'File'
-print(len(tree.stmts))    # 1
+print(tree.type)  # 'File'
+print(len(tree.stmts))  # 1
 ```
 
 ### `parse(command, dialect="bash")` → `dict`
@@ -86,7 +86,7 @@ try:
     parse_ast('echo "unclosed')
 except ParseError as exc:
     print(exc.returncode)  # shfmt exit code
-    print(exc.stderr)      # raw shfmt error output
+    print(exc.stderr)  # raw shfmt error output
 ```
 
 ## AST
@@ -120,7 +120,9 @@ print(tree)
 | `Lit` | Plain literal string (`hello`, `file.txt`) | `value` |
 | `SglQuoted` | Single-quoted string `'...'` | `value` |
 | `DblQuoted` | Double-quoted string `"..."` | `parts`, `value` |
-| `ParamExp` | Parameter expansion `$VAR`, `${VAR}`, `${VAR:-def}` | `param`, `short`, `index`, `length`, `exp` |
+| `ParamExp` | Parameter expansion `$VAR`, `${VAR}`, `${VAR:-def}`, `${VAR/pat/rep}`, `${VAR:off:len}` | `param`, `short`, `exp`, `index`, `length`, `all`, `orig`, `replacement`, `slice` |
+| `ParamExpExp` | The operand/word part of a parameter expansion (the `word` in `${VAR:-word}`, `${VAR%word}`, ...) | `op`, `word` |
+| `ParamExpSlice` | The slicing part `${VAR:offset:length}` | `offset`, `length` |
 | `CmdSubst` | Command substitution `$(...)` / backticks | `stmts`, `backquotes` |
 | `ProcSubst` | Process substitution `<(...)` / `>(...)` | `op`, `stmts` |
 | `ArithmExp` | Arithmetic expansion `$((...))` | `x` |
@@ -210,15 +212,16 @@ print(get_commands(tree))  # ['cat', 'grep', 'sort']
 
 # Or get the full CallExpr nodes
 commands = find_commands(parse_ast("ls -la | grep txt"))
-print(len(commands))                            # 2
-print(commands[0].args[0].parts[0].value)       # 'ls'
+print(len(commands))  # 2
+print(commands[0].args[0].parts[0].value)  # 'ls'
 ```
 
-`get_commands` and `find_commands` recurse into `CallExpr` arguments **and** assignment values, so commands inside `$(...)`, process substitutions, subshells, functions, loops, and conditionals are all discovered:
+`get_commands` and `find_commands` recurse into `CallExpr` arguments **and** assignment values, so commands inside `$(...)`, process substitutions, subshells, functions, loops, conditionals, and parameter-expansion operands (`${var/pat/$(cmd)}`, `${var:-$(cmd)}`, `${var:0:$(cmd)}`, ...) are all discovered:
 
 ```python
-print(get_commands(parse_ast("echo $(git status | head -1)")))   # ['echo', 'git', 'head']
-print(get_commands(parse_ast("counts=$(ls | wc -l)")))           # ['ls', 'wc']
+print(get_commands(parse_ast("echo $(git status | head -1)")))  # ['echo', 'git', 'head']
+print(get_commands(parse_ast("counts=$(ls | wc -l)")))  # ['ls', 'wc']
+print(get_commands(parse_ast("echo ${x//a/$(rm -rf x)}")))  # ['echo', 'rm']
 ```
 
 ### Argument extraction
@@ -237,8 +240,8 @@ print(get_arguments(tree2))  # [['-la'], ['-i', 'txt']]
 
 ```python
 args = find_arguments(parse_ast("ls -la /tmp"))
-print(len(args))      # 1
-print(len(args[0]))   # 2 (two arguments: '-la' and '/tmp')
+print(len(args))  # 1
+print(len(args[0]))  # 2 (two arguments: '-la' and '/tmp')
 ```
 
 Word values are best-effort and **quote delimiters are stripped** — `"hello"` and `'hello'` both yield `hello`. Variable and substitution parts are rendered in lossy form (e.g. `$VAR`, `$(...)`).
@@ -248,16 +251,16 @@ Word values are best-effort and **quote delimiters are stripped** — `"hello"` 
 ```python
 from lovely_bash_permissions import parse_ast, has_variable, has_pipe
 
-print(has_variable(parse_ast("ls -la")))            # False
-print(has_variable(parse_ast("echo $HOME")))        # True
-print(has_variable(parse_ast('echo "$HOME"')))      # True
-print(has_variable(parse_ast("echo $(date)")))      # True
-print(has_variable(parse_ast("cat /path/to/file"))) # False (path, not variable)
+print(has_variable(parse_ast("ls -la")))  # False
+print(has_variable(parse_ast("echo $HOME")))  # True
+print(has_variable(parse_ast('echo "$HOME"')))  # True
+print(has_variable(parse_ast("echo $(date)")))  # True
+print(has_variable(parse_ast("cat /path/to/file")))  # False (path, not variable)
 
-print(has_pipe(parse_ast("ls -la")))                # False
-print(has_pipe(parse_ast("ls | grep txt")))         # True
-print(has_pipe(parse_ast("ls |& cat")))             # True (|& counts)
-print(has_pipe(parse_ast("ls > file.txt")))         # False (redirect, not pipe)
+print(has_pipe(parse_ast("ls -la")))  # False
+print(has_pipe(parse_ast("ls | grep txt")))  # True
+print(has_pipe(parse_ast("ls |& cat")))  # True (|& counts)
+print(has_pipe(parse_ast("ls > file.txt")))  # False (redirect, not pipe)
 ```
 
 ### Redirections
@@ -267,7 +270,7 @@ from lovely_bash_permissions import parse_ast, get_redirections, get_target_file
 
 tree = parse_ast("cat file.txt > output.txt")
 redirs = get_redirections(tree)
-print(redirs[0]["op"])      # '>'
+print(redirs[0]["op"])  # '>'
 print(redirs[0]["target"])  # 'output.txt'
 
 # "2>&1" is an fd-duplication: op '>&', target '1'
@@ -373,8 +376,8 @@ print(get_arguments(tree))
 from lovely_bash_permissions import parse_ast, get_redirections
 
 print(get_redirections(parse_ast("cat file.txt > output.txt")))  # [{'op': '>', 'target': 'output.txt'}]
-print(get_redirections(parse_ast("echo line >> log.txt")))       # [{'op': '>>', 'target': 'log.txt'}]
-print(get_redirections(parse_ast("sort < input.txt")))           # [{'op': '<', 'target': 'input.txt'}]
+print(get_redirections(parse_ast("echo line >> log.txt")))  # [{'op': '>>', 'target': 'log.txt'}]
+print(get_redirections(parse_ast("sort < input.txt")))  # [{'op': '<', 'target': 'input.txt'}]
 ```
 
 ### Variables
@@ -382,10 +385,10 @@ print(get_redirections(parse_ast("sort < input.txt")))           # [{'op': '<', 
 ```python
 from lovely_bash_permissions import parse_ast, has_variable
 
-print(has_variable(parse_ast("ls -la")))              # False
-print(has_variable(parse_ast("echo $HOME")))          # True
-print(has_variable(parse_ast('echo "$HOME"')))        # True (variable in double quotes)
-print(has_variable(parse_ast("cat /path/to/file")))   # False (path, not variable)
+print(has_variable(parse_ast("ls -la")))  # False
+print(has_variable(parse_ast("echo $HOME")))  # True
+print(has_variable(parse_ast('echo "$HOME"')))  # True (variable in double quotes)
+print(has_variable(parse_ast("cat /path/to/file")))  # False (path, not variable)
 ```
 
 ### Command substitution
@@ -446,8 +449,8 @@ print(get_commands(tree2))
 from lovely_bash_permissions import parse_ast, get_commands
 
 tree = parse_ast("echo step 1\necho step 2")
-print(len(tree.stmts))        # 2
-print(get_commands(tree))     # ['echo', 'echo']
+print(len(tree.stmts))  # 2
+print(get_commands(tree))  # ['echo', 'echo']
 ```
 
 ### Finding dangerous commands

@@ -47,6 +47,8 @@ from .ast import (
     Node,
     OrCmd,
     ParamExp,
+    ParamExpExp,
+    ParamExpSlice,
     ParenArithm,
     ParenTest,
     Position,
@@ -118,18 +120,47 @@ def _convert_param_exp(data: dict[str, Any]) -> ParamExp:
     pos, end = _parse_pos_end(data)
     param_data = data.get("Param", {})
     param_value = param_data.get("Value", "") if isinstance(param_data, dict) else ""
+
     index_data = data.get("Index")
     index_node = _convert_word(index_data) if isinstance(index_data, dict) else None
+
     exp_data = data.get("Exp")
-    exp_value = exp_data if isinstance(exp_data, dict) else None
+    exp_node = None
+    if isinstance(exp_data, dict):
+        exp_node = ParamExpExp(
+            op=exp_data.get("Op", ""),
+            word=_convert_word(exp_data.get("Word")),
+        )
+
+    slice_data = data.get("Slice")
+    slice_node = None
+    if isinstance(slice_data, dict):
+        slice_node = ParamExpSlice(
+            offset=node_from_json(slice_data.get("Offset")),
+            length=node_from_json(slice_data.get("Length")),
+        )
+
+    repl_data = data.get("Repl")
+    repl_all = False
+    repl_orig = None
+    repl_with = None
+    if isinstance(repl_data, dict):
+        repl_all = repl_data.get("All", False)
+        repl_orig = _convert_word(repl_data.get("Orig"))
+        repl_with = _convert_word(repl_data.get("With"))
+
     return ParamExp(
         pos=pos,
         end=end,
         param=param_value,
         short=data.get("Short", False),
-        exp=exp_value,
+        exp=exp_node,
         index=index_node,
         length=data.get("Length", False),
+        all=repl_all,
+        orig=repl_orig,
+        replacement=repl_with,
+        slice=slice_node,
         dollar_pos=_parse_position(data.get("Dollar")),
     )
 

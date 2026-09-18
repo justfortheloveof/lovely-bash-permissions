@@ -633,6 +633,79 @@ class TestSubshellHandling:
         assert result["status"] == "deny"
 
 
+class TestParamExpansionSubstitutions:
+    """Substitutions inside parameter expansions are enforced (bugs 1 & 3).
+
+    Previously `${var/pat/$(cmd)}` (and `${var:-$(cmd)}`, `${var%$(cmd)}`,
+    `${var:offset:$(cmd)}`) were invisible to the subshell, allowed-pattern,
+    and blocked-path passes, so the inner command was auto-approved.
+    """
+
+    def test_repl_replacement_subshell_denied(self) -> None:
+        """Bug 1: substitution in replacement part abides by subshell=deny."""
+        result = evaluate_bash_command(
+            "echo ${x//a/$(rm -rf x)}",
+            make_config(allowed=[r"^echo(\s+.*)?$"], subshell="deny"),
+        )
+        assert result["status"] == "deny"
+
+    def test_repl_pattern_subshell_denied(self) -> None:
+        """Bug 1: substitution in the pattern part abides by subshell=deny."""
+        result = evaluate_bash_command(
+            "echo ${x//$(recon_cmd)/y}",
+            make_config(allowed=[r"^echo(\s+.*)?$"], subshell="deny"),
+        )
+        assert result["status"] == "deny"
+
+    def test_repl_replacement_blocked_path_denied(self) -> None:
+        """Bug 1: blocked path read via the replacement part is denied."""
+        result = evaluate_bash_command(
+            "echo ${x//a/$(cat /etc/passwd)}",
+            make_config(blocked=["^/etc/passwd$"], wildcard="ask"),
+        )
+        assert result["status"] == "deny"
+
+    def test_repl_replacement_inner_command_not_allow_listed(self) -> None:
+        """Bug 1: inner command can't ride the outer echo allow pattern."""
+        result = evaluate_bash_command(
+            "echo ${x//a/$(rm -rf x)}",
+            make_config(allowed=[r"^echo(\s+.*)?$"]),
+        )
+        assert result["status"] == "ask"
+
+    def test_exp_default_subshell_denied(self) -> None:
+        """Bug 3: substitution in ${var:-...} abides by subshell=deny."""
+        result = evaluate_bash_command(
+            'echo "${y:-$(rm -rf x)}"',
+            make_config(allowed=[r"^echo(\s+.*)?$"], subshell="deny"),
+        )
+        assert result["status"] == "deny"
+
+    def test_exp_trim_subshell_denied(self) -> None:
+        """Bug 3: substitution in ${var%...} abides by subshell=deny."""
+        result = evaluate_bash_command(
+            'echo "${z%$(rm -rf x)}"',
+            make_config(allowed=[r"^echo(\s+.*)?$"], subshell="deny"),
+        )
+        assert result["status"] == "deny"
+
+    def test_exp_default_blocked_path_denied(self) -> None:
+        """Bug 3: blocked path in ${var:-...} is denied."""
+        result = evaluate_bash_command(
+            'echo "${w:-$(cat /etc/passwd)}"',
+            make_config(blocked=["^/etc/passwd$"], wildcard="ask"),
+        )
+        assert result["status"] == "deny"
+
+    def test_slice_subshell_denied(self) -> None:
+        """Bug 3: substitution in ${var:offset} abides by subshell=deny."""
+        result = evaluate_bash_command(
+            "echo ${x:0:$(rm -rf x)}",
+            make_config(allowed=[r"^echo(\s+.*)?$"], subshell="deny"),
+        )
+        assert result["status"] == "deny"
+
+
 class TestOpaqueSubstitutionPatternGuard:
     """Opaque `$(...)` args must not slip past restrictive allow patterns.
 

@@ -473,6 +473,29 @@ class TestNestedSubstitutionExtraction:
         segs = parse_segments("echo ${arr[$(cat idx)]}")
         assert [s["command"] for s in segs] == ["echo", "cat"]
 
+    def test_cmdsubst_in_repl_replacement_extracted(self) -> None:
+        # Bug 1: substitution in the replacement part of ${var/pat/rep}.
+        segs = parse_segments("echo ${x//a/$(rm -rf x)}")
+        assert [s["command"] for s in segs] == ["echo", "rm"]
+        assert segs[1]["arguments"] == ["-rf", "x"]
+
+    def test_cmdsubst_in_repl_pattern_extracted(self) -> None:
+        # Bug 1: substitution in the *pattern* part of ${var/pat/rep}.
+        segs = parse_segments("echo ${x//$(recon_cmd)/y}")
+        assert [s["command"] for s in segs] == ["echo", "recon_cmd"]
+
+    def test_cmdsubst_in_single_repl_extracted(self) -> None:
+        # Bug 1: single-replacement form ${var/pat/rep} (Repl.All = false).
+        segs = parse_segments("echo ${x/a/$(rm -rf x)}")
+        assert [s["command"] for s in segs] == ["echo", "rm"]
+
+    def test_cmdsubst_in_slice_extracted(self) -> None:
+        # Bug 3: substitution in the offset/length of ${var:offset:length}.
+        segs = parse_segments("echo ${x:0:$(cat N)}")
+        assert [s["command"] for s in segs] == ["echo", "cat"]
+        segs = parse_segments("echo ${x:$(seq 3)}")
+        assert [s["command"] for s in segs] == ["echo", "seq"]
+
     def test_cmdsubst_in_standalone_assignment_extracted(self) -> None:
         segs = parse_segments("x=$(date)")
         assert [s["command"] for s in segs] == ["", "date"]

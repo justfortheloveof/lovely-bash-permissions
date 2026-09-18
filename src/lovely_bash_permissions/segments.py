@@ -49,6 +49,8 @@ from .ast import (
     Lit,
     OrCmd,
     ParamExp,
+    ParamExpExp,
+    ParamExpSlice,
     ParenArithm,
     ParenTest,
     ProcSubst,
@@ -516,19 +518,27 @@ def _extract_segments(
                 segments.extend(_extract_segments(part))
 
     elif isinstance(node, ParamExp):
-        # Parameter expansion (${x:-default}, ${arr[i]}, ...) may embed nested
-        # command substitutions in its default-value or index expressions.
+        # Parameter expansion (${x:-default}, ${x/pat/rep}, ${arr[i]}, ${x:0:3},
+        # ...) may embed nested command substitutions in its operand, pattern,
+        # replacement, index, or slice expressions. Recurse into each so the
+        # inner commands surface as segments for allowed-pattern and
+        # blocked-path checks.
         if not _in_test_expr:
-            if node.index is not None:
-                segments.extend(_extract_segments(node.index))
+            for exp_child in (node.index, node.orig, node.replacement, node.slice):
+                if exp_child is not None:
+                    segments.extend(_extract_segments(exp_child))
             exp = node.exp
-            if isinstance(exp, dict):
-                inner_word = exp.get("Word")
-                if isinstance(inner_word, dict):
-                    for part_raw in inner_word.get("Parts", []):
-                        raw_part_node = node_from_json(part_raw)
-                        if raw_part_node is not None:
-                            segments.extend(_extract_segments(raw_part_node))
+            if isinstance(exp, ParamExpExp) and exp.word is not None:
+                segments.extend(_extract_segments(exp.word))
+
+    elif isinstance(node, ParamExpSlice):
+        # Parameter-expansion slice (${x:offset:length}) — recurse into the
+        # operands so command substitutions such as ${x:$(cmd):3} are still
+        # extracted (bash runs the substitution at expansion time).
+        if not _in_test_expr:
+            for slice_child in (node.offset, node.length):
+                if slice_child is not None:
+                    segments.extend(_extract_segments(slice_child))
 
     elif isinstance(node, ArithmExp):
         # Arithmetic expansion ($(( ... ))) may embed a command substitution

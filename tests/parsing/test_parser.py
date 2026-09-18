@@ -17,6 +17,8 @@ from lovely_bash_permissions import (
     IfClause,
     Lit,
     ParamExp,
+    ParamExpExp,
+    ParamExpSlice,
     ProcSubst,
     SglQuoted,
     Subshell,
@@ -749,7 +751,7 @@ class TestParamExpNodes:
         assert isinstance(inner, ParamExp)
         exp = inner.exp
         assert exp is not None
-        assert exp["Op"] == ":-"
+        assert exp.op == ":-"
 
     def test_array_index_param_expansion(self) -> None:
         """Parse echo ${arr[0]} and verify the Index field."""
@@ -893,6 +895,81 @@ class TestParamExpNodes:
     def test_param_exp_imported_in_module(self) -> None:
         """Verify that ParamExp is imported in the lovely_bash_permissions module."""
         assert ParamExp is not None
+
+    def test_repl_expansion_typed(self) -> None:
+        """Parse ${x//a/b} and verify Repl fields are kept as typed Word nodes."""
+        tree = parse_ast("echo ${x//a/b}")
+        cmd = tree.stmts[0].cmd
+        assert isinstance(cmd, CallExpr)
+        part = cmd.args[1].parts[0]
+        assert isinstance(part, ParamExp)
+        assert part.all is True
+        assert isinstance(part.orig, Word)
+        assert isinstance(part.orig.parts[0], Lit)
+        assert part.orig.parts[0].value == "a"
+        assert isinstance(part.replacement, Word)
+        assert isinstance(part.replacement.parts[0], Lit)
+        assert part.replacement.parts[0].value == "b"
+
+    def test_single_repl_expansion_all_false(self) -> None:
+        """Parse ${x/a/b} and verify Repl.All is False."""
+        tree = parse_ast("echo ${x/a/b}")
+        cmd = tree.stmts[0].cmd
+        assert isinstance(cmd, CallExpr)
+        part = cmd.args[1].parts[0]
+        assert isinstance(part, ParamExp)
+        assert part.all is False
+        assert part.orig is not None
+        assert part.replacement is not None
+
+    def test_repl_expansion_with_cmdsubst_preserved(self) -> None:
+        """Parse ${x//a/$(h)} and verify the internal CmdSubst is retained."""
+        tree = parse_ast("echo ${x//a/$(h)}")
+        cmd = tree.stmts[0].cmd
+        assert isinstance(cmd, CallExpr)
+        part = cmd.args[1].parts[0]
+        assert isinstance(part, ParamExp)
+        assert isinstance(part.replacement, Word)
+        assert isinstance(part.replacement.parts[0], CmdSubst)
+
+    def test_param_exp_exp_typed(self) -> None:
+        """Parse ${x:-word} and verify exp is a typed ParamExpExp node."""
+        tree = parse_ast("echo ${x:-foo}")
+        cmd = tree.stmts[0].cmd
+        assert isinstance(cmd, CallExpr)
+        part = cmd.args[1].parts[0]
+        assert isinstance(part, ParamExp)
+        assert isinstance(part.exp, ParamExpExp)
+        assert part.exp.op == ":-"
+        assert isinstance(part.exp.word, Word)
+        assert isinstance(part.exp.word.parts[0], Lit)
+        assert part.exp.word.parts[0].value == "foo"
+
+    def test_param_exp_slice_typed(self) -> None:
+        """Parse ${x:0:3} and verify slice is a typed ParamExpSlice node."""
+        tree = parse_ast("echo ${x:0:3}")
+        cmd = tree.stmts[0].cmd
+        assert isinstance(cmd, CallExpr)
+        part = cmd.args[1].parts[0]
+        assert isinstance(part, ParamExp)
+        assert isinstance(part.slice, ParamExpSlice)
+        assert isinstance(part.slice.offset, Word)
+        assert isinstance(part.slice.length, Word)
+        assert isinstance(part.slice.offset.parts[0], Lit)
+        assert isinstance(part.slice.length.parts[0], Lit)
+        assert part.slice.offset.parts[0].value == "0"
+        assert part.slice.length.parts[0].value == "3"
+
+    def test_param_exp_slice_no_length(self) -> None:
+        """Parse ${x:0} and verify slice length is None."""
+        tree = parse_ast("echo ${x:0}")
+        cmd = tree.stmts[0].cmd
+        assert isinstance(cmd, CallExpr)
+        part = cmd.args[1].parts[0]
+        assert isinstance(part, ParamExp)
+        assert isinstance(part.slice, ParamExpSlice)
+        assert part.slice.offset is not None
+        assert part.slice.length is None
 
 
 class TestDblQuotedNodes:

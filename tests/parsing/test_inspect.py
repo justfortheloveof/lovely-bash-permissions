@@ -141,3 +141,27 @@ class TestIntegration:
 
         args = get_arguments(tree)
         assert len(args) == 4
+
+
+class TestGetCommandsParamExp:
+    """Commands inside parameter expansions are reported (bugs 1 & 3)."""
+
+    def test_repl_replacement(self) -> None:
+        commands = get_commands(parse_ast("echo ${x//a/$(rm -rf x)}"))
+        assert "rm" in commands
+
+    def test_repl_pattern(self) -> None:
+        commands = get_commands(parse_ast("echo ${x//$(recon_cmd)/y}"))
+        assert "recon_cmd" in commands
+
+    def test_exp_default(self) -> None:
+        commands = get_commands(parse_ast('echo "${y:-$(rm -rf x)}"'))
+        assert "rm" in commands
+
+    def test_exp_trim(self) -> None:
+        commands = get_commands(parse_ast('echo "${z%$(cat /etc/passwd)}"'))
+        assert "cat" in commands
+
+    def test_slice_offset(self) -> None:
+        commands = get_commands(parse_ast("echo ${x:$(seq 3)}"))
+        assert "seq" in commands
