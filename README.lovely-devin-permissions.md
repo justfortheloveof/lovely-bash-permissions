@@ -89,7 +89,7 @@ The hook is invoked by Devin **only on `exec` and `write_to_process` tool calls*
 1. `lovely-permissions.jsonc` configuration (parsed via shfmt-py)
 2. Devin `permissions.allow` entries that look like `Exec(prefix)`
 
-If either source approves the command, the hook lets it run. If neither matches, it asks for approval. If no `lovely-permissions.jsonc` file is found at all, the hook falls back to asking (the safe default). If a config file exists but is invalid, the hook exits with an error (`[♡ perms: ERROR]`, exit code 1); Devin logs this and still runs the command, so keep the config valid for the policy to apply.
+If either source approves the command, the hook lets it run. If neither matches, it asks for approval. If no `lovely-permissions.jsonc` file is found at all, the hook falls back to asking (the safe default). If a config file exists but is invalid or unusable (invalid `lovely-permissions.jsonc`, or a malformed Devin `Exec(...)` rule), the hook fails closed: it returns a `block` decision and exits with code 2, so the command is denied instead of run. Keep the config valid for the policy to apply.
 
 ## Security notes
 
@@ -244,8 +244,8 @@ The hook prints a JSON object to `stdout` and exits with a code:
 | Code  | Meaning                                                                                                                                                             |
 | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `0`   | Success - the hook returned an `approve`, `ask`, or `updatedInput` decision.                                                                                        |
-| `2`   | Block - the command was denied.                                                                                                                                     |
-| Other | Error (e.g. `lovely-permissions.jsonc` is invalid, or the binary could not start). Devin logs it but still allows the tool to run.                                   |
+| `2`   | Block - the command was denied. Also used when the hook fails closed: unparseable stdin (`[♡ perms: ERROR]` reason) or an invalid/unusable permissions config.       |
+| Other | Error in a non-hook mode only (e.g. `--setup`/`--show-config` failure, or the binary could not start). Hook mode never lets a command run when it cannot compute a verdict. |
 
 When the hook cannot compute a verdict at all — unparseable stdin (invalid JSON, a JSON value that is not an object, or an `exec`/`write_to_process` event whose `tool_input` is not an object) — it fails closed: it prints `{ "decision": "block", "reason": "[♡ perms: ERROR] ..." }` on `stdout` and exits with code `2`, so the tool is denied rather than run. Because the command text is unavailable in those cases, the `PreToolUse` block response omits `hookSpecificOutput.updatedInput`; the bare `decision: block` still prevents execution.
 
@@ -311,7 +311,7 @@ This is useful for confirming which rules Devin will see before running a sessio
 ## Troubleshooting
 
 - Run `uv run lovely-devin-permissions --show-config` to see which files were read and the effective bash config.
-- If you see `[♡ perms: ERROR]`, the `lovely-permissions.jsonc` is invalid (a completely missing config falls back to ask instead). A malformed Devin `Exec(...)` rule does not produce this error in hook mode: it makes every command fall back to ask with a `config error (fallback to ask)` reason. Run `--show-config` to see the failures.
+- If every command is blocked with `invalid permissions config (blocked)` or `config error (blocked)`, one of the source configs is invalid: an invalid `lovely-permissions.jsonc` (a completely missing config falls back to ask instead) or a malformed Devin `Exec(...)` allow rule. Run `--show-config` to see the failures.
 - If every command still asks for approval when used as `PreToolUse`, run `--setup` to add the `Exec(: '[♡ perms:)` label permission to Devin.
 
 ## Example Config

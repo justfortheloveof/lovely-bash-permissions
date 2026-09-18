@@ -196,8 +196,22 @@ def test_permission_request_write_to_process_block() -> None:
     assert result == {"decision": "block", "reason": "[♡ perms: ❤️ auto-rejected] denied"}
 
 
-def test_effective_bash_config_failure_fallback_ask() -> None:
-    """Invalid bash config → effective_bash raises, fallback to ask."""
+def test_invalid_config_blocks() -> None:
+    """Invalid lovely-permissions config → block (fail closed)."""
+    event = _pretooluse_exec_event("ls")
+
+    with patch("lovely_bash_permissions.hook.PermissionsManager") as MockMgr:
+        instance = MockMgr.return_value
+        instance.get_lovely_config.side_effect = ValueError("no valid lovely-permissions config found")
+
+        result = process_hook_event(event)
+
+    assert result["action"] == "block"
+    assert "invalid permissions config (blocked)" in result["reason"]
+
+
+def test_effective_bash_config_failure_blocks() -> None:
+    """Invalid effective bash config (e.g. malformed Devin Exec rule) → block."""
     event = _pretooluse_exec_event("ls")
 
     with (
@@ -213,8 +227,8 @@ def test_effective_bash_config_failure_fallback_ask() -> None:
 
         result = process_hook_event(event)
 
-    assert result["action"] == "ask"
-    assert "config error (fallback to ask)" in result["reason"]
+    assert result["action"] == "block"
+    assert "config error (blocked)" in result["reason"]
 
 
 # ---------------------------------------------------------------------------

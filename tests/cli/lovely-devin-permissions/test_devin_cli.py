@@ -983,6 +983,48 @@ class TestHookMode:
         assert response["decision"] == "block"
         assert "hook boom" in response["reason"]
 
+    def test_hook_mode_invalid_config_blocks(self, tmp_path: Path) -> None:
+        """Hook mode with an invalid lovely-permissions.jsonc blocks (exit 2)."""
+        project = tmp_path / "proj"
+        (project / ".devin").mkdir(parents=True)
+        (project / ".devin" / "lovely-permissions.jsonc").write_text("not valid json")
+        global_dir = tmp_path / "global"
+        global_dir.mkdir()
+        event = {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "exec",
+            "tool_input": {"command": "ls"},
+        }
+        result = run_cli(
+            input_data=json.dumps(event),
+            env={"DEVIN_PROJECT_DIR": str(project), "DEVIN_GLOBAL_CONFIG_DIR": str(global_dir)},
+        )
+        assert result.returncode == 2
+        response = json.loads(result.stdout)
+        assert response["decision"] == "block"
+        assert "invalid permissions config (blocked)" in response["reason"]
+
+    def test_hook_mode_malformed_devin_exec_rule_blocks(self, tmp_path: Path) -> None:
+        """A malformed Devin Exec(...) allow rule blocks (fail closed)."""
+        project = tmp_path / "proj2"
+        (project / ".devin").mkdir(parents=True)
+        (project / ".devin" / "config.json").write_text(json.dumps({"permissions": {"allow": ["Exec("]}}))
+        global_dir = tmp_path / "global2"
+        global_dir.mkdir()
+        event = {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "exec",
+            "tool_input": {"command": "ls"},
+        }
+        result = run_cli(
+            input_data=json.dumps(event),
+            env={"DEVIN_PROJECT_DIR": str(project), "DEVIN_GLOBAL_CONFIG_DIR": str(global_dir)},
+        )
+        assert result.returncode == 2
+        response = json.loads(result.stdout)
+        assert response["decision"] == "block"
+        assert "config error (blocked)" in response["reason"]
+
 
 class TestFlagPrecedence:
     """Test that CLI flags take precedence over stdin."""
