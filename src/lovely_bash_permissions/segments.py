@@ -507,13 +507,13 @@ def _extract_segments(
 
     elif isinstance(node, Word):
         # Word nodes (arguments) may contain CmdSubst/ProcSubst in their parts.
-        # Recurse into each part to find nested redirections (only outside test expr context).
-        if not _in_test_expr:
-            for part in node.parts:
-                segments.extend(_extract_segments(part, _in_test_expr=False))
-        # Inside test expressions, word values are command names
-        if _in_test_expr:
-            segments.append({"command": _word_value(node), "arguments": [], "redirections": []})
+        # Always recurse, passing the test-expr context down: inside test
+        # expressions bare Lit/SglQuoted fragments still surface as
+        # pseudo-commands while embedded substitutions are extracted as the
+        # real commands they run (bug #6: no more "$(...)" / "$var" phantom
+        # command names).
+        for part in node.parts:
+            segments.extend(_extract_segments(part, _in_test_expr=_in_test_expr))
 
     elif isinstance(node, Lit):
         # Literals are command names only inside test expressions
@@ -527,13 +527,10 @@ def _extract_segments(
             segments.append({"command": node.value, "arguments": [], "redirections": []})
 
     elif isinstance(node, DblQuoted):
-        # Double-quoted text may embed CmdSubst/ProcSubst/ParamExp parts.
-        if _in_test_expr:
-            if node.value:
-                segments.append({"command": node.value, "arguments": [], "redirections": []})
-        else:
-            for part in node.parts:
-                segments.extend(_extract_segments(part))
+        # Double-quoted text may embed CmdSubst/ProcSubst/ParamExp parts —
+        # always recurse so embedded substitutions surface as real commands.
+        for part in node.parts:
+            segments.extend(_extract_segments(part, _in_test_expr=_in_test_expr))
 
     elif isinstance(node, ParamExp):
         # Parameter expansion (${x:-default}, ${x/pat/rep}, ${arr[i]}, ${x:0:3},

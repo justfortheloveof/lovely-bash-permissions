@@ -451,7 +451,7 @@ EOF
 
 ## Step 6 — `segments.py`: stop emitting `$(...)`/`$var`/`''` phantom test commands (bug #6)
 
-**Status: not started**
+**Status: done** (red window still open: exactly 1 failed, 1040 passed)
 
 **File:** `src/lovely_bash_permissions/segments.py` (only file touched)
 
