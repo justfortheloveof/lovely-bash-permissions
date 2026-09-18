@@ -89,7 +89,7 @@ The hook is invoked by Devin **only on `exec` and `write_to_process` tool calls*
 1. `lovely-permissions.jsonc` configuration (parsed via shfmt-py)
 2. Devin `permissions.allow` entries that look like `Exec(prefix)`
 
-If either source approves the command, the hook lets it run. If neither matches, it asks for approval. Malformed configuration is reported as an error (and prevents exec tool calls from running).
+If either source approves the command, the hook lets it run. If neither matches, it asks for approval. If no `lovely-permissions.jsonc` file is found at all, the hook falls back to asking (the safe default). If a config file exists but is invalid, the hook exits with an error (`[♡ perms: ERROR]`, exit code 1); Devin logs this and still runs the command, so keep the config valid for the policy to apply.
 
 ## Security notes
 
@@ -173,7 +173,7 @@ From the example above, the hook adds `^git log(\s|$)` and `^git ls-files(\s|$)`
 
 - Devin `Exec(...)` allow rules are appended to any `allowed_cmds_regex` from `lovely-permissions.jsonc`.
 - If `lovely-permissions.jsonc` has no bash config but Devin has `Exec(...)` rules, the hook synthesizes a bash config with `"*": "ask"` and the Devin-derived regexes, so Devin-allowed commands auto-approve while everything else still prompts.
-- Malformed `Exec(...)` entries (for example `Exec()` or `Exec((unclosed`) cause the hook to block with `[♡ perms: ERROR]` until they are fixed.
+- Malformed `Exec(...)` entries (for example `Exec()` or `Exec((unclosed`) make the effective bash config fail to load, so every command falls back to **ask** (`config error (fallback to ask)`) until they are fixed. `--show-config` reports the error explicitly.
 
 ## Devin CLI Hook
 
@@ -244,8 +244,8 @@ The hook prints a JSON object to `stdout` and exits with a code:
 | Code  | Meaning                                                                                                                                                             |
 | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `0`   | Success - the hook returned an `approve`, `ask`, or `updatedInput` decision.                                                                                        |
-| `2`   | Block - the command was denied or the config is invalid.                                                                                                            |
-| Other | Process failure (e.g. the binary could not start). Devin logs it but still allows the tool to run. This hook does not emit other exit codes under normal operation. |
+| `2`   | Block - the command was denied.                                                                                                                                     |
+| Other | Error (e.g. `lovely-permissions.jsonc` is invalid, or the binary could not start). Devin logs it but still allows the tool to run.                                   |
 
 For `PreToolUse` the hook rewrites the command with a leading no-op label for user visibility/convenience:
 
@@ -254,7 +254,7 @@ For `PreToolUse` the hook rewrites the command with a leading no-op label for us
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
     "updatedInput": {
-      "command": ": '[♡ perms: 💚 auto-approved] command matches allowed pattern ^git' ; git log -1"
+      "command": ": '[♡ perms: 💚 auto-approved] command matches allowed pattern: ^git' 💚 ; git log -1"
     }
   }
 }
@@ -309,7 +309,7 @@ This is useful for confirming which rules Devin will see before running a sessio
 ## Troubleshooting
 
 - Run `uv run lovely-devin-permissions --show-config` to see which files were read and the effective bash config.
-- If you see `[♡ perms: ERROR]`, the `lovely-permissions.jsonc` or a Devin `Exec(...)` rule is malformed. Fix the config and re-run `--show-config` to confirm.
+- If you see `[♡ perms: ERROR]`, the `lovely-permissions.jsonc` is invalid (a completely missing config falls back to ask instead). A malformed Devin `Exec(...)` rule does not produce this error in hook mode: it makes every command fall back to ask with a `config error (fallback to ask)` reason. Run `--show-config` to see the failures.
 - If every command still asks for approval when used as `PreToolUse`, run `--setup` to add the `Exec(: '[♡ perms:)` label permission to Devin.
 
 ## Example Config
