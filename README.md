@@ -1,8 +1,14 @@
 # lovely-bash-permissions
 
-A Python library for parsing bash commands into structured AST trees using [shfmt-py](https://pypi.org/project/shfmt-py/). Parse commands, extract commands and arguments, detect variables, analyze pipes and redirections, and traverse complex shell syntax.
+A Python library for parsing bash commands into structured, typed AST trees using [shfmt-py](https://pypi.org/project/shfmt-py/) as the parsing backend. Parse commands, inspect and traverse the AST to extract commands and arguments, detect variables, analyze pipes and redirections, and handle complex shell syntax like substitutions, subshells, loops, and conditionals.
 
-Perfect for AI agents, shell scripting tools, permission checkers, and any application that needs to understand bash command structure.
+Perfect for AI agents, shell scripting tools, permission checkers, syntax analysis, and any application that needs to understand bash command structure.
+
+## Related Project: lovely-devin-permissions
+
+This repository also ships `lovely-devin-permissions`, a Devin CLI permission hook built on top of this library. It parses bash commands, evaluates each command segment against configurable rules and decides whether to allow, ask for approval, or deny execution.
+
+See [README.lovely-devin-permissions.md](README.lovely-devin-permissions.md) for installation, hook registration, the config schema, and troubleshooting.
 
 ## Installation
 
@@ -23,72 +29,202 @@ Requires Python >= 3.10 and the `shfmt-py` binary (installed automatically via u
 ```python
 from lovely_bash_permissions import parse_ast, get_commands, get_arguments
 
-# Parse a bash command
+# Parse a bash command into an AST
 tree = parse_ast("ls -la | grep txt")
 
 # Extract commands and arguments
-print(get_commands(tree))  # ['ls', 'grep']
+print(get_commands(tree))   # ['ls', 'grep']
 print(get_arguments(tree))  # [['-la'], ['txt']]
 ```
 
-You can also use the lovely-bash-inspection CLI:
+You can also inspect commands from the command line:
 
 ```bash
 uv run lovely-bash-inspection --string 'echo hello | vim -'
 ```
 
-## API Reference
+## Parser
 
-### Parser Functions
+### `parse_ast(command)` → `File`
 
-#### `parse_ast(command)` → `File`
-
-Parse a bash command string into a typed AST node. This is the main entry point for parsing.
+Parse a bash command string into a typed AST rooted at a `File` node. This is the main entry point.
 
 ```python
 from lovely_bash_permissions import parse_ast
 
 tree = parse_ast("ls -la")
-print(tree.type)  # 'File'
-print(len(tree.stmts))  # 1 statement
+print(tree.type)          # 'File'
+print(len(tree.stmts))    # 1
 ```
 
-#### `parse(command, dialect="bash")` → `dict`
+### `parse(command, dialect="bash")` → `dict`
 
-Parse a bash command and return raw shfmt JSON. Use this when you need the underlying JSON structure before it's converted to Python dataclasses.
+Parse a bash command and return the raw shfmt JSON as a Python dict. Use this when you need the underlying JSON structure before it is converted to typed dataclasses.
 
 ```python
 from lovely_bash_permissions import parse
 
-# Default bash dialect
 tree = parse("ls -la")
+print(tree["Type"])  # 'File'
 
-# Other dialects
+# Other shell dialects
 zsh_tree = parse("ls -la", dialect="zsh")
 posix_tree = parse("ls -la", dialect="posix")
 ```
 
-Supported dialects: `bash`, `posix`, `mksh`, `bats`, `zsh`.
+Supported dialects: `bash`, `posix`, `mksh`, `bats`, `zsh`. An unknown dialect raises `ValueError`.
 
-### Query Functions
+### Errors
 
-#### `get_commands(tree)` → `List[str]`
-
-Extract all command names from the AST, including commands in pipes, subshells, conditionals, and loops.
+- `ParseError` — raised when the input cannot be parsed (syntax error, empty command, or shfmt failure). Carries `.command`, `.returncode`, and `.stderr` attributes.
+- `LovelyDevinPermissionsError` — raised when the shfmt binary is missing or shfmt could not be run (timeout, OS error).
 
 ```python
-from lovely_bash_permissions import parse_ast, get_commands
+from lovely_bash_permissions import parse_ast, ParseError
 
-tree = parse_ast("cat file.txt | grep pattern | sort -u")
-print(get_commands(tree))  # ['cat', 'grep', 'sort']
+try:
+    parse_ast('echo "unclosed')
+except ParseError as exc:
+    print(exc.returncode)  # shfmt exit code
+    print(exc.stderr)      # raw shfmt error output
 ```
 
-#### `get_arguments(tree)` → `List[List[str]]`
+## AST
 
-Extract arguments for each command (excluding the command name). Returns a list of argument lists, one per command.
+Parsed commands are represented as nested Python dataclasses. Every node inherits from `Node`, which provides:
+
+- `type` — the node type name (e.g. `"File"`, `"CallExpr"`, `"Word"`)
+- `pos` / `end` — `Position` source locations (`offset`, `line`, `col`)
+
+Nodes print a nested, human-readable repr (source-position fields are omitted), so you can inspect a tree directly:
 
 ```python
-from lovely_bash_permissions import parse_ast, get_arguments
+from lovely_bash_permissions import parse_ast
+
+tree = parse_ast("ls -la | grep txt")
+print(tree)
+# File(type='File', stmts=[Stmt(type='Stmt', cmd=BinaryCmd(type='BinaryCmd', op='|',
+#   left=CallExpr(type='CallExpr', args=[Word(type='Word', parts=[Lit(type='Lit', value='ls')]),
+#     Word(type='Word', parts=[Lit(type='Lit', value='-la')])]),
+#   right=CallExpr(type='CallExpr', args=[Word(type='Word', parts=[Lit(type='Lit', value='grep')]),
+#     Word(type='Word', parts=[Lit(type='Lit', value='txt')])])))])
+```
+
+### Node type reference
+
+**Words & word parts** — a `Word` is a list of parts; a part can be any of:
+
+| Type | Description | Key fields |
+| ------ | ------------- | ------------ |
+| `Word` | A word composed of parts | `parts` |
+| `Lit` | Plain literal string (`hello`, `file.txt`) | `value` |
+| `SglQuoted` | Single-quoted string `'...'` | `value` |
+| `DblQuoted` | Double-quoted string `"..."` | `parts`, `value` |
+| `ParamExp` | Parameter expansion `$VAR`, `${VAR}`, `${VAR:-def}` | `param`, `short`, `index`, `length`, `exp` |
+| `CmdSubst` | Command substitution `$(...)` / backticks | `stmts`, `backquotes` |
+| `ProcSubst` | Process substitution `<(...)` / `>(...)` | `op`, `stmts` |
+| `ArithmExp` | Arithmetic expansion `$((...))` | `x` |
+| `BraceExp` | Brace expansion `{a,b}` / `{1..5}` | `sequence`, `elems` |
+| `ExtGlob` | Extended globbing `@(pat | pat)` | `op`, `pattern` |
+
+**Commands & assignments**
+
+| Type | Description | Key fields |
+| ------ | ------------- | ------------ |
+| `File` | Top-level container | `stmts` |
+| `Stmt` | Single statement wrapping a command | `cmd`, `position`, `redirs` |
+| `CallExpr` | Command invocation (`ls -la`) | `args`, `assigns` |
+| `Assign` | Variable assignment `var=val`, `a[i]=v`, `x+=v` | `name`, `index`, `value`, `array`, `append`, `naked` |
+| `DeclClause` | Declaration builtin (`export`, `local`, `readonly`) | `variant`, `args`, `assigns` |
+| `ArrayExpr` / `ArrayElem` | Array literal `(a b c)` and an element | `elems` / `index`, `value` |
+
+**Sequences & operators**
+
+| Type | Description | Key fields |
+| ------ | ------------- | ------------ |
+| `BinaryCmd` | Pipe or sequence (`\|\|` pipelines, `;`, `&`) | `op`, `left`, `right`, `left_redirs`, `right_redirs`, `redirs` |
+| `AndCmd` | Logical AND `&&` | `left`, `right` |
+| `OrCmd` | Logical OR `\|\|` | `left`, `right` |
+
+**Control flow**
+
+| Type | Description | Key fields |
+| ------ | ------------- | ------------ |
+| `Subshell` | Parenthesized group `( ... )` | `stmts` |
+| `Block` | Braced group `{ ...; }` | `stmts` |
+| `IfClause` | `if` / `elif` / `else` | `cond_stmts`, `then_stmts`, `elif_branches`, `else_stmts` |
+| `ElifBranch` | One `elif` branch | `cond`, `body` |
+| `ForClause` | `for` loop over words | `var`, `words`, `body` |
+| `WordIter` | The `for var in ...` foreach part | `name`, `items` |
+| `CStyleLoop` | C-style loop `for ((...))` | `init`, `cond`, `post` |
+| `WhileClause` | `while` loop | `cond_stmts`, `body` |
+| `CaseClause` | `case` / `switch` statement | `expr`, `branches` |
+| `CaseBranch` | A `case` branch (patterns + body) | `patterns`, `body` |
+| `CaseItem` | A `case` item (`patterns) stmts;;`) | `op`, `patterns`, `stmts` |
+| `FuncDecl` | Function definition | `name`, `body`, `parens`, `rsrv_word` |
+| `CoprocClause` | Coprocess `coproc NAME { cmd; }` | `name`, `stmt` |
+
+**Tests & arithmetic**
+
+| Type | Description | Key fields |
+| ------ | ------------- | ------------ |
+| `TestClause` | Extended test `[[ ... ]]` | `body` |
+| `UnaryTest` | Unary test (`-f file`, `-z str`) | `op`, `x` |
+| `BinaryTest` | Binary test (`a == b`, `-eq`) | `op`, `left`, `right` |
+| `ParenTest` | Parenthesized test `( expr )` | `body` |
+| `ArithmCmd` | Arithmetic command `(( ... ))` | `body` |
+| `BinaryArithm` | Binary arithmetic | `op`, `left`, `right` |
+| `UnaryArithm` | Unary arithmetic (`-x`, `x++`) | `op`, `post`, `x` |
+| `ParenArithm` | Parenthesized arithmetic | `body` |
+| `LetClause` | `let` statement | `exprs` |
+| `TimeClause` | `time`-prefixed command | `stmt`, `posix_format` |
+| `TestDecl` | Bats `@test "desc" { ... }` | `description`, `body` |
+
+**Other**
+
+| Type | Description | Key fields |
+| ------ | ------------- | ------------ |
+| `Redir` | Redirection (`>`, `>>`, `<`, `2>`) | `op`, `n`, `word`, `hdoc`, `op_pos` |
+| `Comment` | Shell comment | `text` |
+| `Node` | Base class; also used for unmapped shfmt types | `type` |
+
+### Redirections
+
+A `Redir` node describes one redirection:
+
+- `op` — the operator (`>`, `>>`, `<`, `<<`, `<<<`, `2>`, `>&`, `|&`…)
+- `n` — the file descriptor number (e.g. `2` in `2>file`), or `None`
+- `word` — the file target as a `Word`
+- `hdoc` — heredoc body (only for `<<` / `<<-`; bash expands `$(...)` and backticks inside unquoted heredocs)
+
+## Inspection API
+
+### Command extraction
+
+```python
+from lovely_bash_permissions import parse_ast, get_commands, find_commands
+
+# Extract command names, recursively
+tree = parse_ast("cat file.txt | grep pattern | sort -u")
+print(get_commands(tree))  # ['cat', 'grep', 'sort']
+
+# Or get the full CallExpr nodes
+commands = find_commands(parse_ast("ls -la | grep txt"))
+print(len(commands))                            # 2
+print(commands[0].args[0].parts[0].value)       # 'ls'
+```
+
+`get_commands` and `find_commands` recurse into `CallExpr` arguments **and** assignment values, so commands inside `$(...)`, process substitutions, subshells, functions, loops, and conditionals are all discovered:
+
+```python
+print(get_commands(parse_ast("echo $(git status | head -1)")))   # ['echo', 'git', 'head']
+print(get_commands(parse_ast("counts=$(ls | wc -l)")))           # ['ls', 'wc']
+```
+
+### Argument extraction
+
+```python
+from lovely_bash_permissions import parse_ast, get_arguments, find_arguments
 
 tree = parse_ast("cp file1.txt file2.txt")
 print(get_arguments(tree))  # [['file1.txt', 'file2.txt']]
@@ -97,167 +233,171 @@ tree2 = parse_ast("ls -la | grep -i txt")
 print(get_arguments(tree2))  # [['-la'], ['-i', 'txt']]
 ```
 
-#### `has_variable(tree)` → `bool`
-
-Check if the command contains any variable references (`$VAR`, `${VAR}`, command substitutions).
+`get_arguments` returns the string value of each argument (excluding the command name). `find_arguments` returns the raw `Word` nodes instead of strings:
 
 ```python
-from lovely_bash_permissions import parse_ast, has_variable
-
-print(has_variable(parse_ast("ls -la")))  # False
-print(has_variable(parse_ast("echo $HOME")))  # True
-print(has_variable(parse_ast('echo "$HOME"')))  # True
-print(has_variable(parse_ast('export PATH="$HOME/bin:$PATH"')))  # True
-print(has_variable(parse_ast("cat /path/to/file")))  # False (path, not variable)
+args = find_arguments(parse_ast("ls -la /tmp"))
+print(len(args))      # 1
+print(len(args[0]))   # 2 (two arguments: '-la' and '/tmp')
 ```
 
-#### `get_redirections(tree)` → `List[RedirectionInfo]`
+Word values are best-effort and **quote delimiters are stripped** — `"hello"` and `'hello'` both yield `hello`. Variable and substitution parts are rendered in lossy form (e.g. `$VAR`, `$(...)`).
 
-Extract file redirections from the AST. Returns a list of `RedirectionInfo` typed dicts with `op` (operator) and `target` (file path).
+### Feature checks
 
 ```python
-from lovely_bash_permissions import parse_ast, get_redirections
+from lovely_bash_permissions import parse_ast, has_variable, has_pipe
+
+print(has_variable(parse_ast("ls -la")))            # False
+print(has_variable(parse_ast("echo $HOME")))        # True
+print(has_variable(parse_ast('echo "$HOME"')))      # True
+print(has_variable(parse_ast("echo $(date)")))      # True
+print(has_variable(parse_ast("cat /path/to/file"))) # False (path, not variable)
+
+print(has_pipe(parse_ast("ls -la")))                # False
+print(has_pipe(parse_ast("ls | grep txt")))         # True
+print(has_pipe(parse_ast("ls |& cat")))             # True (|& counts)
+print(has_pipe(parse_ast("ls > file.txt")))         # False (redirect, not pipe)
+```
+
+### Redirections
+
+```python
+from lovely_bash_permissions import parse_ast, get_redirections, get_target_files
 
 tree = parse_ast("cat file.txt > output.txt")
 redirs = get_redirections(tree)
-print(redirs[0]["op"])  # '>'
+print(redirs[0]["op"])      # '>'
 print(redirs[0]["target"])  # 'output.txt'
+
+# "2>&1" is an fd-duplication: op '>&', target '1'
+print(get_redirections(parse_ast("ls 2>&1")))  # [{'op': '>&', 'target': '1'}]
+
+# Just the file paths
+print(get_target_files(parse_ast("cat file.txt > output.txt")))  # ['output.txt']
 ```
 
-#### `find_commands(tree)` → `List[CallExpr]`
+### Traversal semantics
 
-Find all CallExpr nodes (command invocations) in the AST. Returns the full node objects rather than just names.
+The inspection functions differ in how they walk the tree:
+
+| Function | Descends into `$(...)` / assignment values? |
+| ---------- | --------------------------------------------- |
+| `get_commands`, `find_commands` | Yes — nested commands are discovered |
+| `get_arguments`, `find_arguments` | No — collects the literal argument words of each call |
+| `has_variable`, `has_pipe`, `get_redirections`, `get_target_files` | Yes — full traversal |
+
+### Traversal & comparison helpers
 
 ```python
-from lovely_bash_permissions import parse_ast, find_commands
+from lovely_bash_permissions import parse_ast, iter_children, structurally_equal
 
-tree = parse_ast("ls -la | grep txt")
-commands = find_commands(tree)
-print(len(commands))  # 2
-print(commands[0].args[0].parts[0].value)  # 'ls'
+# iter_children: yield the direct child nodes of any node
+tree = parse_ast("ls | grep txt").stmts[0].cmd
+print([type(c).__name__ for c in iter_children(tree)])
+# ['CallExpr', 'CallExpr']          -- the two sides of the pipe
+
+# CallExpr args are skipped by default; pass include_call_args=True to include them
+call = parse_ast("ls -la /tmp").stmts[0].cmd
+print([type(w).__name__ for w in iter_children(call, include_call_args=True)])
+# ['Word', 'Word', 'Word']
+
+# structurally_equal: compare two ASTs ignoring source positions
+print(structurally_equal(parse_ast("echo hi"), parse_ast("echo hi")))  # True
+print(structurally_equal(parse_ast("echo hi"), parse_ast("echo ho")))  # False
 ```
 
-#### `find_arguments(tree)` → `List[List[Word]]`
+`structurally_equal` is useful in tests and when diffing trees produced from different source locations, since it ignores all position fields.
 
-Find all argument lists (excluding command names) as Word node objects.
+## CLI: lovely-bash-inspection
 
-```python
-from lovely_bash_permissions import parse_ast, find_arguments
+The `lovely-bash-inspection` command parses bash code and prints a per-statement inspection summary.
 
-tree = parse_ast("ls -la /tmp")
-args = find_arguments(tree)
-print(len(args))  # 1
-print(len(args[0]))  # 2 (two arguments: '-la' and '/tmp')
+```bash
+# Inline string
+uv run lovely-bash-inspection --string 'cat file.txt | grep pattern | sort -u > results.txt'
+
+# From a file
+uv run lovely-bash-inspection --file script.sh
+
+# From stdin
+echo 'ls -la | grep txt' | uv run lovely-bash-inspection
+
+# Choose a shell dialect
+uv run lovely-bash-inspection --string 'echo hi' --dialect zsh
 ```
 
-#### `has_pipe(tree)` → `bool`
+Sample output:
 
-Check if the command contains any pipe operators.
+```text
+statement 1 `cat file.txt | grep pattern | sort -u > results.txt`:
+  cmd: cat
+  args: file.txt
+  cmd: grep
+  args: pattern
+  cmd: sort
+  args: -u
+  redirection: > results.txt
 
-```python
-from lovely_bash_permissions import parse_ast, has_pipe
-
-print(has_pipe(parse_ast("ls -la")))  # False
-print(has_pipe(parse_ast("ls | grep txt")))  # True
-print(has_pipe(parse_ast("ls > file.txt")))  # False (redirect, not pipe)
+Variables: no
+Pipes:     yes
 ```
 
-#### `get_target_files(tree)` → `List[str]`
+Exit codes:
 
-Extract file targets from redirections. Returns the names of files that will be modified or read by redirections.
-
-```python
-from lovely_bash_permissions import parse_ast, get_target_files
-
-tree = parse_ast("cat file.txt > output.txt")
-print(get_target_files(tree))  # ['output.txt']
-```
-
-### AST Node Types
-
-The parser uses dataclasses to represent bash syntax:
-
-| Type | Description |
-|------|-------------|
-| `File` | Top-level container with `stmts` array |
-| `Stmt` | Single statement with `cmd`, `pos`, `end`, optional `redirs` |
-| `CallExpr` | Command invocation with `args` array |
-| `BinaryCmd` | Pipe/`&&`/`||` operator with `left`, `right` operands, `op`, and optional `redirs` |
-| `Word` | A word with `parts` array |
-| `Lit` | Literal string part of a word |
-| `Redir` | Redirection with `op` and `word` |
-| `Position` | Source position with `offset`, `line`, `col` |
-| `Subshell` | Parenthesized command group |
-| `IfClause` | If/elif/else conditional |
-| `ForClause` | For loop |
-| `WhileClause` | While loop |
-| `AndCmd` | Logical AND (&&) |
-| `OrCmd` | Logical OR (||) |
-| `CaseClause` | Case/switch statement |
-
-Inspect raw node structure:
-
-```python
-tree = parse_ast("ls | grep txt")
-stmt = tree.stmts[0]
-print(stmt.cmd.type)  # 'BinaryCmd'
-print(stmt.cmd.op)  # '|'
-```
+| Code | Meaning |
+| ------ | --------- |
+| `0` | Success |
+| `2` | Usage error (bad/missing arguments, unreadable file, empty input) |
+| `3` | Parse error (shfmt could not parse the input) |
 
 ## Examples
 
-### Parsing Pipes
+### Pipes
 
 ```python
 from lovely_bash_permissions import parse_ast, get_commands, get_arguments
 
-tree = parse_ast('cat data.csv | grep pattern | awk "{print $1}" | sort -u > results.txt')
+tree = parse_ast("cat data.csv | grep pattern | sort -u > results.txt")
 
 print(get_commands(tree))
-# ['cat', 'grep', 'awk', 'sort']
+# ['cat', 'grep', 'sort']
 
 print(get_arguments(tree))
-# [['data.csv'], ['pattern'], ['"{print $1}"'], ['-u']]
+# [['data.csv'], ['pattern'], ['-u']]
 ```
 
-### Parsing Redirections
+### Redirections
 
 ```python
 from lovely_bash_permissions import parse_ast, get_redirections
 
-# Output redirect
-tree = parse_ast("cat file.txt > output.txt")
-redirs = get_redirections(tree)
-print(redirs[0]["op"])  # '>'
-print(redirs[0]["target"])  # 'output.txt'
-
-# Append redirect
-tree2 = parse_ast("echo line >> log.txt")
-redirs2 = get_redirections(tree2)
-print(redirs2[0]["op"])  # '>>'
-
-# Input redirect
-tree3 = parse_ast("sort < input.txt")
-redirs3 = get_redirections(tree3)
-print(redirs3[0]["op"])  # '<'
+print(get_redirections(parse_ast("cat file.txt > output.txt")))  # [{'op': '>', 'target': 'output.txt'}]
+print(get_redirections(parse_ast("echo line >> log.txt")))       # [{'op': '>>', 'target': 'log.txt'}]
+print(get_redirections(parse_ast("sort < input.txt")))           # [{'op': '<', 'target': 'input.txt'}]
 ```
 
-### Parsing Variables
+### Variables
 
 ```python
 from lovely_bash_permissions import parse_ast, has_variable
 
-print(has_variable(parse_ast("ls -la")))
-# False
+print(has_variable(parse_ast("ls -la")))              # False
+print(has_variable(parse_ast("echo $HOME")))          # True
+print(has_variable(parse_ast('echo "$HOME"')))        # True (variable in double quotes)
+print(has_variable(parse_ast("cat /path/to/file")))   # False (path, not variable)
+```
 
-print(has_variable(parse_ast("echo $HOME")))
-# True
+### Command substitution
 
-print(has_variable(parse_ast("cat /path/to/file")))
-# False (path, not variable)
+`get_commands` digs into `$(...)`, noting inner commands:
 
-print(has_variable(parse_ast('echo "$HOME"')))
-# True (variable in double quotes)
+```python
+from lovely_bash_permissions import parse_ast, get_commands
+
+tree = parse_ast("echo 'project: '$(basename $(git rev-parse --show-toplevel))")
+print(get_commands(tree))
+# ['echo', 'basename', 'git']
 ```
 
 ### Conditionals
@@ -283,10 +423,10 @@ print(get_commands(tree))
 
 tree2 = parse_ast("while true; do sleep 1; done")
 print(get_commands(tree2))
-# ['sleep']
+# ['true', 'sleep']  -- the condition command is included
 ```
 
-### Logical Operators
+### Logical operators
 
 ```python
 from lovely_bash_permissions import parse_ast, get_commands
@@ -300,7 +440,17 @@ print(get_commands(tree2))
 # ['ping', 'echo']
 ```
 
-### Finding Dangerous Commands
+### Multi-statement scripts
+
+```python
+from lovely_bash_permissions import parse_ast, get_commands
+
+tree = parse_ast("echo step 1\necho step 2")
+print(len(tree.stmts))        # 2
+print(get_commands(tree))     # ['echo', 'echo']
+```
+
+### Finding dangerous commands
 
 ```python
 from lovely_bash_permissions import parse_ast, get_commands
@@ -315,223 +465,34 @@ def is_dangerous(tree):
 # Check before running
 tree = parse_ast("rm -rf /tmp/cache")
 if is_dangerous(tree):
-    print("⚠️ Warning: this command could modify the system")
+    print("Warning: this command could modify the system")
 ```
 
-### Permission Checker
+### Checking write permissions
 
 ```python
-from lovely_bash_permissions import parse_ast, get_target_files, get_redirections
+from lovely_bash_permissions import parse_ast, get_redirections
 
 
 def check_write_permissions(tree):
-    """Check if command writes to files (output redirections)."""
+    """Check if a command writes to files (output redirections)."""
     redirs = get_redirections(tree)
     write_ops = {">", ">>", "2>", "2>>", "&>", "&>>"}
-
-    for r in redirs:
-        if r["op"] in write_ops:
-            print(f"Writing to: {r['target']}")
-
-    return bool([r for r in redirs if r["op"] in write_ops])
+    return [r for r in redirs if r["op"] in write_ops]
 
 
 tree = parse_ast("cat file.txt > output.txt")
-check_write_permissions(tree)
-# Writing to: output.txt
-```
-
-### Parsing Multi-Statement Scripts
-
-```python
-from lovely_bash_permissions import parse_ast, get_commands
-
-tree = parse_ast("echo step 1\necho step 2")
-print(len(tree.stmts))  # 2
-print(get_commands(tree))  # ['echo', 'echo']
+print(check_write_permissions(tree))
+# [{'op': '>', 'target': 'output.txt'}]
 ```
 
 ## Running Tests
-
-### Permission Checker
 
 ```bash
 uv sync
 uv run pytest
 ```
 
-## Lovely-Devin-Permissions Hook
-
-`lovely-devin-permissions` is a Devin CLI permission hook that evaluates bash commands against configurable rules. It parses commands, extracts command segments, and evaluates each segment against rules from the configuration. It decides whether to allow, ask for approval, or deny execution based on rules for allowed patterns, blocked patterns, redirections, and more.
-
-### Quick Start
-
-```bash
-# Test a command
-eu run lovely-devin-permissions --test "ls -la"
-
-# Check effective config
-eu run lovely-devin-permissions --show-config
-
-# Add required devin permission
-eu run lovely-devin-permissions --setup
-```
-
-### Configuration
-
-Configuration is loaded from multiple locations (highest precedence last):
-
-1. `~/.config/devin/lovely-permissions.jsonc` (global)
-2. `{project}/.devin/lovely-permissions.jsonc` (project)
-3. `{project}/.devin/lovely-permissions.local.jsonc` (local)
-
-Additionally, Devin's `config.json` files are consulted for `permissions.allow` entries:
-
-1. `~/.config/devin/config.json` (global)
-2. `{project}/.devin/config.json` (project)
-3. `{project}/.devin/config.local.json` (local)
-
-Files that don't exist are treated as empty objects `{}`. Configs are deep-merged: objects merge recursively, arrays concatenate, scalars override.
-
-### Config Schema
-
-```jsonc
-{
-  "*": "ask",
-  "bash": {
-    "allowed_cmds_regex": [
-      "^ls$",
-      "^cat$",
-      "^git$",
-      "^npm run test$"
-    ],
-    "blocked_paths_regex": [
-      "/etc/passwd",
-      "/var/log"
-    ],
-    "output_redirection": "allow",
-    "input_redirection": "ask",
-    "background_execution": "deny",
-    "subshell": "ask",
-    "variable_assignment": "ask"
-  }
-}
-```
-
-- **`*`** (top-level): wildcard policy for the whole config, in effect for any option below that is not set. Defaults to `ask`.
-- **allowed_cmds_regex**: Regular expressions for allowed command names. Commands matching any pattern are allowed.
-- **blocked_paths_regex**: Patterns for paths that should be blocked. If any argument matches, the command is denied.
-- **output_redirection**: `allow`, `ask`, or `deny` for output redirections (`>`, `>>`)
-- **input_redirection**: `allow`, `ask`, or `deny` for input redirections (`<`, `<<`, `<<<`)
-- **background_execution**: `allow`, `ask`, or `deny` for background execution (`&`)
-- **subshell**: `allow`, `ask`, or `deny` for subshells and command substitutions (`$(...)`)
-- **variable_assignment**: `allow`, `ask`, or `deny` for standalone variable assignments (`FOO=bar`)
-
-Any option omitted inside `bash` inherits `bash.*`, then the top-level `*`, then `ask`.
-
-### Allowed Patterns
-
-Commands match allowed patterns if the command name matches any pattern:
-
-```bash
-# Allowed
-ls -la          # matches ^ls$
-```
-
-### Blocked Paths
-
-Paths are blocked if any argument matches a blocked pattern:
-
-```bash
-# Blocked: /etc/passwd matches blocked pattern
-cat /etc/passwd
-```
-
-### Redirection Rules
-
-Redirections can be allowed, asked, or denied:
-
-```bash
-# Blocked: output redirection denied
-echo "hello" > output.txt
-```
-
-### Background Execution
-
-Background commands (with `&`) are evaluated separately:
-
-```bash
-# Blocked: background execution denied
-long_running_command &
-```
-
-### Command Substitution
-
-Commands with substitution (like `$(...)`) are governed by the `subshell` policy — which, like every option, inherits `bash.*`, then the top-level `*`, then defaults to `ask`:
-
-```bash
-# Asks when the effective subshell policy is "ask" (the default)
-echo "$(ls)"
-```
-
-### Aggregation Rules
-
-For commands with multiple segments (pipes, `&&`, `||`), the most restrictive result wins:
-
-| Scenario | Result |
-|----------|--------|
-| All allowed | Allow |
-| All ask | Ask |
-| All denied | Deny |
-| Mixed allow/ask | Ask |
-| Mixed allow/deny | Deny |
-| Mixed ask/deny | Deny |
-
-### Examples
-
-```bash
-# Allowed: both commands allowed
-eu run lovely-devin-permissions --test "ls -la && cat file.txt"
-
-# Ask: cat not allowed, ls is
-eu run lovely-devin-permissions --test "ls -la && cat /etc/passwd"
-# Response includes: 💛 REQUIRES-USER-APPROVAL
-
-# Blocked: cat /etc/passwd blocked
-eu run lovely-devin-permissions --test "cat /etc/passwd"
-```
-
-### Dev Setup
-
-For development, run the tests with:
-
-```bash
-uv run pytest
-```
-
-You can also run the hook in debug mode:
-
-```bash
-DEVIN_DEBUG=1 eu run lovely-devin-permissions --test "echo test"
-```
-
-### Testing Configs
-
-Create test configs in a temporary project directory:
-
-```bash
-mkdir -p test-project/.devin
-cat > test-project/.devin/lovely-permissions.jsonc << 'EOF'
-{
-  "bash": {
-    "allowed_cmds_regex": ["^ls$", "^cat$"],
-    "blocked_paths_regex": ["/etc/passwd"]
-  }
-}
-EOF
-DEVIN_PROJECT_DIR=test-project eu run lovely-devin-permissions --test "ls -la"
-```
-
-### License
+## License
 
 See the repository for license information.
