@@ -219,6 +219,8 @@ def main() -> None:
             response = handle_hook_event(event)
             if response is not None:
                 print(json.dumps(response, ensure_ascii=False))
+                if response.get("decision") == "block":
+                    sys.exit(2)
             sys.exit(0)
     except Exception as exc:  # noqa: BLE001 — fail closed (no decision emitted)
         print(with_error_prefix(f"unexpected error: {exc}"), file=sys.stderr)

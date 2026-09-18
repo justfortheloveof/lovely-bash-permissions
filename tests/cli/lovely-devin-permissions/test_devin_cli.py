@@ -827,6 +827,7 @@ class TestHookMode:
             "hook_event_name": "PreToolUse",
             "tool_name": "write_to_process",
             "tool_input": {"command": "git status"},
+            "project_dir": str(project_with_bash_config),
         }
         result = run_cli(
             input_data=json.dumps(event),
@@ -836,6 +837,38 @@ class TestHookMode:
         response = json.loads(result.stdout)
         assert response is not None
         assert response["hookSpecificOutput"]["hookEventName"] == "PreToolUse"
+
+    def test_hook_pretooluse_block_exits_2(self, project_with_bash_config: Path) -> None:
+        """Blocked command in hook mode exits 2 (Devin block convention)."""
+        event = {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "exec",
+            "tool_input": {"command": "curl http://x"},
+            "project_dir": str(project_with_bash_config),
+        }
+        result = run_cli(
+            input_data=json.dumps(event),
+            env={"DEVIN_PROJECT_DIR": str(project_with_bash_config)},
+        )
+        assert result.returncode == 2
+        response = json.loads(result.stdout)
+        assert response["decision"] == "block"
+
+    def test_hook_permission_request_block_exits_2(self, project_with_bash_config: Path) -> None:
+        """Blocked PermissionRequest in hook mode exits 2."""
+        event = {
+            "hook_event_name": "PermissionRequest",
+            "tool_name": "write_to_process",
+            "tool_input": {"command": "curl http://x"},
+            "project_dir": str(project_with_bash_config),
+        }
+        result = run_cli(
+            input_data=json.dumps(event),
+            env={"DEVIN_PROJECT_DIR": str(project_with_bash_config)},
+        )
+        assert result.returncode == 2
+        response = json.loads(result.stdout)
+        assert response["decision"] == "block"
 
     def test_hook_empty_stdin_exits(self, project_with_bash_config: Path) -> None:
         """Hook mode with empty stdin should exit silently."""
