@@ -64,7 +64,6 @@ from .ast import (
     UnaryTest,
     WhileClause,
     Word,
-    WordIter,
 )
 
 _log = logging.getLogger(__name__)
@@ -557,7 +556,7 @@ def _convert_for_clause(data: dict[str, Any]) -> ForClause:
             if isinstance(converted, CStyleLoop):
                 cstyle = converted
         else:
-            # foreach form: Loop is a WordIter-shaped dict {Name, Items}
+            # foreach form: Loop is a dict {Name, Items}
             name_info = loop.get("Name", {})
             if isinstance(name_info, dict):
                 var_name = name_info.get("Value")
@@ -827,20 +826,6 @@ def _convert_case_item(data: dict[str, Any]) -> CaseItem:
     )
 
 
-def _convert_word_iter(data: dict[str, Any]) -> WordIter:
-    pos, end = _parse_pos_end(data)
-    name_data = data.get("Name")
-    name_node = (
-        _convert_lit(name_data) if isinstance(name_data, dict) else Lit(value=str(name_data) if name_data else "")
-    )
-    return WordIter(
-        pos=pos,
-        end=end,
-        name=name_node,
-        items=[w for i in data.get("Items", []) if (w := _convert_word(i)) is not None],
-    )
-
-
 def _convert_cstyle_loop(data: dict[str, Any]) -> CStyleLoop:
     pos, end = _parse_pos_end(data)
     return CStyleLoop(
@@ -907,7 +892,6 @@ _CONVERTERS: dict[str, Callable[[dict[str, Any]], Node | None]] = {
     "Comment": _convert_comment,
     "Assign": _convert_assign,
     "CaseItem": _convert_case_item,
-    "WordIter": _convert_word_iter,
     "CStyleLoop": _convert_cstyle_loop,
     "ArrayExpr": _convert_array_expr,
     "ArrayElem": _convert_array_elem,
