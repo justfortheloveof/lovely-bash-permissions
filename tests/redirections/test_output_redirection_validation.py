@@ -14,9 +14,6 @@ DEVIN_GLOBAL_CONFIG_DIR at `tmp_path`-backed directories, so tests never read
 or mutate the repo's `.devin/` or the user's real global config.
 """
 
-import json
-import os
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -25,8 +22,6 @@ import pytest
 from tests.redirections.conftest import run_test, write_local_config
 
 ROOT = Path(__file__).resolve().parent.parent
-
-TS_PATH = Path("../jftlo/lovely-devin-permissions/dist/hook.js")
 
 # Valid bash output-redirection patterns under the default config.
 BASIC_PATTERNS = [
@@ -169,35 +164,3 @@ class TestOutputRedirectionValidation:
         write_local_config({"*": "allow", "output_redirection": "ask"}, tmp_path)
         r = run_test("cat <> /tmp/out.txt", project_dir=tmp_path, tmp_global_dir=tmp_path)
         assert decision_of(r) == "ask"
-
-
-@pytest.mark.skipif(not TS_PATH.exists(), reason="TS hook.js not present")
-class TestCompareWithTsVersion:
-    """Smoke-test the comparison harness against the reference TS hook.
-
-    The TS implementation uses a different config schema, so we only assert
-    both sides produce a parseable decision rather than exact parity.
-    """
-
-    def test_compare_with_ts_version(self, tmp_path: Path) -> None:
-        env = os.environ.copy()
-        env["DEVIN_PROJECT_DIR"] = str(tmp_path)
-        env["DEVIN_GLOBAL_CONFIG_DIR"] = str(tmp_path)
-        for desc, cmd in [
-            ("> stdout", "echo hi > /tmp/out.txt"),
-            ("2> null", "echo hi 2> /dev/null"),
-            ("2>&1", "echo hi 2>&1"),
-        ]:
-            r_py = run_test(cmd, project_dir=tmp_path, tmp_global_dir=tmp_path)
-            ts_r = subprocess.run(
-                ["node", str(TS_PATH), "--test", cmd],
-                capture_output=True,
-                text=True,
-                env=env,
-                timeout=30,
-                check=False,
-            )
-            py_status = decision_of(r_py)
-            ts_status = json.loads(ts_r.stdout).get("decision", "?") if ts_r.stdout.strip() else "?"
-            assert py_status in VALID_DECISIONS, f"{desc}: Py gave {py_status!r}"
-            assert ts_status in ("approve", "block", "ask"), f"{desc}: TS gave {ts_status!r}"

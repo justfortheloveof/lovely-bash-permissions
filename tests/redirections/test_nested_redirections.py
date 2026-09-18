@@ -3,8 +3,6 @@
 Verifies that redirections inside $() and <( )/>( ) are detected by both
 the segment parser (parse_segments → rules) and the tree-based output-redirection
 checker (check_output_redirection).
-
-Compare against TS version at ../jftlo/lovely-devin-permissions/.
 """
 
 from typing import Any
