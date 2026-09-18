@@ -546,16 +546,26 @@ def _convert_for_clause(data: dict[str, Any]) -> ForClause:
     loop = data.get("Loop", {})
     var_name: str | None = None
     items: list[Word] = []
+    cstyle: CStyleLoop | None = None
 
     if isinstance(loop, dict):
-        name_info = loop.get("Name", {})
-        if isinstance(name_info, dict):
-            var_name = name_info.get("Value")
-        for w in loop.get("Items", []):
-            if isinstance(w, dict):
-                word = _convert_word(w)
-                if word is not None:
-                    items.append(word)
+        if loop.get("Type") == "CStyleLoop":
+            # for ((init; cond; post)): keep init/cond/post so their command
+            # substitutions stay visible to every typed-AST pass
+            # (subshell policy, blocked-path scan, segment extraction).
+            converted = node_from_json(loop)
+            if isinstance(converted, CStyleLoop):
+                cstyle = converted
+        else:
+            # foreach form: Loop is a WordIter-shaped dict {Name, Items}
+            name_info = loop.get("Name", {})
+            if isinstance(name_info, dict):
+                var_name = name_info.get("Value")
+            for w in loop.get("Items", []):
+                if isinstance(w, dict):
+                    word = _convert_word(w)
+                    if word is not None:
+                        items.append(word)
 
     body = _parse_stmt_list(data.get("Do", []))
 
@@ -566,6 +576,7 @@ def _convert_for_clause(data: dict[str, Any]) -> ForClause:
         var=var_name,
         words=items,
         body=body,
+        cstyle=cstyle,
     )
 
 

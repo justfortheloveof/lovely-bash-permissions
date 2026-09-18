@@ -59,7 +59,7 @@ Step 8 — no other test may be red at any point.
 
 ## Step 1 — `ast.py`: give `ForClause` a `cstyle` field
 
-**Status: not started**
+**Status: done** (commit 5846954)
 
 **File:** `src/lovely_bash_permissions/ast.py` (only file touched)
 
@@ -132,6 +132,11 @@ print('ok')"
 ## Step 2 — `converter.py`: preserve the C-style prelude in `_convert_for_clause`
 
 **Status: not started**
+
+> **Orchestrator note (pre-existing, do not fix in a step):** `uv run ruff format --check .` fails
+> ONLY on PLAN.md itself (markdown code fences) — this predates all implementation steps. Every
+> step's format check should be interpreted as "all real source/test files clean; PLAN.md may
+> remain flagged."
 
 **File:** `src/lovely_bash_permissions/converter.py` (only file touched)
 
