@@ -216,6 +216,7 @@ def main() -> None:
             if not command:
                 sys.exit(0)
 
+            event.setdefault("project_dir", get_project_dir())
             response = handle_hook_event(event)
             if response is not None:
                 print(json.dumps(response, ensure_ascii=False))

@@ -821,6 +821,37 @@ class TestHookMode:
         assert result.returncode == 0
         assert result.stdout.strip() == ""
 
+    def test_hook_mode_honors_devin_project_dir(self, project_with_bash_config: Path) -> None:
+        """Hook mode uses DEVIN_PROJECT_DIR when the event omits project_dir."""
+        event = {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "exec",
+            "tool_input": {"command": "curl http://x"},
+        }
+        result = run_cli(
+            input_data=json.dumps(event),
+            env={"DEVIN_PROJECT_DIR": str(project_with_bash_config)},
+        )
+        assert result.returncode == 2
+        response = json.loads(result.stdout)
+        assert response["decision"] == "block"
+
+    def test_hook_mode_event_project_dir_wins(self, tmp_project: Path, project_with_bash_config: Path) -> None:
+        """An explicit event project_dir overrides DEVIN_PROJECT_DIR."""
+        event = {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "exec",
+            "tool_input": {"command": "curl http://x"},
+            "project_dir": str(project_with_bash_config),
+        }
+        result = run_cli(
+            input_data=json.dumps(event),
+            env={"DEVIN_PROJECT_DIR": str(tmp_project)},
+        )
+        assert result.returncode == 2
+        response = json.loads(result.stdout)
+        assert response["decision"] == "block"
+
     def test_hook_write_to_process_evaluated(self, project_with_bash_config: Path) -> None:
         """Hook mode evaluates write_to_process commands like exec."""
         event = {
