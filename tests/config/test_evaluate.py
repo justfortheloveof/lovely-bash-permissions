@@ -126,6 +126,30 @@ class TestAllowedPatterns:
         )
         assert result["status"] == "allow"  # 'echo x' matches pattern
 
+    def test_cstyle_prelude_cmdsubst_not_bypassed(self) -> None:
+        """C-style prelude substitutions in for ((...)) are no longer dropped.
+
+        Before the ForClause.cstyle fix this returned allow — the rm ran in
+        the loop init and every typed-AST pass (subshell policy, blocked-path
+        scan, segment extraction) missed it. The foreach form
+        for i in $(rm ...) was already correctly denied.
+        """
+        result = evaluate_bash_command(
+            "for ((i=$(rm -rf /etc/passwd); i<1; i++)); do :; done",
+            {"*": "allow", "subshell": "deny", "blocked_paths_regex": [r"/etc"]},
+        )
+        assert result["status"] == "deny"
+
+    def test_cstyle_prelude_cmdsubst_visible_to_subshell_pass(self) -> None:
+        """_has_cmd_subst sees the C-style prelude via the typed AST."""
+        from lovely_bash_permissions.converter import node_from_json
+        from lovely_bash_permissions.evaluate import _has_cmd_subst
+        from lovely_bash_permissions.parser import parse
+
+        raw = parse("for ((i=$(date); i<1; i++)); do :; done", "bash")
+        assert node_from_json(raw) is not None
+        assert _has_cmd_subst(raw) is True
+
 
 class TestBlockedPatterns:
     """Tests for blocked_paths_regex evaluation."""
@@ -267,16 +291,34 @@ class TestWildcardIsBaseline:
         assert result["reason"] == "allowed by wildcard policy (allow)"
 
     def test_empty_segment_wildcard_ask(self) -> None:
-        """bug #2: `[[ $(cat /etc/passwd) == x ]]` under "*": "ask" no longer default-allows."""
+        """No-segment commands under "*": "ask" fall back to the wildcard (ask)."""
         result = evaluate_bash_command(
-            "[[ $(cat /etc/passwd) == x ]]",
+            "[[ -f x ]]",
             {"*": "ask"},
         )
         assert result["status"] == "ask"
         assert "wildcard policy (ask)" in result["reason"]
 
+    def test_cmdsubst_in_test_clause_resolves_to_real_segment(self) -> None:
+        """bug #2/#6: test-operand command substitution now yields a real cat segment.
+
+        Verdict is unchanged (ask under "*": "ask"), but the reason now names
+        the real command instead of falling through the empty-segment path.
+        """
+        result = evaluate_bash_command(
+            "[[ $(cat /etc/passwd) == x ]]",
+            {"*": "ask"},
+        )
+        assert result["status"] == "ask"
+        assert '"cat" command is not allowlisted' in result["reason"]
+
     def test_empty_segment_blocked_subshell_denied(self) -> None:
-        """bug #2: blocked-path scan runs before the empty-segment return."""
+        """bug #2: blocked-path scan denies before the empty-segment return.
+
+        Post bug #6 fix this now fires via the real cat segment
+        blocked-path check rather than the empty-segment subshell scan —
+        verdict and reason are unchanged.
+        """
         result = evaluate_bash_command(
             "[[ $(cat /etc/passwd) == x ]]",
             {"*": "ask", "blocked_paths_regex": [r"/etc"]},

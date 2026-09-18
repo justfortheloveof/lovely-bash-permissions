@@ -640,7 +640,7 @@ class TestNoPhantomTestCommands:
 
 ## Step 8 — `tests/config/test_evaluate.py`: re-point bug-#2 tests + add 🔴 bypass regression
 
-**Status: not started**
+**Status: done** (red window closed; full suite green, 1060 passed)
 
 **File:** `tests/config/test_evaluate.py` (only file touched)
 
