@@ -11,7 +11,7 @@ import argparse
 import json
 import os
 import sys
-from typing import Any
+from typing import Any, NoReturn
 
 from .config.devin import (
     get_devin_config_file_paths,
@@ -28,6 +28,12 @@ LABEL_EXEC_NAME = "Exec(: '[♡ perms:)"
 
 def with_error_prefix(message: str) -> str:
     return f"{HOOK_LABEL_PREFIX} ERROR] {message}"
+
+
+def emit_block(reason: str) -> NoReturn:
+    """Print a block decision to stdout and exit with Devin's block exit code (2)."""
+    print(json.dumps({"decision": "block", "reason": reason}, ensure_ascii=False))
+    sys.exit(2)
 
 
 def get_project_dir() -> str:
@@ -184,6 +190,7 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    hook_mode = False
     # CLI flags take precedence
     try:
         if args.setup:
@@ -193,6 +200,7 @@ def main() -> None:
         elif args.show_config:
             handle_show_config()
         else:
+            hook_mode = True
             # Hook mode: check if stdin has data
             if sys.stdin.isatty():
                 # No input in interactive mode, exit silently
@@ -202,16 +210,19 @@ def main() -> None:
                 if not raw:
                     sys.exit(0)
                 event = json.loads(raw)
-            except json.JSONDecodeError:
-                sys.exit(0)
+            except json.JSONDecodeError as exc:
+                # Fail closed: an unparseable decision request is never an allow.
+                emit_block(with_error_prefix(f"invalid JSON on stdin: {exc}"))
 
             # Validate structure
+            if not isinstance(event, dict):
+                emit_block(with_error_prefix("invalid hook event: JSON payload is not an object"))
             tool_name = event.get("tool_name", "")
             tool_input = event.get("tool_input", {})
             if tool_name not in ("exec", "write_to_process"):
                 sys.exit(0)
             if not isinstance(tool_input, dict):
-                sys.exit(0)
+                emit_block(with_error_prefix(f"invalid hook event: {tool_name} tool_input is not an object"))
             command = tool_input.get("command", "")
             if not command:
                 sys.exit(0)
@@ -223,7 +234,9 @@ def main() -> None:
                 if response.get("decision") == "block":
                     sys.exit(2)
             sys.exit(0)
-    except Exception as exc:  # noqa: BLE001 — fail closed (no decision emitted)
+    except Exception as exc:  # noqa: BLE001 — hook mode fails closed, other modes error out
+        if hook_mode:
+            emit_block(with_error_prefix(f"unexpected error: {exc}"))
         print(with_error_prefix(f"unexpected error: {exc}"), file=sys.stderr)
         sys.exit(1)
 

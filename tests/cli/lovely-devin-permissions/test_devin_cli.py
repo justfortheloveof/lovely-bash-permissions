@@ -924,14 +924,64 @@ class TestHookMode:
         assert result.returncode == 0
         assert result.stdout.strip() == ""
 
-    def test_hook_invalid_json_exits(self, project_with_bash_config: Path) -> None:
-        """Hook mode with invalid JSON should exit silently."""
+    def test_hook_invalid_json_blocks(self, project_with_bash_config: Path) -> None:
+        """Hook mode with invalid JSON emits a block decision and exits 2 (fail closed)."""
         result = run_cli(
             input_data="not valid json",
             env={"DEVIN_PROJECT_DIR": str(project_with_bash_config)},
         )
-        assert result.returncode == 0
-        assert result.stdout.strip() == ""
+        assert result.returncode == 2
+        response = json.loads(result.stdout)
+        assert response["decision"] == "block"
+        assert "invalid JSON on stdin" in response["reason"]
+
+    def test_hook_non_object_json_blocks(self, project_with_bash_config: Path) -> None:
+        """Hook mode with JSON that is not an object emits a block decision (fail closed)."""
+        for payload in ("[1, 2, 3]", '"just a string"'):
+            result = run_cli(
+                input_data=payload,
+                env={"DEVIN_PROJECT_DIR": str(project_with_bash_config)},
+            )
+            assert result.returncode == 2
+            response = json.loads(result.stdout)
+            assert response["decision"] == "block"
+            assert "not an object" in response["reason"]
+
+    def test_hook_non_dict_tool_input_blocks(self, project_with_bash_config: Path) -> None:
+        """Hook mode with a non-object tool_input emits a block decision (fail closed)."""
+        event = {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "exec",
+            "tool_input": "oops",
+        }
+        result = run_cli(
+            input_data=json.dumps(event),
+            env={"DEVIN_PROJECT_DIR": str(project_with_bash_config)},
+        )
+        assert result.returncode == 2
+        response = json.loads(result.stdout)
+        assert response["decision"] == "block"
+        assert "tool_input is not an object" in response["reason"]
+
+    def test_hook_mode_unexpected_exception_blocks(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An unexpected exception in hook mode fails closed with a block decision."""
+
+        def _boom(event: object) -> None:
+            raise RuntimeError("hook boom")
+
+        monkeypatch.setattr(
+            "lovely_bash_permissions.devin_cli.handle_hook_event",
+            _boom,
+        )
+        event = {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "exec",
+            "tool_input": {"command": "ls"},
+        }
+        out = run_cli_in_process(input_data=json.dumps(event))
+        response = json.loads(out)
+        assert response["decision"] == "block"
+        assert "hook boom" in response["reason"]
 
 
 class TestFlagPrecedence:

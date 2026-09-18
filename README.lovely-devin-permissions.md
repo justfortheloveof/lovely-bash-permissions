@@ -247,6 +247,8 @@ The hook prints a JSON object to `stdout` and exits with a code:
 | `2`   | Block - the command was denied.                                                                                                                                     |
 | Other | Error (e.g. `lovely-permissions.jsonc` is invalid, or the binary could not start). Devin logs it but still allows the tool to run.                                   |
 
+When the hook cannot compute a verdict at all — unparseable stdin (invalid JSON, a JSON value that is not an object, or an `exec`/`write_to_process` event whose `tool_input` is not an object) — it fails closed: it prints `{ "decision": "block", "reason": "[♡ perms: ERROR] ..." }` on `stdout` and exits with code `2`, so the tool is denied rather than run. Because the command text is unavailable in those cases, the `PreToolUse` block response omits `hookSpecificOutput.updatedInput`; the bare `decision: block` still prevents execution.
+
 For `PreToolUse` the hook rewrites the command with a leading no-op label for user visibility/convenience:
 
 ```json
