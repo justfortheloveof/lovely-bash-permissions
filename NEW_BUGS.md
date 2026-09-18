@@ -17,63 +17,6 @@ Severity: 🔴 security bypass · 🟠 high · 🟡 medium · ⚪ low.
 
 ---
 
-## 2. 🟠 Standalone `[[ ... ]]` / `(( ... ))` statements produce zero segments — early return skips every security pass, mislabels command as empty
-
-> **Status: ✅ FIXED** — the empty-segment path no longer fabricates an `allow`
-> when both regex lists are empty. The subshell/heredoc blocked-path scans now
-> run *before* the early return, so `[[ $(cat /etc/passwd) == x ]]` resolves to
-> the real wildcard (`ask` by default) and denies under `blocked_paths_regex`.
-> The reason text carries the actual wildcard, never a fabricated `allow`.
-
-**Area:** `src/lovely_bash_permissions/segments.py` (`_extract_segments` emits
-nothing for a top-level `TestClause`/`ArithmCmd` statement with no
-redirection) + `src/lovely_bash_permissions/evaluate.py` (the
-`if not segments:` early return at the top of `evaluate_bash_command`).
-
-Reproduction:
-
-```python
-evaluate_bash_command("[[ $(cat /etc/passwd) == x ]]", {"*": "ask"})
-#   -> ALLOW   BUG — "<empty command> produced no parseable segments —
-#                   defaulting to wildcard policy (allow)"
-#   control: 'x=$(cat /etc/passwd)' under the same config -> ask
-
-evaluate_bash_command("[[ $(cat /etc/passwd) == x ]]", {"*": "ask", "blocked_paths_regex": [r"/etc"]})
-#   -> ask, NOT deny — the subshell blocked-path scan is skipped by the
-#      early return; an approving user authorizes reading /etc/passwd
-#   control: 'x=$(cat /etc/passwd)' under the same config -> deny
-
-evaluate_bash_command("[[ $(f) == bar ]] && [[ $(g) == baz ]]", cfg)
-evaluate_bash_command("((a++)) && ((b--))", cfg)
-evaluate_bash_command('[[ -n "$x" ]]', cfg)
-#   all -> 0 segments, same "<empty command>" early return
-```
-
-End-to-end with the real user config (patterns present, so it fails to "ask"
-instead): `uv run lovely-devin-permissions -t '[[ $(cat /etc/passwd) == x ]]'`
-returns the approval prompt labeled
-
-```
-[♡ perms: 💛 REQUIRES-USER-APPROVAL] <empty command> produced no parseable
-segments — defaulting to wildcard policy (ask)
-```
-
-— the command is clearly *not* empty, and the prompt gives no indication that
-it contains a command substitution.
-
-Note: *nested* test clauses are fine (`while [[ -n $(cat /etc/passwd) ]]` →
-deny, `if [[ ... ]]; then f; fi` extracts `f`); only top-level statements that
-consist solely of test/arithmetic clauses fall into this path.
-
-**Impact:** (a) patternless configs auto-allow `[[ $(arbitrary command) ]]`;
-(b) with blocked-path rules the verdict downgrades from deny to a vague ask;
-(c) misleading "<empty command>" diagnosis for any pure-test/arithmetic
-statement.
-
-**Fix:** emit a synthetic segment for bare test/arithmetic statements (analog
-of the existing `[[ … ]] > file` synthetic-segment logic) and/or move the
-empty-segment early return to *after* the subshell/heredoc security passes.
-
 ## 4. 🟠 Deeply nested command substitution crashes the converter with `RecursionError` (valid bash, shfmt parses it fine)
 
 **Area:** `src/lovely_bash_permissions/converter.py` — recursive
@@ -151,33 +94,6 @@ The pseudo-command `$(...)` can never match an allowed pattern, so such
 commands always ask with a confusing reason that names a nonexistent command
 `$(...)`. (Over-ask, not under-ask — `cmd` itself is still evaluated via the
 subshell pass.)
-
----
-
-## 7. ⚪ Misleading approval reason: `allow` verdicts cite "wildcard policy (ask)"
-
-> **Status: ✅ FIXED** — this was a *status* fail-open, not just wording: with
-> `allowed_cmds_regex` empty the segment loop auto-allowed every command, and
-> the wildcard override carried a `not blocked_patterns` escape hatch, so a
-> blocked-only config under `"*": "ask"` approved everything not blocked. The
-> wildcard is now the per-command baseline — a command is approved only by an
-> allow-pattern match or an explicit `"*": "allow"` — so blocked-only+ask asks,
-> all specific policies add constraints only, and the residual fallback reason
-> quotes the wildcard only when it actually is `allow`.
-
-**Area:** `src/lovely_bash_permissions/evaluate.py` — fallback
-`reason_str = f"allowed by wildcard policy ({_wp})"` is used whenever no
-reason accumulated, even when the wildcard policy was never applied.
-
-Reproduction:
-
-```python
-evaluate_bash_command("echo ${x%@/etc/*}", {"*": "ask", "blocked_paths_regex": [r"/etc"]})
-#   -> status: allow, reason: "allowed by wildcard policy (ask)"
-```
-
-Status `allow` plus a reason quoting an `ask` wildcard is self-contradictory
-for any config without `allowed_cmds_regex`.
 
 ---
 

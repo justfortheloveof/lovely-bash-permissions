@@ -1,228 +1,285 @@
-# Implementation Plan: bug #7 fail-open + bug #2 empty-segment fail-open
+# Implementation Plan: bugs #5 + #6 + C-style-loop prelude extraction
 
-> **Status: ✅ IMPLEMENTED** — all changes applied and verified
-> (`ruff check` ✓ · `ruff format --check` ✓ · `mypy --strict` ✓ ·
-> `pytest -m 'not linting'` → 1041 passed / 0 failed).
+> **Status: 📝 PROPOSED** — plan for review; not yet implemented.
 >
-> One deviation from the test list below: "Subshell + allow-listed outer
-> command" (`echo $(date)` + `allowed_cmds_regex: [r"^echo(\s+.*)?$"]`) does
-> **not** allow — the *inner* `date` is not allow-listed, so the existing
-> nested-validation pass asks. The regression test asserts that; a positive
-> case requires listing both `echo` and `date` (verified → allow). This
-> matches the "all checks always apply" principle.
-
-## Principle
-
-The wildcard (`*`) is the baseline for every command. A command may be
-auto-approved **only** by:
-- matching an entry in `allowed_cmds_regex`, **or**
-- an explicit `"*": "allow"`.
-
-Every other policy (`subshell`, `variable_assignment`, `output_redirection`,
-`input_redirection`, `background_execution`, `blocked_paths_regex`) **adds
-constraints only** — it can deny, ask, or approve its own specific construct,
-but it never grants a blanket allow for commands that are otherwise not
-approved. Blocked paths are always checked. Deny always wins, ask wins over
-default allow; a command that is neither allow-listed nor explicitly
-wildcard-`"allow"` resolves to the wildcard (`ask`/`deny`).
-
----
+> Line numbers below are pre-edit references into the current `main` tree.
 
 ## Bugs being fixed
 
-### Bug #7 — blocked-paths-only configs silently auto-allow everything
+### Bug #5 — commands in `for`-loop lists and test left-operands are not extracted as segments (🟡 accuracy)
 
-**Symptom:** `evaluate_bash_command("echo ${x%@/etc/*}", {"*": "ask",
-"blocked_paths_regex": [r"/etc"]})` → `status: allow`, reason
-`"allowed by wildcard policy (ask)"`.
+**Symptom:**
+```
+parse_segments("for i in $(seq 3); do echo $i; done")   # -> ['echo']   (seq missing)
+parse_segments("[[ $(pwd) == /root* ]]")                # -> []         (pwd missing)
+```
 
-**Root cause:** `evaluate.py:517-529` gates the wildcard override on
-`and not blocked_patterns`; with `allowed_cmds_regex` empty, the segment loop
-auto-allows every command (`else: segment_result["allowed"] = True`, line 398),
-so a blocked-paths-only config under `"*": "ask"` approves everything not
-blocked (e.g. `curl example.com` → allow).
+**Root cause:** `_extract_segments` (`segments.py`):
+- `ForClause` branch (372–376) recurses only `node.body`, never the loop-*list* `node.words`;
+- `BinaryTest` branch (393–401) recurses only `node.right`, never `node.left`.
 
-### Bug #2 — empty-segment fail-open
+The executed commands do appear in shfmt ground-truth extraction and are still
+covered by the independent subshell/allowed/blocked passes, so this is an
+accuracy bug — but segment lists (and anything built on them: per-command UX,
+`lovely-bash-inspection`) silently under-report executed commands.
 
-**Symptom:** `evaluate_bash_command("[[ $(cat /etc/passwd) == x ]]",
-{"*": "ask"})` → `status: allow`, reason
-`"<empty command> produced no parseable segments — defaulting to wildcard
-policy (allow)"`. Also with blocked paths present → `ask` (not `deny`): the
-subshell/blocked-path scans are skipped by the early return.
+### Bug #6 — `$( cmd )` as a test operand is emitted as a literal `$(...)` pseudo-command (🟡 over-ask)
 
-**Root cause:** `evaluate.py:301-308` flips the empty-segment decision to
-`allow` when both regex lists are empty, and returns before the
-subshell/heredoc security passes run.
+**Symptom:**
+```
+evaluate_bash_command("[[ -f x && $(cmd) ]]", {"*": "ask", "allowed_cmds_regex": [r"^-f$"], "subshell": "allow"})
+#   segments: [{'command': '$(...)', 'allowed': False}, ...]   (fake command '$('...')')
+```
+The pseudo-command `$(...)` can never match an allowed pattern, so the command
+always asks with a confusing reason naming a nonexistent command.
+
+**Root cause:** `Word` (490–498) and `DblQuoted` (511–518) handlers emit
+`_word_value(node)` / `node.value` — which render `CmdSubst` as the literal
+placeholder `$(...)` — as a "command name" pseudo-segment instead of recursing
+into the word parts to surface the real command.
+
+### Bug (NEW) — C-style `for ((init; cond; post))` prelude is dropped at conversion (🔴 security bypass)
+
+**Symptom:** `rm -rf /etc/passwd` in a C-style loop init completely bypasses
+every security pass:
+```
+evaluate_bash_command("for ((i=$(rm -rf /etc/passwd); i<1; i++)); do :; done",
+                      {'*': 'allow', 'subshell': 'deny', 'blocked_paths_regex': ['/etc']})
+#   -> allow          (bypass — the init command substitution actually runs)
+
+# compare the regular for-list form (works correctly):
+evaluate_bash_command("for i in $(rm -rf /etc/passwd); do :; done", ...)   # -> deny
+```
+
+**Root cause:** shfmt represents `for ((...))` as `ForClause` whose `Loop` is
+`{Type: "CStyleLoop", Init, Cond, Post, ...}`. `_convert_for_clause`
+(converter.py:545–569) only reads `Loop.Name`/`Loop.Items` (the `WordIter`
+foreach form) and ignores `Init`/`Cond`/`Post`. The prelude's command/process
+substitutions are therefore **dropped from the typed AST entirely**, and every
+typed-AST pass misses them:
+- `_has_cmd_subst` → `False` ⇒ the subshell policy does not fire;
+- `_extract_subshell_contents` → `[]` ⇒ the blocked-path scan of subshell args
+  is skipped;
+- `_extract_segments` never sees the inner `CallExpr` ⇒ no segment is emitted.
+
+This is a fail-open security issue, not just an accuracy gap.
+
+### Dead code — `_convert_word_iter` is unreachable
+
+`_convert_word_iter` (converter.py:819–830) + its dispatch entry
+`"WordIter": _convert_word_iter` (`_CONVERTERS`, line 899) are never invoked:
+shfmt emits `Type: "WordIter"` only inside `ForClause.Loop`, and
+`_convert_for_clause` reads `Loop.Name`/`Loop.Items` inline, never routing the
+loop through `node_from_json`. `node_from_json` is not exported, so no external
+caller can reach the dispatch either. Remove the function, the dispatch entry,
+and its now-unused import.
 
 ---
 
 ## Changes
 
-### 1. `src/lovely_bash_permissions/evaluate.py` — ✅ done
+### 1. `src/lovely_bash_permissions/ast.py` — `ForClause` gains a `cstyle` field
 
-**a. Per-command wildcard approval (kills the blanket allow).**
-
-In the segment loop, replace the `else:` auto-allow:
-
-```python
-else:
-    segment_result["allowed"] = True
-```
-
-with a wildcard-conditional default:
+Add one field to `ForClause` (after `body`, ~line 453) so the C-style prelude
+survives conversion and is reachable by every generic traversal
+(`iter_children`, `_node_repr`, `structurally_equal`):
 
 ```python
-else:
-    # No allow-list configured. A command is approved only by an
-    # explicit "*": "allow" wildcard; otherwise it is left to the
-    # wildcard (ask/deny) below.
-    if wildcard == "allow":
-        segment_result["allowed"] = True
-    else:
-        segment_result["allowed"] = False
-        any_segment_not_allowed = True
+@dataclass(slots=True, repr=False)
+class ForClause(Node):
+    var: str | None = None
+    words: list[Word] = field(default_factory=list)
+    body: list[Stmt] = field(default_factory=list)
+    cstyle: CStyleLoop | None = None      # C-style for ((init; cond; post)) prelude
 ```
 
-**b. Apply the wildcard to any not-allowed command, with or without a pattern
-list.**
+- `from __future__ import annotations` is present (line 25), so the forward
+  reference to `CStyleLoop` (defined later, line 716) is safe.
+- Appended last ⇒ no positional-construction call sites shift (all existing
+  construction is keyword-based).
+- `CStyleLoop` itself is unchanged: `init`, `cond`, `post` (no `body` — the
+  loop body stays on `ForClause`).
 
-Change the aggregation gate at `evaluate.py:461`:
+### 2. `src/lovely_bash_permissions/converter.py`
+
+**a. `_convert_for_clause` (545–569): preserve the C-style prelude.**
+
+Branch on the loop payload type: `CStyleLoop` → route the whole `Loop` dict
+through `node_from_json` (dispatches to the existing `_convert_cstyle_loop`,
+833–841, which already tolerates absent `Init`/`Cond`/`Post` — `for ((;;))`
+verified); otherwise keep the existing inline `WordIter` parsing:
 
 ```python
-if allowed_patterns and any_segment_not_allowed:
+def _convert_for_clause(data: dict[str, Any]) -> ForClause:
+    loop = data.get("Loop", {})
+    var_name: str | None = None
+    items: list[Word] = []
+    cstyle: CStyleLoop | None = None
+
+    if isinstance(loop, dict):
+        if loop.get("Type") == "CStyleLoop":
+            # for ((init; cond; post)): keep init/cond/post so their command
+            # substitutions stay visible to every pass (security-critical).
+            if (converted := node_from_json(loop)) is not None and isinstance(converted, CStyleLoop):
+                cstyle = converted
+        else:
+            name_info = loop.get("Name", {})
+            if isinstance(name_info, dict):
+                var_name = name_info.get("Value")
+            for w in loop.get("Items", []):
+                if isinstance(w, dict):
+                    word = _convert_word(w)
+                    if word is not None:
+                        items.append(word)
+
+    body = _parse_stmt_list(data.get("Do", []))
+    pos, end = _parse_pos_end(data)
+    return ForClause(pos=pos, end=end, var=var_name, words=items, body=body, cstyle=cstyle)
 ```
 
-to:
+**b. Remove the dead `WordIter` converter.**
+- Delete `_convert_word_iter` (lines 819–830).
+- Delete `"WordIter": _convert_word_iter,` from `_CONVERTERS` (line 899).
+- Remove the now-unused `WordIter,` from the `from .ast import (...)` block
+  (line 67).
+
+Kept: the `WordIter` AST dataclass (ast.py:708) and its `__init__.py`
+import/`__all__` entry (public, README-documented type), and the inline
+`Loop.Name`/`Loop.Items` parsing above (the live path).
+
+### 3. `src/lovely_bash_permissions/segments.py` — `_extract_segments`
+
+**a. `ForClause`/`CStyleLoop` branch (372–376): recurse prelude, list, body.**
 
 ```python
-if any_segment_not_allowed:
+elif isinstance(node, (ForClause, CStyleLoop)):
+    # C-style prelude: for ((init; cond; post)) arithmetic may embed command
+    # substitutions that bash evaluates — surface them before the body.
+    prelude = node if isinstance(node, CStyleLoop) else getattr(node, "cstyle", None)
+    if prelude is not None:
+        for attr in ("init", "cond", "post"):
+            child = getattr(prelude, attr, None)
+            if child is not None:
+                segments.extend(_extract_segments(child, redirs))
+    # Loop-list words (for i in $(...); ...) are evaluated before the body.
+    if hasattr(node, "words") and node.words:
+        for w in node.words:
+            segments.extend(_extract_segments(w, redirs))
+    # Body statements.
+    if hasattr(node, "body") and node.body:
+        for stmt in node.body:
+            segments.extend(_extract_segments(stmt, redirs))
 ```
 
-and add a truthful reason variant for the no-pattern case (keep the existing
-`"{name}" command does not match allowed patterns` text intact when
-`allowed_patterns` is present):
+The `BinaryArithm`/`UnaryArithm`/`ParenArithm`/`ArithmExp` handlers (543–560)
+already recurse operands and extract nested `CmdSubst`/`ProcSubst`; plain
+literal arithmetic (e.g. `i=0`, `i<10`, `i++`) produces no segments.
+
+**b. `BinaryTest` branch (393–401): also recurse the left operand.**
+
+The left operand is the comparison *subject* (a value, regex, glob, number —
+never a command to check), so recurse it **without** test-expr context so only
+nested substitutions are extracted:
 
 ```python
-if allowed_patterns:
-    ...existing "does not match allowed patterns" message...
-else:
-    if len(non_matching) == 1:
-        reasons.append(f'"{non_matching[0]}" command is not allowlisted; wildcard policy is {wildcard}')
-    else:
-        names = ", ".join(f'"{n}"' for n in non_matching)
-        reasons.append(f"{names} commands are not allowlisted; wildcard policy is {wildcard}")
+elif isinstance(node, BinaryTest):
+    # Left operand is the comparison subject (value/glob/regex/number) —
+    # recurse WITHOUT test-expr context so nested command substitutions are
+    # extracted but the operand itself is not emitted as a command.
+    if hasattr(node, "left") and node.left:
+        segments.extend(_extract_segments(node.left, _in_test_expr=False))
+    if hasattr(node, "right") and node.right:
+        in_test_expr = node.op in ("&&", "||")
+        segments.extend(_extract_segments(node.right, _in_test_expr=in_test_expr))
 ```
 
-**c. Remove the post-loop wildcard-override block (`evaluate.py:517-529`) and
-its now-dead bookkeeping:**
-
-- `_redir_matched`, `_input_matched`, `_bg_matched` (lines 513-515)
-- `_va_applied` / `_va_segment_evaluated` (line 516, and the assignment at 318)
-- `_subshell_allowed` (set at 510, previously read only by the guard)
-
-After (a)+(b), any command that needs the wildcard is handled at aggregation,
-so this block is unreachable; deleting it removes the escape hatches
-(`not blocked_patterns`, `not _subshell_allowed`, `not _va_applied`) instead of
-leaving them as landmines.
-
-`_subshell_allowed` is set at `evaluate.py:510` and read **only** at line 522
-(inside the removed guard) — so it becomes dead. Simplify the subshell-ask
-branch (lines 505-510) to:
+**c. `Word` branch (490–498): drop the pseudo-command; always recurse parts.**
 
 ```python
-if overall_status == "allow" and subshell_policy != "allow":
-    overall_status = subshell_policy
-    reasons.append("subshell or command substitution requires approval")
+elif isinstance(node, Word):
+    # Word nodes (arguments) may contain CmdSubst/ProcSubst in their parts.
+    # Always recurse: inside test expressions _in_test_expr is passed down so
+    # bare Lit/SglQuoted/DblQuoted fragments still surface as pseudo-commands
+    # while embedded substitutions are extracted as the real commands they run
+    # (bug #6: no more "$(...)" / "$var" / "" phantom command names).
+    for part in node.parts:
+        segments.extend(_extract_segments(part, _in_test_expr=_in_test_expr))
 ```
 
-i.e. subshell `"allow"` adds no constraint (it never blanket-approves the
-command); subshell `ask`/`deny` behave exactly as today.
-
-**d. Empty-segment early return (`evaluate.py:301-308`) — bug #2.**
-
-- Remove the default-allow flip:
+**d. `DblQuoted` branch (511–518): same treatment.**
 
 ```python
-_wildcard = config.get("*", "ask")
-if not allowed_patterns and not blocked_patterns:
-    _wildcard = "allow"
+elif isinstance(node, DblQuoted):
+    # Double-quoted text may embed CmdSubst/ProcSubst/ParamExp parts.
+    for part in node.parts:
+        segments.extend(_extract_segments(part, _in_test_expr=_in_test_expr))
 ```
 
-so the empty-segment verdict is simply the wildcard (`ask` by default).
+### 4. `tests/parsing/test_segments.py` — new regression tests
 
-- Move the subshell/heredoc security passes *before* the empty-segment early
-  return so `[[ $(cat /etc/passwd) == x ]]` is scanned for blocked paths and
-  command substitution even when no segments are produced:
-  - compute `has_subshell = _has_cmd_subst(raw_tree)` (already done at line
-    295) and, if the segments list is empty, still run the
-    `_extract_subshell_contents` blocked-path scan (and the heredoc-body
-    scan) before returning.
-  - reason text becomes truthful: `"<empty command> produced no parseable
-    segments — defaulting to wildcard policy ({_wildcard})"` now carries the
-    real wildcard (never fabricated `allow`).
+- `TestForLoopListSegments`:
+  - `for i in $(seq 3); do echo $i; done` → `['seq', 'echo']`
+  - `for f in a $(ls) b; do echo $f; done` → `['ls', 'echo']`
+  - literal no-regression: `for i in 1 2 3; do echo hi; done` → `['echo']`
+- `TestCStyleLoopSegments`:
+  - `for ((i=$(seq 3); i < $n; i++)); do echo $i; done` → `seq` and `echo`
+  - literal no-regression: `for ((i=0; i<10; i++)); do echo x; done` → `['echo']`
+  - degenerate no-regression: `for ((;;)); do :; done` → `[':']` (`:` builtin body)
+- `TestTestClauses` additions:
+  - left-operand cmdsub: `[[ $(pwd) == /root* ]]` → `['pwd']`
+  - both sides: `[[ $(a) == $(b) ]]` → `['a', 'b']`
+  - no left phantom: `[[ -d /tmp && ls ]]` does not emit `d`/`tmp`
+- Bug #6 regressions (in `TestTestClauseRegexOperands` / a dedicated class):
+  - `[[ $(cmd) ]]` → `['cmd']` (was `['$(...)']`)
+  - `[[ -f x && $(c2) ]] && echo and` → `['c2', 'echo']` (was `['$(...)', 'echo']`)
+  - `[[ cond && "$(cmd)" ]]` → `['cmd']` (was `['']`)
+  - `[[ $var ]]` / `[[ "$var" ]]` → `[]` (phantom `$var`/`''` removed)
+  - confirm preserved: `[[ -d /tmp && ls ]]` → `['ls']`; `[[ foo ]]` → `['foo']`;
+    `[[ $var =~ $(cmd) ]]` → `['cmd']`; `[[ $var =~ pat ]]` → `[]`
 
-**e. Truthful fallback reason (`evaluate.py:545-547`).**
+### 5. `tests/config/test_evaluate.py` — update + new regression tests
 
-```python
-else:
-    _wp = config.get("*", "ask")
-    if _wp == "allow":
-        reason_str = "allowed by wildcard policy (allow)"
-    else:
-        reason_str = "allowed"  # defensive; unreachable for a real wildcard-ask
-```
+- Repoint `test_empty_segment_wildcard_ask` (line 269): the bug-#2 repro
+  `[[ $(cat /etc/passwd) == x ]]` now produces a real `cat` segment and leaves
+  the empty-segment path; use `[[ -f x ]]` instead and keep asserting
+  `status == "ask"` and `"wildcard policy (ask)" in reason` (still exercises
+  the empty-segment wildcard fallback).
+- Add: `[[ $(cat /etc/passwd) == x ]]` under `{"*": "ask"}` → `ask` and
+  `'"cat" command is not allowlisted' in reason` (bug #2 scenario now resolved
+  via the normal segment path; verdict unchanged after the fix).
+- Keep `test_empty_segment_blocked_subshell_denied` (line 278) — still `deny`
+  (now via the real `cat` segment's blocked-path check); update docstring only.
+- Add the 🔴 bypass regression: `for ((i=$(rm -rf /etc/passwd); i<1; i++));
+  do :; done` with `{"*": "allow", "subshell": "deny", "blocked_paths_regex":
+  [r"/etc"]}` → `deny` (assert it was previously `allow` in the docstring).
+- Add: `_has_cmd_subst(parse('for ((i=$(date); i<1; i++)); do :; done'))` is
+  `True` (prelude substitutions are visible again).
 
-**f. `variable_assignment: allow` reason.** In the va-allow branch
-(`evaluate.py:362-366`), when it is the deciding policy (no `allowed_patterns`),
-append `reasons.append(f"variable assignment allowed: {args}")` so the
-standalone `FOO=bar` case no longer cites the wildcard.
+---
 
-### 2. `tests/config/test_evaluate.py` — ✅ done
+## Resulting segment behaviors (verified via in-memory simulation on real ASTs)
 
-Flip the two asserts that codified the deny-list footgun:
-- `test_blocked_pattern_no_match` (line ~141): `ls /var/log` +
-  `make_config(blocked=["/etc/passwd"])` → expect `"ask"` (was `"allow"`),
-  update docstring.
-- `test_multiple_commands_none_blocked` (line ~170): `ls && cat file.txt` +
-  `make_config(blocked=["/etc/passwd"])` → expect `"ask"`, update docstring.
+| Command | before | after |
+|---|---|---|
+| `for i in $(seq 3); do echo $i; done` | `['echo']` | `['seq', 'echo']` |
+| `for f in a $(ls) b; do echo $f; done` | `['echo']` | `['ls', 'echo']` |
+| `if [[ $(pwd) == /root* ]]; then echo root; fi` | `['echo']` | `['pwd', 'echo']` |
+| `[[ $(cmd) == x ]]` | `[]` | `['cmd']` |
+| `[[ x == $(cmd) ]]` | `['cmd']` | `['cmd']` (unchanged) |
+| `[[ -f x && $(c2) ]] && echo and` | `['$(...)', 'echo']` | `['c2', 'echo']` |
+| `[[ $(cmd) ]]` | `['$(...)']` | `['cmd']` |
+| `[[ cond && "$(cmd)" ]]` | `['']` | `['cmd']` |
+| `for ((i=$(init); i<n; i++)); do echo; done` | `['echo']` | `['init', 'echo']` |
+| `[[ -d /tmp && ls ]]` | `['ls']` | `['ls']` (unchanged) |
+| `[[ foo ]]` | `['foo']` | `['foo']` (unchanged) |
+| `[[ $var ]]` / `[[ "$var" ]]` | `['$var']` / `['']` | `[]` |
+| `[[ $var =~ $(cmd) ]]` | `['cmd']` | `['cmd']` (unchanged) |
+| `[[ $var =~ pat ]]`, `[[ $n -eq 5 ]]`, `[[ $a == *.txt ]]` | `[]` | `[]` (unchanged) |
 
-Add regression tests:
-- Bug #7 repro: `echo ${x%@/etc/*}` with `{"*": "ask", "blocked_paths_regex":
-  [r"/etc"]}` → `ask`.
-- `curl example.com` with blocked-only + `"*": "ask"` → `ask`.
-- `echo hi` with blocked-only + `"*": "ask"` → `ask`, reason contains
-  the no-pattern message (not `allowed by wildcard policy`).
-- Subshell does not blanket-approve: `echo $(date)` with
-  `{"*": "ask", "subshell": "allow"}` → `ask` (echo not allow-listed).
-- Subshell + allow-listed outer command: `echo $(date)` with
-  `{"*": "ask", "subshell": "allow", "allowed_cmds_regex": [r"^echo(\s+.*)?$"]}`
-  → `allow`.
-- Va does not blanket-approve the command: `FOO=bar curl x` with
-  `{"*": "ask", "variable_assignment": "allow"}` → `ask` (curl not
-  allow-listed).
-- Standalone va allow truthful reason: `FOO=bar` with
-  `{"*": "ask", "variable_assignment": "allow"}` → `allow`, reason contains
-  `variable assignment allowed` and not `wildcard policy (ask)`.
-- Deny-list still works via explicit wildcard: `{"*": "allow",
-  "blocked_paths_regex": [r"/etc"]}` → `echo hi` allow; `cat /etc/passwd`
-  deny.
-- Bug #2: `evaluate_bash_command("[[ $(cat /etc/passwd) == x ]]",
-  {"*": "ask"})` → `ask` (not allow); with `{"*": "ask",
-  "blocked_paths_regex": [r"/etc"]}` → `deny` (blocked-path scan runs before
-  the empty-segment return).
-- Whist with wildcard `"allow"` and no patterns: `ls` → `allow`, reason
-  `allowed by wildcard policy (allow)`.
-
-### 3. `NEW_BUGS.md` — ✅ done
-
-Mark bugs #2 and #7 as fixed (`Status: ✅ FIXED`), each with a one-paragraph
-note: #7 was a status fail-open (reason string was the symptom); #2's fix
-stops the empty-segment default-allow and runs the subshell/blocked-path
-scans before the early return.
-
-### 4. `PLAN.md` — ✅ done
-
-This file — mark items done as they complete.
+Verdict impact of removing the `$var`/`''` phantom pseudo-segments: **none** —
+`[[ $var ]]` resolves identically in every wildcard config (ask/allow/deny)
+via the empty-segment path; only segments/reasons change (consistent with the
+bug #6 "don't name nonexistent commands" goal).
 
 ---
 
@@ -231,21 +288,25 @@ This file — mark items done as they complete.
 1. `uv run ruff check .`
 2. `uv run ruff format --check .`
 3. `uv run mypy --strict .`
-4. Full suite: `uv run pytest -m 'not linting' -q`
-   - Expect all green except any test that intentionally codified the old
-     auto-allow; those are updated in-place (they are behavior changes, not
-     regressions).
-5. Manual repros from the Bugs sections above confirm: blocked-only+ask now
-   asks; `[[ $(cat /etc/passwd) == x ]]` under `{"*":"ask"}` now asks and
-   under blocked-paths denies.
+4. `uv run pytest -m 'not linting' -q` — expect all green; the two
+   in-place-updated tests (`test_empty_segment_wildcard_ask`) are the only
+   intentional assertion changes.
+5. Manual security probe from the C-style bypass section confirms `deny`.
 
 ## Edge cases to keep intact
 
-- Hook `:` label segments stay exempt (inert wrapper) — payload commands after
-  `;` are still evaluated normally.
-- Redirection/background per-kind `"allow"` still produces its own truthful
-  reasons (they were already appended when matched and overall was `allow`).
-- Subshell `ask`/`deny` behavior unchanged (`echo $(cat x)` default → ask;
-  subshell deny → deny).
-- Explicit `"*": "deny"` with no patterns denies non-blocked commands at
-  aggregation (reason: `... is not allowlisted; wildcard policy is deny`).
+- Bare literal `[[ ... && ls ]]` / `[[ foo ]]` / `[[ cond && 'ls' ]]` still
+  emit pseudo-command segments (via `Lit`/`SglQuoted` with `_in_test_expr`) —
+  conservative `&&`/`||` right-operand behavior unchanged.
+- Opaque `$(...)` handling in **arguments** (`evaluate._command_string` /
+  `_match_allowed_patterns`) uses `_word_raw` placeholders — untouched; only
+  test-expression pseudo-commands are affected.
+- `subshell`/allowed/blocked passes in `evaluate.py` operate on the typed AST
+  independently of segments; they now *also* see C-style preludes (strictly
+  more coverage).
+- Literal C-style arithmetic (`for ((i=0; i<10; i++))`) produces no segments —
+  `test_cstyle_loop_extracted` and the devin CLI `-t` C-style tests unchanged.
+- `rules.py` scans raw shfmt JSON (already saw prelude cmdsubs) — untouched.
+- C-style prelude is baked into `ForClause.cstyle`; `iter_children`-based
+  helpers (`get_commands`, `has_variable`, `has_pipe`, `get_redirections`,
+  CLI tree) now traverse it too — matches shfmt ground truth.
