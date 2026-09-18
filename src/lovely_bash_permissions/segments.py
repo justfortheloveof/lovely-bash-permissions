@@ -370,7 +370,19 @@ def _extract_segments(
                         segments.extend(_extract_segments(stmt, redirs))
 
     elif isinstance(node, (ForClause, CStyleLoop)):
-        # Extract commands from loop body
+        # C-style prelude: for ((init; cond; post)) arithmetic may embed
+        # command substitutions that bash evaluates — surface them first.
+        prelude = node if isinstance(node, CStyleLoop) else getattr(node, "cstyle", None)
+        if prelude is not None:
+            for attr in ("init", "cond", "post"):
+                child = getattr(prelude, attr, None)
+                if child is not None:
+                    segments.extend(_extract_segments(child, redirs))
+        # Loop-list words (for i in $(...); ...) are evaluated before the body.
+        if hasattr(node, "words") and node.words:
+            for w in node.words:
+                segments.extend(_extract_segments(w, redirs))
+        # Body statements.
         if hasattr(node, "body") and node.body:
             for stmt in node.body:
                 segments.extend(_extract_segments(stmt, redirs))
