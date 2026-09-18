@@ -298,14 +298,45 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     segments = parse_segments(command)
 
     # Handle empty-segment case: if no segments found, apply wildcard policy.
+    # Security scans still run so constructs like `[[ $(cat /etc/passwd) == x ]]`
+    # cannot bypass the blocked-path rules just because they produce no exec
+    # segments (bug #2).
     if not segments:
         _wildcard = config.get("*", "ask")
-        if not allowed_patterns and not blocked_patterns:
-            _wildcard = "allow"
-        return {
-            "status": _wildcard,
-            "reason": f"<empty command> produced no parseable segments — defaulting to wildcard policy ({_wildcard})",
-        }
+        _empty_status: str = "allow"
+        _empty_reasons: list[str] = []
+        if has_subshell and blocked_patterns:
+            for text in _extract_subshell_contents(raw_tree):
+                matched, pattern, value = check_blocked_patterns("", [text], blocked_patterns)
+                if matched:
+                    _empty_status = "deny"
+                    _empty_reasons.append(
+                        f'Blocked by bash permissions: Argument "{value}" matches blocked path pattern '
+                        f"{pattern}. The tool has not been run"
+                    )
+        if blocked_patterns:
+            for body in _heredoc_body_texts(raw_tree):
+                candidates = [body] + [ln.strip() for ln in body.splitlines() if ln.strip()]
+                for candidate in candidates:
+                    matched, pattern, _value = check_blocked_patterns("", [candidate], blocked_patterns)
+                    if matched:
+                        snippet = candidate.strip()
+                        if len(snippet) > 80:
+                            snippet = snippet[:77] + "..."
+                        _empty_status = "deny"
+                        _empty_reasons.append(
+                            f'Blocked by bash permissions: Heredoc body contains "{snippet}" '
+                            f"matching blocked path pattern {pattern}. The tool has not been run"
+                        )
+                        break
+        if _empty_reasons:
+            _empty_reason = "; ".join(dict.fromkeys(_empty_reasons))
+        else:
+            _empty_status = _wildcard
+            _empty_reason = (
+                f"<empty command> produced no parseable segments — defaulting to wildcard policy ({_wildcard})"
+            )
+        return {"status": _empty_status, "reason": _empty_reason, "segments": []}
 
     # Determine the wildcard policy (default action for unmatched commands)
     wildcard = config.get("*", "ask")
@@ -315,7 +346,6 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     reasons = []
     any_segment_not_allowed = False
     variable_assignment_policy = rules.get("variable_assignment", "ask")
-    _va_segment_evaluated = False
 
     # Default values for redirection results (initialized before loop so they're always defined).
     output_result: dict[str, Any] = {"status": "allow", "matched": False, "reason": "no output redirection"}
@@ -358,12 +388,12 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
 
         # Handle standalone variable assignments (no command name, only assignments)
         if cmd_name == "" and args:
-            _va_segment_evaluated = True
             if variable_assignment_policy == "allow":
                 segment_result["allowed"] = True
                 # If variable_assignment is explicitly "allow", don't override with wildcard policy
                 if not allowed_patterns:
                     overall_status = "allow"
+                    reasons.append(f"variable assignment allowed: {args}")
             elif variable_assignment_policy == "deny":
                 segment_result["allowed"] = False
                 overall_status = "deny"
@@ -395,7 +425,14 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                 segment_result["allowed"] = False
                 any_segment_not_allowed = True
         else:
-            segment_result["allowed"] = True
+            # No allow-list configured. A command is approved only by an
+            # explicit "*": "allow" wildcard; otherwise it is left to the
+            # wildcard (ask/deny) below.
+            if wildcard == "allow":
+                segment_result["allowed"] = True
+            else:
+                segment_result["allowed"] = False
+                any_segment_not_allowed = True
 
         # Check blocked patterns
         if blocked_patterns:
@@ -457,22 +494,27 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         if _r["status"] == overall_status:
             reasons.append(_r["reason"])
 
-    # Commands not matching allowed patterns require approval
-    if allowed_patterns and any_segment_not_allowed:
+    # Commands not approved by an allow-list or by an explicit "*": "allow"
+    # wildcard resolve to the wildcard policy (ask/deny).
+    if any_segment_not_allowed:
         non_matching = [seg["command"] for seg in segment_results if not seg.get("allowed", True)]
         if non_matching:
             names = [f'"{name}"' for name in non_matching]
-            if len(non_matching) == 1:
-                reasons.append(f"{names[0]} command does not match allowed patterns")
+            if allowed_patterns:
+                if len(non_matching) == 1:
+                    reasons.append(f"{names[0]} command does not match allowed patterns")
+                else:
+                    reasons.append(f"{', '.join(names)} commands do not match allowed patterns")
+            elif len(non_matching) == 1:
+                reasons.append(f"{names[0]} command is not allowlisted; wildcard policy is {wildcard}")
             else:
-                reasons.append(f"{', '.join(names)} commands do not match allowed patterns")
+                reasons.append(f"{', '.join(names)} commands are not allowlisted; wildcard policy is {wildcard}")
         if overall_status == "allow":
             overall_status = wildcard
 
     # Subshell/command substitution policy check;
     # also check inner content against blocked paths and allowed patterns
     subshell_policy = rules.get("subshell", "ask")
-    _subshell_allowed = False
     if has_subshell:
         subshell_contents = _extract_subshell_contents(raw_tree)
 
@@ -502,31 +544,9 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                 overall_status = "deny"  # Validation failed, deny policy → reject outright
             else:  # ask
                 overall_status = subshell_policy
-        if overall_status == "allow":
-            if subshell_policy != "allow":
-                overall_status = subshell_policy
-                reasons.append("subshell or command substitution requires approval")
-            else:
-                _subshell_allowed = True
-    # If no specific rules matched and nothing else triggered ask/deny, apply wildcard policy
-    # But don't override variable_assignment decisions (variable_assignment is more specific)
-    _redir_matched = output_result.get("matched", True)
-    _input_matched = input_result.get("matched", True)
-    _bg_matched = bg_result.get("matched", True)
-    _va_applied = _va_segment_evaluated
-    if (
-        not allowed_patterns
-        and not blocked_patterns
-        and overall_status == "allow"
-        and wildcard != "allow"
-        and not _subshell_allowed
-        and not _va_applied
-    ):
-        if _redir_matched or _input_matched or _bg_matched:
-            pass  # specific rules matched; don't override with wildcard
-        else:
-            overall_status = wildcard
-            reasons.append(f"wildcard policy is {wildcard}")
+        if overall_status == "allow" and subshell_policy != "allow":
+            overall_status = subshell_policy
+            reasons.append("subshell or command substitution requires approval")
     # Only include approval reasons when status is allow; hide them for ask/deny
     if overall_status == "allow" and all_matched_patterns:
         # Build approval reason from ALL matched patterns (top-level + nested)
@@ -544,7 +564,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         reason_str = f"command matches allowed {noun}: {', '.join(all_matched_patterns)}"
     else:
         _wp = config.get("*", "ask")
-        reason_str = f"allowed by wildcard policy ({_wp})"
+        reason_str = "allowed by wildcard policy (allow)" if _wp == "allow" else "allowed"
     return {
         "status": overall_status,
         "reason": reason_str,

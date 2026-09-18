@@ -17,74 +17,13 @@ Severity: 🔴 security bypass · 🟠 high · 🟡 medium · ⚪ low.
 
 ---
 
-## 1. 🔴 Command substitution inside `${var/pat/rep}` / `${var//pat/rep}` is invisible to ALL security passes — allow-list bypass
-
-> **Status: ✅ FIXED** — `_convert_param_exp` now keeps `Repl.Orig`/`Repl.With` as
-> typed `Word` nodes (`ParamExp.orig` / `ParamExp.replacement`, plus
-> `ParamExp.all`), and the generic traversals (`iter_children` / `_traverse`),
-> segment extraction, and the inspection passes all descend into them.
-
-**Area:** `src/lovely_bash_permissions/converter.py`,
-`_convert_param_exp()` (line ~116) — the shfmt `Repl` field (pattern
-replacement: `Repl.Orig`, `Repl.Replacement`) is **dropped entirely** when
-building the typed AST. `ParamExp` only keeps `exp` (default/slice/trim ops)
-and `index`.
-
-Consequence: a `$( cmd )` hidden in the pattern *or* replacement part of a
-parameter expansion is never seen by:
-
-- segment extraction (`parse_segments`),
-- blocked-path scanning (segments, subshell-content, heredoc passes),
-- `_has_cmd_subst` / subshell policy,
-- `get_commands` / the inspection CLI.
-
-Bash *does* execute such substitutions (verified: `x=abc; h(){ echo RAN-H; };
-echo "${x//b/$(h)}"` prints `aRAN-Hc`).
-
-Reproduction (all valid bash, all auto-approved):
-
-```python
-# config: allowed_cmds_regex = [r"^echo(\s+.*)?$"],
-#         blocked_paths_regex = [r"/etc"], subshell = "deny"
-evaluate_bash_command('echo "$(rm -rf x)"', cfg)
-#   -> deny     (control: direct $(...) is denied as intended)
-
-evaluate_bash_command("echo ${x//a/$(rm -rf x)}", cfg)
-#   -> ALLOW    BUG — "command matches allowed pattern: ^echo(\s+.*)?$"
-
-evaluate_bash_command("echo ${x//$(recon_cmd)/y}", cfg)
-#   -> ALLOW    BUG — sub in the *pattern* part, same hole
-
-evaluate_bash_command("echo ${x//a/$(cat /etc/passwd)}", {"*": "ask", "blocked_paths_regex": [r"/etc"]})
-#   -> ALLOW    BUG — a blocked path is read, no block fires
-
-evaluate_bash_command(
-    "echo ${x//a/$(cat /etc/passwd)}",
-    {"*": "ask", "allowed_cmds_regex": [r"^echo(\s+.*)?$"], "blocked_paths_regex": [r"/etc"], "subshell": "allow"},
-)
-#   -> ALLOW    BUG
-```
-
-Contrast — the *other* expansion forms are caught (their sub sits under
-`Exp.Word`, which the segments handler does inspect):
-
-```
-'echo "${z%$(cat /etc/passwd)}"'   -> deny
-'echo "${w:-$(cat /etc/passwd)}"'  -> deny
-```
-
-**Impact:** any command (arbitrary code, blocked-path reads) can be smuggled
-inside an allow-listed command's argument via `${var/…/$(cmd)}` or
-`${var//…/$(cmd)}`, bypassing allowed-pattern validation, blocked-path
-scanning, *and* `subshell: deny`.
-
-**Fix:** convert the `Repl` field in `_convert_param_exp` (keep it as typed
-nodes or a raw dict) and make the generic traversals (`iter_children` /
-`_traverse`, `_extract_segments`, `_word_value`/`_word_raw`) descend into it.
-
----
-
 ## 2. 🟠 Standalone `[[ ... ]]` / `(( ... ))` statements produce zero segments — early return skips every security pass, mislabels command as empty
+
+> **Status: ✅ FIXED** — the empty-segment path no longer fabricates an `allow`
+> when both regex lists are empty. The subshell/heredoc blocked-path scans now
+> run *before* the early return, so `[[ $(cat /etc/passwd) == x ]]` resolves to
+> the real wildcard (`ask` by default) and denies under `blocked_paths_regex`.
+> The reason text carries the actual wildcard, never a fabricated `allow`.
 
 **Area:** `src/lovely_bash_permissions/segments.py` (`_extract_segments` emits
 nothing for a top-level `TestClause`/`ArithmCmd` statement with no
@@ -134,45 +73,6 @@ statement.
 **Fix:** emit a synthetic segment for bare test/arithmetic statements (analog
 of the existing `[[ … ]] > file` synthetic-segment logic) and/or move the
 empty-segment early return to *after* the subshell/heredoc security passes.
-
----
-
-## 3. 🟠 `ParamExp.exp` is stored as a raw dict — generic traversals never descend into it, so subshells in `${var:-…}` etc. evade the `subshell` policy
-
-> **Status: ✅ FIXED** — `ParamExp.exp` is now a typed `ParamExpExp` node
-> (`op` + `word`) and `Slice` is kept as a typed `ParamExpSlice` node
-> (`offset`/`length`); both are descended into by the generic traversals, so
-> `_has_cmd_subst`, `_extract_subshell_contents`, `get_commands`, and
-> `has_variable` all see substitutions inside `${var:-…}`, `${var%…}`,
-> `${var:off}` / `${var:off:len}`, etc.
-
-**Area:** `src/lovely_bash_permissions/converter.py` `_convert_param_exp`
-stores `exp` as `dict | None`; `ParamExp.exp` is typed `dict[str, Any] | None`
-in `ast.py`. `iter_children`/`_traverse` only yield typed `Node` children, so
-`CmdSubst` inside `${var:-$(…)}`, `${var%$(…)}`, `${arr[i]}`, … is invisible
-to `_has_cmd_subst`, `_extract_subshell_contents`, `get_commands`, and
-`has_variable`.
-
-Reproduction (`subshell: "deny"`, allowed `^echo(\s+.*)?$`):
-
-```python
-evaluate_bash_command('echo "$(rm -rf x)"', cfg)  # -> deny   (intended)
-evaluate_bash_command('echo "${y:-$(rm -rf x)}"', cfg)  # -> ask    BUG:
-# downgraded to wildcard ask
-#   _has_cmd_subst(parse('echo "${y:-$(h)}"')) is False
-#   get_commands(...) -> ['echo']  (inner command never reported)
-```
-
-Segment extraction happens to recover `Exp.Word` substitutions (so blocked
-paths still fire for these forms), but the *subshell policy level itself* is
-not enforced: `subshell: deny` behaves as "ask" for every parameter-expansion
-embedding, and the inspection CLI under-reports commands.
-
-**Fix:** convert `Exp` (and `Index` words' parts) into typed nodes so
-traversal is uniform — or make the ParamExp handler reachable from
-`iter_children`.
-
----
 
 ## 4. 🟠 Deeply nested command substitution crashes the converter with `RecursionError` (valid bash, shfmt parses it fine)
 
@@ -256,6 +156,15 @@ subshell pass.)
 
 ## 7. ⚪ Misleading approval reason: `allow` verdicts cite "wildcard policy (ask)"
 
+> **Status: ✅ FIXED** — this was a *status* fail-open, not just wording: with
+> `allowed_cmds_regex` empty the segment loop auto-allowed every command, and
+> the wildcard override carried a `not blocked_patterns` escape hatch, so a
+> blocked-only config under `"*": "ask"` approved everything not blocked. The
+> wildcard is now the per-command baseline — a command is approved only by an
+> allow-pattern match or an explicit `"*": "allow"` — so blocked-only+ask asks,
+> all specific policies add constraints only, and the residual fallback reason
+> quotes the wildcard only when it actually is `allow`.
+
 **Area:** `src/lovely_bash_permissions/evaluate.py` — fallback
 `reason_str = f"allowed by wildcard policy ({_wp})"` is used whenever no
 reason accumulated, even when the wildcard policy was never applied.
@@ -287,10 +196,3 @@ for any config without `allowed_cmds_regex`.
   expansions (blocked-path + subshell passes fire correctly there).
 - `bash -n`-invalid input (unclosed quotes, stray extglob `!(x)`) is
   rejected by shfmt and routed to the fail-closed error policy — correct.
-
-## Out of scope (pre-existing, unrelated)
-
-- ~~`test_ruff_format_check` failed at baseline — `ruff format` wanted a
-  comment-spacing fix in `README.md:36`.~~ Resolved while updating this doc
-  (and README.md): the aligned inline comments in README's Python examples
-  were normalized by `ruff format`; `ruff format --check .` is now clean.

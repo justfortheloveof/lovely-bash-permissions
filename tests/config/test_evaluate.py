@@ -139,12 +139,12 @@ class TestBlockedPatterns:
         assert result["status"] == "deny"
 
     def test_blocked_pattern_no_match(self) -> None:
-        """Argument doesn't match blocked pattern -> allow."""
+        """No blocked match but no allow-list -> wildcard ask governs (bug #7)."""
         result = evaluate_bash_command(
             "ls /var/log",
             make_config(blocked=["/etc/passwd"]),
         )
-        assert result["status"] == "allow"
+        assert result["status"] == "ask"
 
     def test_no_blocked_patterns(self) -> None:
         """No blocked_patterns with wildcard allow -> allow."""
@@ -168,12 +168,120 @@ class TestBlockedPatterns:
         assert result["status"] == "deny"
 
     def test_multiple_commands_none_blocked(self) -> None:
-        """Multiple commands, none blocked -> allow."""
+        """Multiple commands, none blocked, no allow-list -> wildcard ask governs (bug #7)."""
         result = evaluate_bash_command(
             "ls && cat file.txt",
             make_config(blocked=["/etc/passwd"]),
         )
+        assert result["status"] == "ask"
+
+
+class TestWildcardIsBaseline:
+    """The wildcard is the per-command baseline; specific policies add constraints only.
+
+    A command is auto-approved only by an allowed-pattern match or an explicit
+    ``"*": "allow"``. No policy (subshell, variable_assignment, redirection,
+    blocked-only configs) grants a blanket allow for commands that are neither
+    allow-listed nor wildcard-allowed — bug #7 and the broader fail-open class.
+    """
+
+    def test_blocked_only_config_asks_param_expansion_repro(self) -> None:
+        """bug #7 repro: `${x%@/etc/*}` with blocked-only + ask now asks."""
+        result = evaluate_bash_command(
+            "echo ${x%@/etc/*}",
+            {"*": "ask", "blocked_paths_regex": [r"/etc"]},
+        )
+        assert result["status"] == "ask"
+
+    def test_blocked_only_config_asks_plain_command(self) -> None:
+        """Blocked-only config under ask wildcard no longer auto-allows."""
+        result = evaluate_bash_command(
+            "echo hi",
+            {"*": "ask", "blocked_paths_regex": [r"/etc"]},
+        )
+        assert result["status"] == "ask"
+        assert "not allowlisted" in result["reason"]
+        assert "allowed by wildcard policy" not in result["reason"]
+
+    def test_blocked_only_config_asks_curl(self) -> None:
+        """A non-blocked command still asks under blocked-only + ask."""
+        result = evaluate_bash_command(
+            "curl example.com",
+            {"*": "ask", "blocked_paths_regex": [r"/etc"]},
+        )
+        assert result["status"] == "ask"
+
+    def test_blocked_only_config_still_denies(self) -> None:
+        """Blocked paths still deny under the reduced config."""
+        result = evaluate_bash_command(
+            "cat /etc/passwd",
+            {"*": "ask", "blocked_paths_regex": [r"/etc"]},
+        )
+        assert result["status"] == "deny"
+
+    def test_deny_list_via_explicit_wildcard_allow(self) -> None:
+        """Explicit "*": "allow" still provides deny-list semantics."""
+        config = {"*": "allow", "blocked_paths_regex": [r"/etc"]}
+        assert evaluate_bash_command("echo hi", config)["status"] == "allow"
+        assert evaluate_bash_command("cat /etc/passwd", config)["status"] == "deny"
+
+    def test_subshell_allow_does_not_approve_outer_command(self) -> None:
+        """`echo $(date)` + subshell=allow + ask wildcard asks for `echo`."""
+        result = evaluate_bash_command(
+            "echo $(date)",
+            {"*": "ask", "subshell": "allow"},
+        )
+        assert result["status"] == "ask"
+
+    def test_subshell_allow_with_all_listed_commands(self) -> None:
+        """Subshell=allow approves when outer and inner commands are allow-listed."""
+        result = evaluate_bash_command(
+            "echo $(date)",
+            {"*": "ask", "subshell": "allow", "allowed_cmds_regex": [r"^echo(\s+.*)?$", r"^date$"]},
+        )
         assert result["status"] == "allow"
+
+    def test_variable_assignment_allow_does_not_approve_command(self) -> None:
+        """`FOO=bar curl x` + va=allow + ask wildcard asks for `curl`."""
+        result = evaluate_bash_command(
+            "FOO=bar curl x",
+            {"*": "ask", "variable_assignment": "allow"},
+        )
+        assert result["status"] == "ask"
+        assert '"curl" command is not allowlisted' in result["reason"]
+
+    def test_variable_assignment_allow_standalone_truthful_reason(self) -> None:
+        """Standalone `FOO=bar` with va=allow allows with a truthful reason."""
+        result = evaluate_bash_command(
+            "FOO=bar",
+            {"*": "ask", "variable_assignment": "allow"},
+        )
+        assert result["status"] == "allow"
+        assert "variable assignment allowed" in result["reason"]
+        assert "wildcard policy" not in result["reason"]
+
+    def test_wildcard_allow_no_patterns_truthful_reason(self) -> None:
+        """Explicit wildcard allow keeps the truthful fallback reason."""
+        result = evaluate_bash_command("ls", {"*": "allow"})
+        assert result["status"] == "allow"
+        assert result["reason"] == "allowed by wildcard policy (allow)"
+
+    def test_empty_segment_wildcard_ask(self) -> None:
+        """bug #2: `[[ $(cat /etc/passwd) == x ]]` under "*": "ask" no longer default-allows."""
+        result = evaluate_bash_command(
+            "[[ $(cat /etc/passwd) == x ]]",
+            {"*": "ask"},
+        )
+        assert result["status"] == "ask"
+        assert "wildcard policy (ask)" in result["reason"]
+
+    def test_empty_segment_blocked_subshell_denied(self) -> None:
+        """bug #2: blocked-path scan runs before the empty-segment return."""
+        result = evaluate_bash_command(
+            "[[ $(cat /etc/passwd) == x ]]",
+            {"*": "ask", "blocked_paths_regex": [r"/etc"]},
+        )
+        assert result["status"] == "deny"
 
 
 class TestBlockedReasonDedup:
@@ -473,10 +581,10 @@ class TestSubshellHandling:
         assert result["status"] == "ask"
 
     def test_subshell_reason(self) -> None:
-        """Subshell reason matches TS format."""
+        """Subshell reason matches TS format when commands are otherwise approved."""
         result = evaluate_bash_command(
             "cat $(ls)",
-            make_config(),
+            make_config(allowed=[r"^cat(\s+.*)?$", r"^ls(\s+.*)?$"]),
         )
         assert result["reason"] == "subshell or command substitution requires approval"
 
@@ -538,11 +646,19 @@ class TestSubshellHandling:
         )
         assert result["status"] == "deny"
 
-    def test_subshell_policy_allow(self) -> None:
-        """subshell=allow auto-approves command substitutions."""
+    def test_subshell_policy_allow_does_not_blanket_approve(self) -> None:
+        """subshell=allow permits the subshell construct, not unapproved commands."""
         result = evaluate_bash_command(
             "ls $(ls)",
             make_config(subshell="allow"),
+        )
+        assert result["status"] == "ask"
+
+    def test_subshell_policy_allow_with_approved_commands(self) -> None:
+        """subshell=allow approves the substitution when the commands are approved."""
+        result = evaluate_bash_command(
+            "ls $(ls)",
+            make_config(subshell="allow", wildcard="allow"),
         )
         assert result["status"] == "allow"
 
@@ -892,7 +1008,7 @@ class TestPerKindOutputRedirection:
     """Tests for per-kind output redirection policy resolution (bug fix)."""
 
     def test_stderr_to_dev_null_allow_with_ask_wildcard(self) -> None:
-        """Bug fix: echo hi 2> /dev/null auto-approves when stderr_to_dev_null=allow."""
+        """stderr_to_dev_null=allow approves only the redirect, not the command (bug #7)."""
         result = evaluate_bash_command(
             "echo hi 2> /dev/null",
             {
@@ -900,10 +1016,10 @@ class TestPerKindOutputRedirection:
                 "output_redirection": {"*": "ask", "stderr_to_dev_null": "allow"},
             },
         )
-        assert result["status"] == "allow"
+        assert result["status"] == "ask"
 
     def test_stderr_to_stdout_allow_with_ask_wildcard(self) -> None:
-        """2>&1 auto-approves when stderr_to_stdout=allow."""
+        """2>&1 stderr_to_stdout=allow does not approve an unallow-listed command."""
         result = evaluate_bash_command(
             "echo hi 2>&1",
             {
@@ -911,7 +1027,7 @@ class TestPerKindOutputRedirection:
                 "output_redirection": {"*": "ask", "stderr_to_stdout": "allow"},
             },
         )
-        assert result["status"] == "allow"
+        assert result["status"] == "ask"
 
     def test_combined_op_deny_overrides(self) -> None:
         """Combined op >& /dev/null: deny kind overrides ask."""
@@ -925,7 +1041,7 @@ class TestPerKindOutputRedirection:
         assert result["status"] == "deny"
 
     def test_stdout_to_dev_null_allow(self) -> None:
-        "> /dev/null uses stdout_to_dev_null kind."
+        """> /dev/null with stdout_to_dev_null=allow still asks an unapproved command (bug #7)."""
         result = evaluate_bash_command(
             "echo hi > /dev/null",
             {
@@ -933,7 +1049,7 @@ class TestPerKindOutputRedirection:
                 "output_redirection": {"*": "ask", "stdout_to_dev_null": "allow"},
             },
         )
-        assert result["status"] == "allow"
+        assert result["status"] == "ask"
 
     def test_other_redir_falls_back_to_wildcard(self) -> None:
         """> /tmp/out.txt uses 'other' kind, falls back to wildcard."""
@@ -977,7 +1093,7 @@ class TestPerKindOutputRedirection:
         assert result["status"] == "deny"
 
     def test_input_redirection_uses_wildcard(self) -> None:
-        """Input redirection with object policy uses wildcard key."""
+        """Input redirection object policy allow does not approve the command (bug #7)."""
         result = evaluate_bash_command(
             "cat < /tmp/in.txt",
             {
@@ -985,7 +1101,7 @@ class TestPerKindOutputRedirection:
                 "input_redirection": {"*": "allow"},
             },
         )
-        assert result["status"] == "allow"
+        assert result["status"] == "ask"
 
 
 class TestResultStructure:
@@ -1192,12 +1308,12 @@ class TestResultStructure:
         assert "input redirection requires approval" in result["reason"]
 
     def test_dup_input_redirection_allowed_when_policy_allow(self) -> None:
-        """Input fd duplication allowed when input_redirection=allow."""
+        """Input fd duplication allowed only for the redirect, not the command (bug #7)."""
         result = evaluate_bash_command(
             "cat <&2",
             {"*": "ask", "input_redirection": "allow"},
         )
-        assert result["status"] == "allow"
+        assert result["status"] == "ask"
 
     def test_dup_input_redirection_deny_when_policy_deny(self) -> None:
         """Input fd duplication denied when input_redirection=deny."""
@@ -1222,12 +1338,12 @@ class TestResultStructure:
         assert result["status"] == "deny"
 
     def test_input_redirect_allowed_when_policy_allow(self) -> None:
-        """Input redirection allowed when input_redirection=allow."""
+        """Input redirection=allow approves only the redirect, not the command (bug #7)."""
         result = evaluate_bash_command(
             "cat < /tmp/in.txt",
             {"*": "ask", "input_redirection": "allow"},
         )
-        assert result["status"] == "allow"
+        assert result["status"] == "ask"
 
     def test_input_redirect_ask_when_policy_ask(self) -> None:
         """Input redirection asks when input_redirection=ask."""
