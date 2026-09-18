@@ -131,7 +131,12 @@ print('ok')"
 
 ## Step 2 — `converter.py`: preserve the C-style prelude in `_convert_for_clause`
 
-**Status: not started**
+**Status: done** (commit 1742da9)
+
+> **Orchestrator note on probes:** wherever this plan's probe snippets are written as
+> `uv run python -c "..."` with `\$` escapes, the `\$` is bash shell escaping for `-c` —
+> the python source itself must contain a plain `$`. Workers should create probe files via
+> a single-quoted heredoc so the shell does not touch anything, and keep the plain `$`.
 
 > **Orchestrator note (pre-existing, do not fix in a step):** `uv run ruff format --check .` fails
 > ONLY on PLAN.md itself (markdown code fences) — this predates all implementation steps. Every
@@ -252,7 +257,11 @@ print('ok')"
 
 ## Step 3 — `converter.py`: remove dead `WordIter` code
 
-**Status: not started**
+**Status: done**
+
+*Worker deviation (accepted): also reworded the Step-2 comment "WordIter-shaped dict" to
+"dict" in `_convert_for_clause` — required by this step's own acceptance check #1
+(`rg WordIter` must print nothing).*
 
 **File:** `src/lovely_bash_permissions/converter.py` (only file touched)
 
