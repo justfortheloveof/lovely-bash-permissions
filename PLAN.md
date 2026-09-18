@@ -380,7 +380,11 @@ print('ok')"
 
 ## Step 5 — `segments.py`: recurse `BinaryTest` left operand
 
-**Status: not started**
+**Status: done**
+
+> ⚠️ **Expected-red window now OPEN:** `tests/config/test_evaluate.py::TestWildcardIsBaseline::
+> test_empty_segment_wildcard_ask` fails (1 failed, 1040 passed) until Step 8 rewrites it.
+> Do NOT "fix" it before Step 8; no other test may be red.
 
 **File:** `src/lovely_bash_permissions/segments.py` (only file touched)
 
