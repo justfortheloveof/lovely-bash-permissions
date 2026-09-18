@@ -408,6 +408,12 @@ def _extract_segments(
         # (regex for =~, literal/glob for ==/!=, number for -eq, ...), never a
         # command name — recurse WITHOUT test-expr context so only nested
         # command substitutions inside it are extracted.
+        # The left operand is likewise the comparison subject (value/glob/
+        # regex/number) — recurse it WITHOUT test-expr context too, so nested
+        # command substitutions (e.g. [[ $(pwd) == /root* ]]) surface but the
+        # operand itself is not emitted as a command.
+        if hasattr(node, "left") and node.left:
+            segments.extend(_extract_segments(node.left, _in_test_expr=False))
         if hasattr(node, "right") and node.right:
             in_test_expr = node.op in ("&&", "||")
             segments.extend(_extract_segments(node.right, _in_test_expr=in_test_expr))
