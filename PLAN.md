@@ -1,6 +1,6 @@
 # Implementation Plan: bugs #5 + #6 + C-style-loop prelude extraction
 
-> **Status: 📝 PROPOSED** — plan for review; not yet implemented.
+> **Status: ✅ DONE** — all steps implemented and verified (Step 9, commit following this note).
 >
 > **For the implementing agent:** every step is self-contained and small. Do ONE
 > step per iteration. Locate edit sites by the **exact "Find" code blocks** (line
@@ -748,7 +748,12 @@ function-local, that's fine — match the file's existing style.)
 
 ## Step 9 — Full verification & plan wrap-up
 
-**Status: not started**
+**Status: done**
+
+*Verification results (repo root): ruff check clean; ruff format clean except PLAN.md itself
+(pre-existing markdown code fences, noted above); mypy --strict . clean (55 files);
+pytest -m "not linting" — 1060 passed; security probe prints deny ok; segment
+behavior spot-checks print ok.*
 
 Run from the repo root; all must pass:
 
