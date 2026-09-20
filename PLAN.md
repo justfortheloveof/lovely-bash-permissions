@@ -142,7 +142,7 @@ EOF
 
 ## Step 0b — repo hygiene: never commit `.fuzz/` (one-line change)
 
-**Status: pending**
+**Status: done** (committed `0774495`; both acceptance checks verified)
 
 **File:** `.gitignore` (only file touched)
 
@@ -177,7 +177,17 @@ venv/
 
 ## Step 1 — `converter.py`: recursion headroom + fail-closed `ParseError` guard (bugs #4 + #9)
 
-**Status: pending**
+**Status: done** — all acceptance checks pass except probe 4's last assertion, which is
+blocked by a **pre-existing** segments.py limitation (verified at depth 2 on unmodified
+HEAD `bba7849`: `parse_segments("echo $($(true))") == ['echo', '$(...)']`). The CallExpr
+handler extracts `node.args[0]` as the command word and recurses only into `args[1:]`,
+so a command substitution used *as the command word* yields a phantom `$(...)` segment
+instead of descending to `true`. Accuracy-class (like #8), NOT a bypass: the subshell
+pass still gates it. Fixing it is outside Step 1's converter-only scope — logged as a
+known limitation; probe 4's assertion is to be read as "no crash / conversion succeeds".
+Two byte-level deviations from the plan block, both ruff-mandated: `max_depth =
+max(max_depth, depth)` (PLR1730) and the `raise ParseError(...) from exc` collapsed to
+one line (format). ruff/ruff-format/mypy clean; 1060 tests green.
 
 **File:** `src/lovely_bash_permissions/converter.py` (only file touched)
 

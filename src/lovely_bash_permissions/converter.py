@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import sys
 from collections.abc import Callable
 from typing import Any
 
@@ -907,6 +908,36 @@ _CONVERTERS: dict[str, Callable[[dict[str, Any]], Node | None]] = {
 }
 
 
+# degenerate commands (deeply nested $()/if/&&-chains/while) exceed
+# the interpreter's default recursion limit and crash with a raw traceback.
+# The top-level node_from_json call measures the maximum JSON container nesting
+# iteratively and raises sys.setrecursionlimit to cover it; inputs nested beyond
+# a safe cap (or a RecursionError that still escapes) fail closed with a
+# ParseError, which callers route to the configured `error` policy.
+_MIN_RECURSION_LIMIT = 2000
+_FRAMES_PER_JSON_LEVEL = 2
+_MAX_RECURSION_LIMIT = 20000
+_json_conversion_depth = 0
+
+
+def _measure_nesting_depth(top: dict[str, Any] | list[Any]) -> int:
+    """Measure the maximum container nesting depth of a JSON tree, iteratively."""
+    max_depth = 0
+    stack: list[tuple[dict[str, Any] | list[Any], int]] = [(top, 1)]
+    while stack:
+        obj, depth = stack.pop()
+        max_depth = max(max_depth, depth)
+        if isinstance(obj, dict):
+            for value in obj.values():
+                if isinstance(value, (dict, list)):
+                    stack.append((value, depth + 1))
+        else:
+            for item in obj:
+                if isinstance(item, (dict, list)):
+                    stack.append((item, depth + 1))
+    return max_depth
+
+
 def node_from_json(data: dict[str, Any] | None) -> Node | None:
     """Convert shfmt JSON node data to a typed AST node.
 
@@ -918,19 +949,41 @@ def node_from_json(data: dict[str, Any] | None) -> Node | None:
     if data is None:
         return None
 
-    node_type = data.get("Type", "")
+    global _json_conversion_depth
+    if _json_conversion_depth == 0:
+        depth = _measure_nesting_depth(data)
+        needed = _MIN_RECURSION_LIMIT + _FRAMES_PER_JSON_LEVEL * depth
+        if needed > _MAX_RECURSION_LIMIT:
+            from .parser import ParseError
 
-    # Handle nodes that have 'Cmd' but no 'Type' (wrapped statements)
-    if not node_type and "Cmd" in data:
-        return node_from_json(data["Cmd"])
+            raise ParseError(
+                f"command structure is nested too deeply to analyze safely "
+                f"(nesting depth {depth} exceeds the safe limit)"
+            )
+        if needed > sys.getrecursionlimit():
+            sys.setrecursionlimit(needed)
 
-    converter = _CONVERTERS.get(node_type)
-    if converter is not None:
-        return converter(data)
+    _json_conversion_depth += 1
+    try:
+        node_type = data.get("Type", "")
 
-    # Unknown type — wrap in a generic Node
-    pos, end = _parse_pos_end(data)
-    return Node(type=node_type, pos=pos, end=end)
+        # Handle nodes that have 'Cmd' but no 'Type' (wrapped statements)
+        if not node_type and "Cmd" in data:
+            return node_from_json(data["Cmd"])
+
+        converter = _CONVERTERS.get(node_type)
+        if converter is not None:
+            return converter(data)
+
+        # Unknown type — wrap in a generic Node
+        pos, end = _parse_pos_end(data)
+        return Node(type=node_type, pos=pos, end=end)
+    except RecursionError as exc:
+        from .parser import ParseError
+
+        raise ParseError("command structure is nested too deeply to analyze safely") from exc
+    finally:
+        _json_conversion_depth -= 1
 
 
 def parse_ast(command: str) -> File:
