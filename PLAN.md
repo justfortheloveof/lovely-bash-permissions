@@ -11,6 +11,13 @@
 > `python -c "import lovely_bash_permissions"` fails).
 
 > **Orchestrator notes (carried over / pre-existing):**
+>
+> - **Commit hygiene (hard rule): NEVER commit `.fuzz/` or anything inside it**
+>   (untracked fuzz artifacts). When committing a step, stage ONLY the files
+>   listed for that step (e.g. `git add src/lovely_bash_permissions/rules.py
+>   PLAN.md`) — never `git add -A` / `git add .`. `.fuzz/` is added to
+>   `.gitignore` in Step 0b. Other untracked noise (`.coverage`, etc.) must
+>   also never be committed.
 > - Probe snippets below are written as `uv run python -c "..."` with `\$`
 >   escapes for illustration. Wherever a probe contains `$`, a quoted heredoc
 >   (`uv run python <<'EOF'`) is safer — create probe files via a
@@ -27,6 +34,7 @@
 ## Bugs being fixed
 
 ### Bug #4 — 🟠 deeply nested `$( ... )` crashes the converter with `RecursionError`
+
 `converter.py` recurses `node_from_json → _convert_call_expr → _convert_word →
 _convert_part → _convert_cmd_subst → _convert_stmt → node_from_json`. Measured
 (valid bash, shfmt parses fine): OK at 164 nested levels, `RecursionError` at
@@ -35,6 +43,7 @@ _convert_part → _convert_cmd_subst → _convert_stmt → node_from_json`. Meas
 a raw traceback, exit 1.
 
 ### Bug #7 — 🔴 `$( ... )` inside a standalone `(( ... ))` bypasses the `subshell` policy
+
 `segments.py` `ArithmCmd` handler emits no segments, so
 `(( x[$(rm -rf /etc/x)] ))` takes the empty-segment fallback in `evaluate.py`,
 which only runs blocked-path/heredoc scans and then defaults to the wildcard.
@@ -45,12 +54,14 @@ exist and the subshell pass fires correctly — only **zero-segment** commands
 (standalone arithmetic, incl. `time (( ... ))`) hit the gap.
 
 ### Bug #8 — 🟡 `$( ... )` in a `case` word or branch pattern is not a segment
+
 `segments.py` `CaseClause` handler recurses only into branch *bodies*.
 `case $(evil) in a) echo 1;; esac` → `['echo']` (misses `evil`);
 `case $x in $(evil)) echo hit;; esac` → `['echo']` (misses pattern).
 Accuracy class like #5 (the subshell pass still denies under `subshell: deny`).
 
 ### Bug #9 — 🟠 `RecursionError` crash surface is wider: nested `if`, `&&`/`||` chains, nested `while`
+
 Same root cause as #4. Thresholds: `if` 246/247; `&&`/`||` chain 329/330;
 `while` 328/329; `;`/pipes/`{ }` fine to thousands. A ~400-command
 `a && a && …` script (or ~250 nested ifs) crosses the threshold — no exotic
@@ -61,6 +72,7 @@ to `config.get("error") or config.get("*")`), which makes #9 a security
 concern, not just a crash.
 
 ### Bug #10 — ⚪ compound-command redirections are attributed to every inner segment
+
 `IfClause`/`WhileClause`/`ElifBranch` handlers pass the *inherited* statement
 redirections into every contained stmt. `while :; do echo a; done < /etc/shadow`
 → reason `"input redirection allowed from /etc/shadow, /etc/shadow"`. Applies to
@@ -68,6 +80,7 @@ while, until, if, `{ }`. Over-attribution only (no bypass); user-visible impact
 is duplicated/misattributed reason text and doubled per-command checks.
 
 ### Bugs #5 + #6 — already fixed, verify only
+
 `for`-loop lists / test left-operands (`['seq','echo']`, `['pwd','echo']`) and
 `$( ... )` test right-operands (`['cmd']`, no more `$(...)` pseudo-segment) were
 implemented and verified in prior commits. Step 0 re-confirms; no code changes.
@@ -76,8 +89,14 @@ implemented and verified in prior commits. Step 0 re-confirms; no code changes.
 
 ## Execution order & dependency notes
 
-Steps 1 → 2 → 3 → 4 are code changes; 5–6 add tests; 7 is final verification.
+Step 0b is a one-line repo-hygiene change; Steps 1 → 2 → 3 → 4 are code
+changes; 5–6 add tests; 7 is final verification.
 Each step's acceptance probe stands on its own.
+
+**Test-insertion rule (Steps 5–6):** all new test code is *appended at the
+end of its file* as a new class — no reflowing or interleaving of existing
+tests. Existing imports cover everything needed (verified at plan time);
+do not add imports unless a probe proves one is missing.
 
 **Expected-red window: none known.** Audited the existing suite: every current
 empty-segment test in `tests/config/test_evaluate.py` is either `[[ -f x ]]`
@@ -103,6 +122,7 @@ staying raised — do not restore/lower it after conversion.
 **Changes:** none.
 
 **Acceptance (all must hold, run from repo root):**
+
 ```bash
 uv run python <<'EOF'
 from lovely_bash_permissions.segments import parse_segments
@@ -120,6 +140,41 @@ EOF
 
 ---
 
+## Step 0b — repo hygiene: never commit `.fuzz/` (one-line change)
+
+**Status: pending**
+
+**File:** `.gitignore` (only file touched)
+
+**Why:** `.fuzz/` is currently untracked (`git status` shows `?? .fuzz/`) and
+holds fuzz artifacts that must never be committed (user requirement).
+
+**Change:** append the line `.fuzz/` at the end of `.gitignore`.
+
+Find (tail of the file):
+
+```
+dist/
+build/
+venv/
+```
+
+Replace with:
+
+```
+dist/
+build/
+venv/
+.fuzz/
+```
+
+**Acceptance:**
+
+1. `git status --short` no longer shows `?? .fuzz/`.
+2. `git check-ignore -v .fuzz/` prints the `.gitignore` rule.
+
+---
+
 ## Step 1 — `converter.py`: recursion headroom + fail-closed `ParseError` guard (bugs #4 + #9)
 
 **Status: pending**
@@ -133,6 +188,7 @@ so it cannot itself blow up) lets us size `sys.setrecursionlimit` to the input
 "bump `sys.setrecursionlimit` relative to input depth".
 
 Frame budget measured against the live converter (default limit 1000):
+
 - `$( ... )` nesting crashes at depth ~165 (≈ 6 stack frames/level; JSON
   container depth ≈ 6× level) → ≈ 1 stack frame per JSON container level.
 - `if`/`&&`/`while` are cheaper per level (crash 247/330/329).
@@ -155,6 +211,7 @@ phases that run afterwards in the same process.
 **Change 1 — add the `sys` import.**
 
 Find:
+
 ```python
 from __future__ import annotations
 
@@ -163,7 +220,9 @@ import logging
 from collections.abc import Callable
 from typing import Any
 ```
+
 Replace with:
+
 ```python
 from __future__ import annotations
 
@@ -209,7 +268,7 @@ def node_from_json(data: dict[str, Any] | None) -> Node | None:
 Replace with:
 
 ```python
-# Bugs #4/#9: degenerate commands (deeply nested $()/if/&&-chains/while) exceed
+# degenerate commands (deeply nested $()/if/&&-chains/while) exceed
 # the interpreter's default recursion limit and crash with a raw traceback.
 # The top-level node_from_json call measures the maximum JSON container nesting
 # iteratively and raises sys.setrecursionlimit to cover it; inputs nested beyond
@@ -291,6 +350,7 @@ def node_from_json(data: dict[str, Any] | None) -> Node | None:
 ```
 
 Notes:
+
 - We only ever raise the limit (`needed > sys.getrecursionlimit()`) and never
   restore it. This is deliberate: `_extract_segments` and the inspection CLI
   render recurse on the same deep tree immediately afterwards and rely on the
@@ -301,9 +361,11 @@ Notes:
   no traceback, no process crash, exit code 3 from the CLI.
 
 **Acceptance (all must hold):**
+
 1. `uv run ruff check .` and `uv run ruff format --check .` (ignore PLAN.md
    itself) — clean. `uv run mypy --strict src/lovely_bash_permissions` — clean.
 2. Deep-shape probes (quoted heredoc; previously each crashed):
+
 ```bash
 uv run python <<'EOF'
 from lovely_bash_permissions.converter import parse_ast
@@ -321,7 +383,9 @@ parse_ast("while :; do " * 400 + "true" + "; done" * 400)
 print("ok")
 EOF
 ```
-3. Over-the-cap guard (fail closed, no RecursionError):
+
+1. Over-the-cap guard (fail closed, no RecursionError):
+
 ```bash
 uv run python <<'EOF'
 import lovely_bash_permissions.converter as conv
@@ -341,7 +405,9 @@ finally:
 print("ok")
 EOF
 ```
-4. CLI no-crash fix (must exit 0, render normally — no traceback):
+
+1. CLI no-crash fix (must exit 0, render normally — no traceback):
+
 ```bash
 cmd=$(python -c "print('echo ' + '\$('*180 + 'true' + ')'*180)")
 uv run lovely-bash-inspection --string "$cmd"; echo "exit=$?"
@@ -381,6 +447,7 @@ when `subshell` is unset. Two consequences, resolved as follows:
 **Change:** replace the empty-segment tail.
 
 Find:
+
 ```python
         if _empty_reasons:
             _empty_reason = "; ".join(dict.fromkeys(_empty_reasons))
@@ -393,12 +460,13 @@ Find:
 ```
 
 Replace with:
+
 ```python
         if _empty_reasons:
             _empty_status = "deny"
             _empty_reason = "; ".join(dict.fromkeys(_empty_reasons))
         elif has_subshell:
-            # Bug #7: standalone arithmetic like `(( x[$(rm -rf /etc/x)] ))`
+            # standalone arithmetic like `(( x[$(rm -rf /etc/x)] ))`
             # produces no segments, so the fallback auto-approved it under
             # "*": "allow" even when subshell policy is "deny". Gate it by the
             # resolved subshell policy; only an explicit "allow" falls through
@@ -425,6 +493,7 @@ Replace with:
 ```
 
 Notes:
+
 - `_sub_policy` is `ask` or `deny` at the `else`; assigning it directly to
   `_empty_status` is safe.
 - `"subshell or command substitution requires approval"` matches the reason
@@ -435,7 +504,7 @@ Notes:
 - Post-fix behavior for the report's matrix (`(( x[$(rm -rf /etc/x)] ))`):
 
 | config (`*` / `subshell`) | before | after |
-|---|---|---|
+| --- | --- | --- |
 | allow / deny | allow ❌ | **deny** |
 | allow / ask | allow ❌ | **ask** |
 | allow / (unset) | allow ❌ | **ask** (matrix row; explicit-override rule above) |
@@ -448,11 +517,13 @@ Notes:
   restrictive than `*: ask` and must deny. This plan follows the Fix text for
   that row; the matrix for the `allow / (unset)` row. Both divergences are
   called out here so the reviewer can weigh in.
+
 - Explicit `subshell: "allow"` under any wildcard still falls through to the
   wildcard (inheritance preserved for commands that *do* resolve to segments —
   `test_subshell_inherits_wildcard_allow` is unaffected either way).
 
 **Acceptance (all must hold):**
+
 ```bash
 uv run python <<'EOF'
 from lovely_bash_permissions.evaluate import evaluate_bash_command
@@ -474,6 +545,7 @@ assert evaluate_bash_command("(( x = 5 ))", {"*": "allow", "subshell": "deny"})[
 print("ok")
 EOF
 ```
+
 1. Also confirm `[[ -f x ]]` under `{"*": "ask"}` still reports
    `"wildcard policy (ask)"` in the reason (unchanged path).
 
@@ -493,6 +565,7 @@ segments — the same pattern as the `ForClause` handler's `words` recursion.
 **Change:** replace the `CaseClause` branch of `_extract_segments`.
 
 Find:
+
 ```python
     elif isinstance(node, CaseClause):
         # case/switch: extract commands from each branch body
@@ -504,6 +577,7 @@ Find:
 ```
 
 Replace with:
+
 ```python
     elif isinstance(node, CaseClause):
         # case/switch: the subject word (node.expr) and each branch's match
@@ -522,6 +596,7 @@ Replace with:
 ```
 
 **Acceptance (all must hold):**
+
 ```bash
 uv run python <<'EOF'
 from lovely_bash_permissions.segments import parse_segments
@@ -537,6 +612,7 @@ assert cmds("case $(a) in $(b)) echo c;; esac") == ["a", "b", "c"]
 print("ok")
 EOF
 ```
+
 1. `uv run ruff check .` / `uv run ruff format --check .` (source files only)
    and `uv run mypy --strict src/lovely_bash_permissions` — clean.
 2. `uv run pytest -m 'not linting' -q` — all green (no existing `case` tests;
@@ -561,6 +637,7 @@ ever lost.
 the collection loop.
 
 Find:
+
 ```python
     redirections: list[dict[str, Any]] = []
     for seg in segments:
@@ -571,9 +648,11 @@ Find:
     if not redirections:
         return {"status": "allow", "matched": False, "reason": "no output redirection"}
 ```
+
 Replace with:
+
 ```python
-    # Bug #10: compound-command redirections (while/until/if/{ } group) are
+    # compound-command redirections (while/until/if/{ } group) are
     # attributed to every inner segment — the same redirection appears once per
     # segment. Dedupe by (op, fd, target); distinct descriptors are preserved.
     redirections: list[dict[str, Any]] = []
@@ -597,6 +676,7 @@ Replace with:
 the collection loop.
 
 Find:
+
 ```python
     input_redirs: list[dict[str, Any]] = []
     for seg in segments:
@@ -609,9 +689,11 @@ Find:
                     target = parts[0].get("Value", "")
                 input_redirs.append({"op": r["Op"], "target": target})
 ```
+
 Replace with:
+
 ```python
-    # Bug #10: dedupe by (op, target) — compound-command redirections are
+    # dedupe by (op, target) — compound-command redirections are
     # attributed to every inner segment.
     input_redirs: list[dict[str, Any]] = []
     seen_input: set[tuple[str, str]] = set()
@@ -630,6 +712,7 @@ Replace with:
 ```
 
 **Acceptance (all must hold):**
+
 ```bash
 uv run python <<'EOF'
 from lovely_bash_permissions.evaluate import evaluate_bash_command
@@ -647,6 +730,7 @@ assert r["reason"].count("/etc/shadow") == 1 and r["reason"].count("/tmp/out") =
 print("ok")
 EOF
 ```
+
 1. `uv run ruff check .` / `uv run ruff format --check .` and
    `uv run mypy --strict src/lovely_bash_permissions` — clean.
 2. `uv run pytest -m 'not linting' -q` — all green (no test asserts duplicated
@@ -660,16 +744,27 @@ EOF
 
 **File:** `tests/config/test_evaluate.py` (only file touched)
 
-Add a test class `TestEmptySegmentSubshellPolicy` (near the existing empty-segment
-tests) covering the bug #7 matrix, and a dedup test for bug #10. Use
-`make_config` from `tests/config/conftest.py` where convenient (it only sets
-keys that differ from the defaults; note `evaluate_bash_command` takes a plain
-dict, so pass dicts directly for explicit-key scenarios).
+Two insertions, both exact:
 
-Suggested tests:
+1. **Bug #7 matrix** — append the `TestEmptySegmentSubshellPolicy` class
+   (below) at the **end of the file**. It uses plain dicts for the config
+   argument (explicit-key scenarios), not `make_config`.
+2. **Bug #10 dedup test** — add the `test_compound_input_redirection_not_duplicated`
+   method (below) to the **existing** `TestCompoundCommandRedirections` class.
+   Locate it with:
+   `rg -n "class TestCompoundCommandRedirections" tests/config/test_evaluate.py`
+   and insert the method as the **first method inside that class** (right
+   after the class line / its docstring), so it stays indented 4 spaces as a
+   method. Do not touch any other test.
+
+No new imports are needed (`evaluate_bash_command` is already imported at the
+top of the file).
+
+Tests to add:
+
 ```python
 class TestEmptySegmentSubshellPolicy:
-    """bug #7: standalone (( ... $(...) )) is gated by the subshell policy."""
+    """standalone (( ... $(...) )) is gated by the subshell policy."""
 
     CMD = "(( x[$(rm -rf /etc/x)] ))"
 
@@ -716,10 +811,12 @@ class TestEmptySegmentSubshellPolicy:
         )["status"] == "allow"
 ```
 
-And a bug #10 test (extend the empty-segment/redirection area of the file):
+And the bug #10 test (goes inside `TestCompoundCommandRedirections`, indented
+as a method):
+
 ```python
     def test_compound_input_redirection_not_duplicated(self) -> None:
-        """bug #10: < file on a while loop is attributed once, not per segment."""
+        """< file on a while loop is attributed once, not per segment."""
         result = evaluate_bash_command(
             "while :; do echo a; done < /etc/shadow",
             {"*": "allow", "input_redirection": "allow"},
@@ -740,43 +837,66 @@ all green.
 **Files:** `tests/parsing/test_segments.py`, `tests/parsing/test_parser.py`,
 `tests/config/test_evaluate.py`
 
-1. **Bug #8** — in `tests/parsing/test_segments.py`, add:
-```python
-def test_case_word_command_substitution_extracted(self) -> None:
-    """bug #8: the case subject word is a segment."""
-    result = parse_segments("case $(evil) in a) echo 1;; esac")
-    assert [s["command"] for s in result] == ["evil", "echo"]
+1. **Bug #8** — in `tests/parsing/test_segments.py`, append this class at the
+   **end of the file** (the tests use `self`, so they must live in a class;
+   there is no existing case-test class — `parse_segments` is already
+   imported at the top of the file):
 
-def test_case_branch_pattern_command_substitution_extracted(self) -> None:
-    """bug #8: branch patterns are segments too."""
-    result = parse_segments("case $x in $(evil)) echo hit;; esac")
-    assert [s["command"] for s in result] == ["evil", "echo"]
-```
-2. **Bugs #4/#9** — in `tests/parsing/test_parser.py`, add
-`test_deep_cmdsubst_does_not_crash` and `test_deep_compound_does_not_crash`
-using `parse_ast` on depths previously guaranteed to raise `RecursionError`
-(200, 300, 400/400). In `tests/config/test_evaluate.py`, add one end-to-end
-test that `evaluate_bash_command` on a depth-180 `$( ... )` returns a verdict
-instead of crashing:
 ```python
-def test_deep_command_substitution_evaluates_without_crash(self) -> None:
-    """bugs #4/#9: deep nesting converts and evaluates instead of RecursionError."""
-    deep = "echo " + "$(" * 180 + "true" + ")" * 180
-    result = evaluate_bash_command(deep, {"*": "allow"})
-    assert result["status"] == "allow"
+class TestCaseCommandSubstitution:
+    """case subject word and branch patterns are segments."""
+
+    def test_case_word_command_substitution_extracted(self) -> None:
+        """bug #8: the case subject word is a segment."""
+        result = parse_segments("case $(evil) in a) echo 1;; esac")
+        assert [s["command"] for s in result] == ["evil", "echo"]
+
+    def test_case_branch_pattern_command_substitution_extracted(self) -> None:
+        """bug #8: branch patterns are segments too."""
+        result = parse_segments("case $x in $(evil)) echo hit;; esac")
+        assert [s["command"] for s in result] == ["evil", "echo"]
 ```
-   And a fail-closed guard test (monkeypatch `_MAX_RECURSION_LIMIT` low → the
-   command raises `LovelyDevinPermissionsError` / `ParseError`, not
-   `RecursionError`):
+
+1. **Bugs #4/#9** — two more append-at-end-of-file classes.
+
+   In `tests/parsing/test_parser.py`, append (`parse_ast` is already imported
+   at the top of the file):
+
 ```python
-def test_over_cap_command_fails_closed(self, monkeypatch) -> None:
-    """bugs #4/#9: past the cap we fail closed with a parse error, never recurse-crash."""
-    import lovely_bash_permissions.converter as conv
-    from lovely_bash_permissions.errors import LovelyDevinPermissionsError
-    monkeypatch.setattr(conv, "_MAX_RECURSION_LIMIT", 2000)
-    deep = "echo " + "$(" * 400 + "true" + ")" * 400
-    with pytest.raises(LovelyDevinPermissionsError):
-        conv.parse_ast(deep)
+class TestDeepNestingRecursion:
+    """deep nesting must convert instead of raising RecursionError."""
+
+    def test_deep_cmdsubst_does_not_crash(self) -> None:
+        deep = "echo " + "$(" * 200 + "true" + ")" * 200
+        parse_ast(deep)
+
+    def test_deep_compound_does_not_crash(self) -> None:
+        parse_ast("if :; then " * 300 + "true" + "; fi" * 300)
+        chain = " && ".join(["a"] * 400)
+        assert len(parse_segments(chain)) == 400
+        parse_ast("while :; do " * 400 + "true" + "; done" * 400)
+```
+
+   In `tests/config/test_evaluate.py`, append (`pytest` and
+   `LovelyDevinPermissionsError` are already imported at the top of the file):
+
+```python
+class TestDeepNestingRecursion:
+    """deep nesting converts and evaluates; past the cap, fail closed."""
+
+    def test_deep_command_substitution_evaluates_without_crash(self) -> None:
+        """deep nesting converts and evaluates instead of RecursionError."""
+        deep = "echo " + "$(" * 180 + "true" + ")" * 180
+        result = evaluate_bash_command(deep, {"*": "allow"})
+        assert result["status"] == "allow"
+
+    def test_over_cap_command_fails_closed(self, monkeypatch) -> None:
+        """past the cap we fail closed with a parse error, never recurse-crash."""
+        import lovely_bash_permissions.converter as conv
+        monkeypatch.setattr(conv, "_MAX_RECURSION_LIMIT", 2000)
+        deep = "echo " + "$(" * 400 + "true" + ")" * 400
+        with pytest.raises(LovelyDevinPermissionsError):
+            conv.parse_ast(deep)
 ```
 
 **Acceptance:** `uv run pytest tests/parsing/test_segments.py tests/parsing/test_parser.py tests/config/test_evaluate.py -q` — green.
@@ -795,6 +915,7 @@ Run from the repo root; all must pass:
 3. `uv run mypy --strict .`
 4. `uv run pytest -m 'not linting' -q`
 5. Security probe (must print `deny ok`):
+
 ```bash
 uv run python <<'EOF'
 from lovely_bash_permissions.evaluate import evaluate_bash_command
@@ -806,20 +927,23 @@ assert r["reason"].count("/etc/shadow") == 1, r["reason"]
 print("deny ok")
 EOF
 ```
-6. CLI no-crash probe (exits 0, no traceback — the over-the-cap exit-3 path is
+
+1. CLI no-crash probe (exits 0, no traceback — the over-the-cap exit-3 path is
    covered by the guard unit test in Step 6 instead):
+
 ```bash
 cmd=$(python -c "print('echo ' + '\$('*180 + 'true' + ')'*180)")
 uv run lovely-bash-inspection --string "$cmd" >/dev/null 2>&1; test $? -eq 0
 ```
-7. Mark every step in this plan `Status: done`.
+
+1. Mark every step in this plan `Status: done`.
 
 ---
 
 ## Resulting behaviors (reference table)
 
 | Command / config | before | after |
-|---|---|---|
+| --- | --- | --- |
 | `echo $(…$(true)…)` ×165+ | `RecursionError` crash (exit 1) | converts; up to ~cap depth, else clean parse error (exit 3) |
 | ~400 × `a && a && …` | `RecursionError` | converts fine |
 | `(( x[$(rm -rf /etc/x)] ))` with `"*": "allow"` | allow ❌ | ask |
