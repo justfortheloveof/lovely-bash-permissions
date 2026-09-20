@@ -1874,6 +1874,15 @@ class TestCompoundCommandRedirections:
     converter unwrapped the inner Stmt and lost its redirections.
     """
 
+    def test_compound_input_redirection_not_duplicated(self) -> None:
+        """< file on a while loop is attributed once, not per segment."""
+        result = evaluate_bash_command(
+            "while :; do echo a; done < /etc/shadow",
+            {"*": "allow", "input_redirection": "allow"},
+        )
+        assert result["status"] == "allow"
+        assert result["reason"].count("/etc/shadow") == 1
+
     def test_time_blocked_path_denied(self) -> None:
         result = evaluate_bash_command(
             "time echo hi > /etc/passwd",
@@ -2372,3 +2381,43 @@ class TestAdvancedBashConstructs:
         """Declare associative array should require approval in env3."""
         result = evaluate_bash_command("declare -A map > file", make_config())
         assert result["status"] == "ask"
+
+
+class TestEmptySegmentSubshellPolicy:
+    """standalone (( ... $(...) )) is gated by the subshell policy."""
+
+    CMD = "(( x[$(rm -rf /etc/x)] ))"
+
+    def test_allow_wildcard_deny_subshell(self) -> None:
+        assert evaluate_bash_command(self.CMD, {"*": "allow", "subshell": "deny"})["status"] == "deny"
+
+    def test_allow_wildcard_default_subshell_asks(self) -> None:
+        assert evaluate_bash_command(self.CMD, {"*": "allow"})["status"] == "ask"
+
+    def test_allow_wildcard_explicit_ask(self) -> None:
+        assert evaluate_bash_command(self.CMD, {"*": "allow", "subshell": "ask"})["status"] == "ask"
+
+    def test_allow_wildcard_explicit_subshell_allow(self) -> None:
+        assert evaluate_bash_command(self.CMD, {"*": "allow", "subshell": "allow"})["status"] == "allow"
+
+    def test_ask_wildcard_deny_subshell(self) -> None:
+        assert evaluate_bash_command(self.CMD, {"*": "ask", "subshell": "deny"})["status"] == "deny"
+
+    def test_deny_wildcard_allow_subshell(self) -> None:
+        assert evaluate_bash_command(self.CMD, {"*": "deny", "subshell": "allow"})["status"] == "deny"
+
+    def test_deny_wildcard_unset_subshell(self) -> None:
+        """No downgrade: an inherited deny (unset subshell) still denies."""
+        assert evaluate_bash_command(self.CMD, {"*": "deny"})["status"] == "deny"
+
+    def test_time_wrapped_arithmetic(self) -> None:
+        assert evaluate_bash_command("time (( x[$(rm z)] ))", {"*": "allow", "subshell": "deny"})["status"] == "deny"
+
+    def test_followed_by_real_command(self) -> None:
+        assert evaluate_bash_command("ls; (( x[$(rm)] ))", {"*": "allow", "subshell": "deny"})["status"] == "deny"
+
+    def test_plus_equals_variant(self) -> None:
+        assert evaluate_bash_command("(( y += $(rm z) ))", {"*": "allow", "subshell": "deny"})["status"] == "deny"
+
+    def test_literal_arithmetic_unaffected(self) -> None:
+        assert evaluate_bash_command("(( x = 5 ))", {"*": "allow", "subshell": "deny"})["status"] == "allow"
