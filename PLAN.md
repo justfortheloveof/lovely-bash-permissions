@@ -429,7 +429,7 @@ uv run lovely-bash-inspection --string "$cmd"; echo "exit=$?"
 
 ## Step 2 — `evaluate.py`: apply the resolved `subshell` policy in the empty-segment fallback (bug #7)
 
-**Status: pending**
+**Status: done** (full matrix + time/ls/+=/literal variants verified; `[[ -f x ]]` wildcard path unchanged; linters clean; 1060 tests green)
 
 **File:** `src/lovely_bash_permissions/evaluate.py` (only file touched)
 
@@ -563,7 +563,7 @@ EOF
 
 ## Step 3 — `segments.py`: recurse the `case` subject word and branch patterns (bug #8)
 
-**Status: pending**
+**Status: in progress**
 
 **File:** `src/lovely_bash_permissions/segments.py` (only file touched)
 

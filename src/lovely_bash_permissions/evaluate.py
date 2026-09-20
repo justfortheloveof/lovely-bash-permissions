@@ -330,7 +330,27 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                         )
                         break
         if _empty_reasons:
+            _empty_status = "deny"
             _empty_reason = "; ".join(dict.fromkeys(_empty_reasons))
+        elif has_subshell:
+            # standalone arithmetic like `(( x[$(rm -rf /etc/x)] ))`
+            # produces no segments, so the fallback auto-approved it under
+            # "*": "allow" even when subshell policy is "deny". Gate it by the
+            # resolved subshell policy; only an explicit "allow" falls through
+            # to the wildcard default. An *inherited* allow (unset subshell
+            # under a permissive wildcard) becomes ask: the command produced no
+            # segments, so we cannot analyse what runs — default fail-closed.
+            _sub_policy = rules["subshell"]
+            if _sub_policy == "allow" and "subshell" not in config:
+                _sub_policy = "ask"
+            if _sub_policy == "allow":
+                _empty_status = _wildcard
+                _empty_reason = (
+                    f"<empty command> produced no parseable segments — defaulting to wildcard policy ({_wildcard})"
+                )
+            else:
+                _empty_status = _sub_policy
+                _empty_reason = "subshell or command substitution requires approval"
         else:
             _empty_status = _wildcard
             _empty_reason = (
