@@ -635,7 +635,9 @@ EOF
 
 ## Step 4 — `rules.py`: dedupe compound-command redirections in segment checks (bug #10)
 
-**Status: in progress**
+**Status: done** — see the plan-correction note at the end of this section (the `N`-is-a-dict
+fix). All probes pass; linters clean; 1060 tests green (including the ~125 that the broken
+verbatim block had crashed).
 
 **File:** `src/lovely_bash_permissions/rules.py` (only file touched)
 
@@ -669,14 +671,21 @@ Replace with:
     # attributed to every inner segment — the same redirection appears once per
     # segment. Dedupe by (op, fd, target); distinct descriptors are preserved.
     redirections: list[dict[str, Any]] = []
-    seen_output: set[tuple[str, str | int | None, str]] = set()
+    seen_output: set[tuple[str, str, str]] = set()
     for seg in segments:
         for r in seg.get("redirections", []):
             if r.get("Op") in WRITE_REDIRECT_OPS:
                 word = r.get("Word", {})
                 parts = word.get("Parts", [])
                 target = parts[0].get("Value", "") if parts else ""
-                key = (r.get("Op", ""), r.get("N"), target)
+                # segment redirection dicts serialize the fd as a dict
+                # ({} when absent, {"Value": "2"} for `2>`) — extract the scalar
+                # fd so the dedupe key is hashable.
+                n = r.get("N")
+                fd = (
+                    n.get("Value", "") if isinstance(n, dict) else ("" if n is None else str(n))
+                )
+                key = (r.get("Op", ""), fd, target)
                 if key not in seen_output:
                     seen_output.add(key)
                     redirections.append(r)
@@ -748,6 +757,13 @@ EOF
    `uv run mypy --strict src/lovely_bash_permissions` — clean.
 2. `uv run pytest -m 'not linting' -q` — all green (no test asserts duplicated
    redirection reasons).
+
+**Plan correction (found during Step 4 implementation):** the original Change-1 block keyed
+the dedupe set on `r.get("N")` directly, but segment redirection dicts serialize the fd as a
+*dict* (`{}` when absent, `{"Value": "2"}` for `2>`, see `_redir_dicts` in segments.py),
+which is unhashable — verbatim application crashed ~125 existing tests with `TypeError` at
+the set lookup. Fix: extract the scalar fd first (applied; in the committed code the fd
+expression sits on one line to satisfy `ruff format` at line-length 120):
 
 ---
 

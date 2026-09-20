@@ -454,11 +454,26 @@ def _check_segments_output_redirs(segments: list[dict[str, Any]], rules: dict[st
     """
     policy = rules.get("output_redirection", "ask")
 
+    # compound-command redirections (while/until/if/{ } group) are
+    # attributed to every inner segment — the same redirection appears once per
+    # segment. Dedupe by (op, fd, target); distinct descriptors are preserved.
     redirections: list[dict[str, Any]] = []
+    seen_output: set[tuple[str, str, str]] = set()
     for seg in segments:
         for r in seg.get("redirections", []):
             if r.get("Op") in WRITE_REDIRECT_OPS:
-                redirections.append(r)
+                word = r.get("Word", {})
+                parts = word.get("Parts", [])
+                target = parts[0].get("Value", "") if parts else ""
+                # segment redirection dicts serialize the fd as a dict
+                # ({} when absent, {"Value": "2"} for `2>`) — extract the scalar
+                # fd so the dedupe key is hashable.
+                n = r.get("N")
+                fd = n.get("Value", "") if isinstance(n, dict) else ("" if n is None else str(n))
+                key = (r.get("Op", ""), fd, target)
+                if key not in seen_output:
+                    seen_output.add(key)
+                    redirections.append(r)
 
     if not redirections:
         return {"status": "allow", "matched": False, "reason": "no output redirection"}
@@ -509,7 +524,10 @@ def _check_segments_input_redirs(segments: list[dict[str, Any]], rules: dict[str
     policy = rules.get("input_redirection", "ask")
     level = policy.get("*", "ask") if isinstance(policy, dict) else policy
 
+    # dedupe by (op, target) — compound-command redirections are
+    # attributed to every inner segment.
     input_redirs: list[dict[str, Any]] = []
+    seen_input: set[tuple[str, str]] = set()
     for seg in segments:
         for r in seg.get("redirections", []):
             if r.get("Op") in ("<", "<<", "<<<", "<&"):
@@ -518,7 +536,10 @@ def _check_segments_input_redirs(segments: list[dict[str, Any]], rules: dict[str
                 parts = word.get("Parts", [])
                 if parts:
                     target = parts[0].get("Value", "")
-                input_redirs.append({"op": r["Op"], "target": target})
+                key = (r["Op"], target)
+                if key not in seen_input:
+                    seen_input.add(key)
+                    input_redirs.append({"op": r["Op"], "target": target})
 
     if not input_redirs:
         return {"status": "allow", "matched": False, "reason": "no input redirection"}
