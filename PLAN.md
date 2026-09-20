@@ -563,7 +563,10 @@ EOF
 
 ## Step 3 — `segments.py`: recurse the `case` subject word and branch patterns (bug #8)
 
-**Status: in progress**
+**Status: done** — all bug-related probes pass. Note: the plan's original expected value
+`["a","b","c"]` for `case $(a) in $(b)) echo c;; esac` was a typo in this plan; the
+correct expectation is `["a","b","echo"]` (the body command is `echo`, segment
+commands are the command names). Plan corrected. Linters clean; 1060 tests green.
 
 **File:** `src/lovely_bash_permissions/segments.py` (only file touched)
 
@@ -618,7 +621,7 @@ assert cmds("case $(evil) in a) echo 1;; esac") == ["evil", "echo"]
 assert cmds("case $x in $(evil)) echo hit;; esac") == ["evil", "echo"]
 assert cmds("select x in $(evil); do echo $x; done") == ["evil", "echo"]
 assert cmds("case $x in a) echo 1;; esac") == ["echo"]  # unchanged
-assert cmds("case $(a) in $(b)) echo c;; esac") == ["a", "b", "c"]
+assert cmds("case $(a) in $(b)) echo c;; esac") == ["a", "b", "echo"]
 print("ok")
 EOF
 ```
@@ -632,7 +635,7 @@ EOF
 
 ## Step 4 — `rules.py`: dedupe compound-command redirections in segment checks (bug #10)
 
-**Status: pending**
+**Status: in progress**
 
 **File:** `src/lovely_bash_permissions/rules.py` (only file touched)
 

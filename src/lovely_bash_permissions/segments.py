@@ -362,9 +362,16 @@ def _extract_segments(
                         if elem.value is not None:
                             segments.extend(_extract_segments(elem.value, redirs))
     elif isinstance(node, CaseClause):
-        # case/switch: extract commands from each branch body
+        # case/switch: the subject word (node.expr) and each branch's match
+        # patterns can embed command substitutions that bash evaluates before
+        # the body runs — surface them alongside the branch bodies (bug #8).
+        if getattr(node, "expr", None) is not None:
+            segments.extend(_extract_segments(node.expr, redirs))
         if hasattr(node, "branches") and node.branches:
             for branch in node.branches:
+                if hasattr(branch, "patterns") and branch.patterns:
+                    for pattern in branch.patterns:
+                        segments.extend(_extract_segments(pattern, redirs))
                 if hasattr(branch, "body") and branch.body:
                     for stmt in branch.body:
                         segments.extend(_extract_segments(stmt, redirs))
