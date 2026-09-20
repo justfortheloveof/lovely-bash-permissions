@@ -2421,3 +2421,22 @@ class TestEmptySegmentSubshellPolicy:
 
     def test_literal_arithmetic_unaffected(self) -> None:
         assert evaluate_bash_command("(( x = 5 ))", {"*": "allow", "subshell": "deny"})["status"] == "allow"
+
+
+class TestDeepNestingRecursion:
+    """deep nesting converts and evaluates; past the cap, fail closed."""
+
+    def test_deep_command_substitution_evaluates_without_crash(self) -> None:
+        """deep nesting converts and evaluates instead of RecursionError."""
+        deep = "echo " + "$(" * 180 + "true" + ")" * 180
+        result = evaluate_bash_command(deep, {"*": "allow"})
+        assert result["status"] == "allow"
+
+    def test_over_cap_command_fails_closed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """past the cap we fail closed with a parse error, never recurse-crash."""
+        import lovely_bash_permissions.converter as conv
+
+        monkeypatch.setattr(conv, "_MAX_RECURSION_LIMIT", 2000)
+        deep = "echo " + "$(" * 400 + "true" + ")" * 400
+        with pytest.raises(LovelyDevinPermissionsError):
+            conv.parse_ast(deep)

@@ -2498,3 +2498,17 @@ class TestFuncDeclNodes:
         from lovely_bash_permissions import FuncDecl
 
         assert FuncDecl is not None
+
+
+class TestDeepNestingRecursion:
+    """deep nesting must convert instead of raising RecursionError."""
+
+    def test_deep_cmdsubst_does_not_crash(self) -> None:
+        deep = "echo " + "$(" * 200 + "true" + ")" * 200
+        parse_ast(deep)
+
+    def test_deep_compound_does_not_crash(self) -> None:
+        parse_ast("if :; then " * 300 + "true" + "; fi" * 300)
+        chain = " && ".join(["a"] * 400)
+        assert len(parse_segments(chain)) == 400
+        parse_ast("while :; do " * 400 + "true" + "; done" * 400)

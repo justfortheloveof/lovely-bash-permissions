@@ -620,3 +620,17 @@ class TestNoPhantomTestCommands:
 
     def test_bare_literal_operand_still_extracted(self) -> None:
         assert [s["command"] for s in parse_segments("[[ foo ]]")] == ["foo"]
+
+
+class TestCaseCommandSubstitution:
+    """case subject word and branch patterns are segments."""
+
+    def test_case_word_command_substitution_extracted(self) -> None:
+        """bug #8: the case subject word is a segment."""
+        result = parse_segments("case $(evil) in a) echo 1;; esac")
+        assert [s["command"] for s in result] == ["evil", "echo"]
+
+    def test_case_branch_pattern_command_substitution_extracted(self) -> None:
+        """bug #8: branch patterns are segments too."""
+        result = parse_segments("case $x in $(evil)) echo hit;; esac")
+        assert [s["command"] for s in result] == ["evil", "echo"]
