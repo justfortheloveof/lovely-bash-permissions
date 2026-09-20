@@ -1,6 +1,6 @@
 # Implementation Plan: bugs #4 + #7 + #8 + #9 + #10 (verify #5 + #6)
 
-> **Status: 🔧 IN PROGRESS — not yet implemented.**
+> **Status: ✅ COMPLETE — all steps implemented and verified.**
 >
 > **For the implementing agent:** every step is self-contained and small. Do ONE
 > step per iteration. Locate edit sites by the exact **"Find" code blocks** (line
@@ -769,7 +769,7 @@ expression sits on one line to satisfy `ruff format` at line-length 120):
 
 ## Step 5 — `tests/config/test_evaluate.py`: regressions for bugs #7 + #10
 
-**Status: pending** (after Steps 2 and 4)
+**Status: done** (49 lines added; 3 ruff-format single-line collapses of multi-line asserts, semantics identical; 314 tests green)
 
 **File:** `tests/config/test_evaluate.py` (only file touched)
 
@@ -861,7 +861,7 @@ all green.
 
 ## Step 6 — `tests/parsing/test_segments.py`, `tests/parsing/test_parser.py`, `tests/config/test_evaluate.py`: regressions for bugs #8, #4, #9
 
-**Status: pending** (after Steps 1 and 3)
+**Status: done** (47 lines added across the 3 files; only linter-mandated deviations: `monkeypatch: pytest.MonkeyPatch` annotation for ANN001, one blank line after a local import; 574 tests in the three files green)
 
 **Files:** `tests/parsing/test_segments.py`, `tests/parsing/test_parser.py`,
 `tests/config/test_evaluate.py`
@@ -934,7 +934,8 @@ class TestDeepNestingRecursion:
 
 ## Step 7 — Full verification & plan wrap-up
 
-**Status: pending**
+**Status: done** — all checks green at final commit:
+`ruff check .` clean; `ruff format --check .` source/test clean (PLAN.md pre-existing); `mypy --strict .` clean; `pytest -m 'not linting' -q` → 1078 passed; security probe prints `deny ok`; CLI no-crash probe exits 0.
 
 Run from the repo root; all must pass:
 
