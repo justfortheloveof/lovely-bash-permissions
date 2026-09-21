@@ -1,1008 +1,1079 @@
-# Implementation Plan: bugs #4 + #7 + #8 + #9 + #10 (verify #5 + #6)
+# Implementation Plan: NEW_BUGS.md bugs 1–4
 
-> **Status: ✅ COMPLETE — all steps implemented and verified.**
->
+Base commit: `23341cc`. All steps build on it.
+
 > **For the implementing agent:** every step is self-contained and small. Do ONE
-> step per iteration. Locate edit sites by the exact **"Find" code blocks** (line
-> numbers are approximate pre-edit references and drift between steps — never
-> trust line numbers, trust the code text). Do not modify anything outside the
-> files listed for the step. All probes/verification must be run from the repo
-> root with `uv run ...` (the package is NOT pip-installed; a bare
-> `python -c "import lovely_bash_permissions"` fails).
+> step per iteration. Locate edit sites by the exact **"Find"** code blocks —
+> line numbers are approximate and drift; trust the code text, not numbers.
+> Do not modify anything outside the files listed for the step. Verify with the
+> **Probes** section before marking the step `done`.
 
-> **Orchestrator notes (carried over / pre-existing):**
->
-> - **Commit hygiene (hard rule): NEVER commit `.fuzz/` or anything inside it**
->   (untracked fuzz artifacts). When committing a step, stage ONLY the files
->   listed for that step (e.g. `git add src/lovely_bash_permissions/rules.py
->   PLAN.md`) — never `git add -A` / `git add .`. `.fuzz/` is added to
->   `.gitignore` in Step 0b. Other untracked noise (`.coverage`, etc.) must
->   also never be committed.
-> - Probe snippets below are written as `uv run python -c "..."` with `\$`
->   escapes for illustration. Wherever a probe contains `$`, a quoted heredoc
->   (`uv run python <<'EOF'`) is safer — create probe files via a
->   single-quoted heredoc so the shell does not touch anything, and keep the
->   plain `$`.
-> - `uv run ruff format --check .` fails **only** on PLAN.md itself (markdown
->   code fences) — this predates all steps. Every step's format check should be
->   interpreted as "all real source/test files clean; PLAN.md may remain
->   flagged."
-> - `uv run ruff check .`, `uv run mypy --strict .`, and
->   `uv run pytest -m 'not linting' -q` are green at the plan's base commit
->   (`bba7849`).
+## Hard rules (every step)
 
-## Bugs being fixed
+- **Commit hygiene:** NEVER commit `.fuzz/` or anything inside it (already in
+  `.gitignore`). When committing a step, stage ONLY the files listed for that
+  step (e.g. `git add src/lovely_bash_permissions/inspect.py PLAN.md`) —
+  never `git add -A` / `git add .`. Other untracked noise (`.coverage`, etc.)
+  must also never be committed.
+- Run everything from the repo root with `uv run ...` (package is NOT
+  pip-installed; bare `python -c "import lovely_bash_permissions"` fails).
+- Probes containing `$`/quotes: use a quoted heredoc (`uv run python <<'EOF'`)
+  so the shell touches nothing.
+- Green gates at every step end: `uv run ruff check .` and
+  `uv run mypy --strict .`. (`uv run ruff format --check .` may flag PLAN.md's
+  markdown fences only — treat as OK if all real files are clean.)
+- `uv run pytest -m 'not linting' -q` must be fully green at the end of every
+  step (fix any test you broke; only a test may be changed if it encoded the
+  bug being fixed, per that step's instructions).
 
-### Bug #4 — 🟠 deeply nested `$( ... )` crashes the converter with `RecursionError`
+## Bugs (from NEW_BUGS.md) and design decisions
 
-`converter.py` recurses `node_from_json → _convert_call_expr → _convert_word →
-_convert_part → _convert_cmd_subst → _convert_stmt → node_from_json`. Measured
-(valid bash, shfmt parses fine): OK at 164 nested levels, `RecursionError` at
-165 under the default interpreter limit. `parse_ast`, `parse_segments` and
-`evaluate_bash_command` all blow up; `lovely-bash-inspection --string` dies with
-a raw traceback, exit 1.
+1. **🔴 #1** quote-split (`/e"tc"/passwd`) and backslash-escape (`-ex\ec`)
+   bypass `blocked_paths_regex` and negative-lookahead guard patterns, because
+   `inspect.py:_word_raw` preserves interior quotes/backslashes and
+   `evaluate.py:_strip_quotes` strips only whole-word outer quotes.
+2. **🟠 #2** plain `( ... )` subshells are invisible to the `subshell` policy;
+   that key actually gates only CmdSubst (`$(...)`, backticks) + ProcSubst
+   (`<(...)`, `>(...)`).
+3. **🔴 #3** redirection-only operands of `&&`/`||`/`|`/`|&`
+   (e.g. `> /etc/x && cat file`) are dropped: shfmt emits them as operand
+   dicts with `Redirs` but **no `Type` and no `Cmd`**, so
+   `converter.py:node_from_json` degrades them to a generic `Node` and
+   `segments.py` logs "Unhandled AST node type 'Node' - returning 0 segments".
+4. **🟡 #4** redirection targets are rebuilt from `parts[0]` only in
+   `rules.py` (6 sites), truncating multi-part targets (`"$DIR/out"`,
+   `"/dev""/null"`, `$(pwd)/x`) — wrong reasons and a blocked-path dodge.
 
-### Bug #7 — 🔴 `$( ... )` inside a standalone `(( ... ))` bypasses the `subshell` policy
+### Confirmed design decisions (do not revisit)
 
-`segments.py` `ArithmCmd` handler emits no segments, so
-`(( x[$(rm -rf /etc/x)] ))` takes the empty-segment fallback in `evaluate.py`,
-which only runs blocked-path/heredoc scans and then defaults to the wildcard.
-`has_subshell` is already computed correctly but never consulted. Measured:
-`{"*": "allow"}` and `{"*": "allow", "subshell": "deny"}` both → **allow**
-(bypass). Combined with a real command (`ls; (( x[$(rm)] ))`) the segments
-exist and the subshell pass fires correctly — only **zero-segment** commands
-(standalone arithmetic, incl. `time (( ... ))`) hit the gap.
-
-### Bug #8 — 🟡 `$( ... )` in a `case` word or branch pattern is not a segment
-
-`segments.py` `CaseClause` handler recurses only into branch *bodies*.
-`case $(evil) in a) echo 1;; esac` → `['echo']` (misses `evil`);
-`case $x in $(evil)) echo hit;; esac` → `['echo']` (misses pattern).
-Accuracy class like #5 (the subshell pass still denies under `subshell: deny`).
-
-### Bug #9 — 🟠 `RecursionError` crash surface is wider: nested `if`, `&&`/`||` chains, nested `while`
-
-Same root cause as #4. Thresholds: `if` 246/247; `&&`/`||` chain 329/330;
-`while` 328/329; `;`/pipes/`{ }` fine to thousands. A ~400-command
-`a && a && …` script (or ~250 nested ifs) crosses the threshold — no exotic
-nesting required. Impact on the *evaluation* path: in hook mode under
-`{"*": "allow"}` without an explicit `error` key, an over-threshold command is
-**silently auto-allowed with no analysis** (`hook._error_action` maps the crash
-to `config.get("error") or config.get("*")`), which makes #9 a security
-concern, not just a crash.
-
-### Bug #10 — ⚪ compound-command redirections are attributed to every inner segment
-
-`IfClause`/`WhileClause`/`ElifBranch` handlers pass the *inherited* statement
-redirections into every contained stmt. `while :; do echo a; done < /etc/shadow`
-→ reason `"input redirection allowed from /etc/shadow, /etc/shadow"`. Applies to
-while, until, if, `{ }`. Over-attribution only (no bypass); user-visible impact
-is duplicated/misattributed reason text and doubled per-command checks.
-
-### Bugs #5 + #6 — already fixed, verify only
-
-`for`-loop lists / test left-operands (`['seq','echo']`, `['pwd','echo']`) and
-`$( ... )` test right-operands (`['cmd']`, no more `$(...)` pseudo-segment) were
-implemented and verified in prior commits. Step 0 re-confirms; no code changes.
+- **D1 — union matching (bug #1):** allowed/blocked patterns are checked
+  against BOTH the raw form and a quote-normalized "executed" form. A match in
+  either counts. This fixes the bypasses without breaking existing
+  `allowed_cmds_regex` written with explicit quotes.
+- **D2 — the "executed" form (`_word_exec`, bug #1/#4):**
+  shfmt JSON facts (verified): an unquoted word `/e"tc"/passwd` parses to
+  `Parts: [Lit("/e"), DblQuoted(Parts=[Lit("tc")]), Lit("/passwd")]`;
+  `find /tmp -ex\ec` parses to a single `Lit("-ex\\ec")` (backslash literal in
+  JSON); `cat "/e\tc/passwd"` parses to `DblQuoted(Parts=[Lit("/e\\tc/passwd")])`;
+  a here-string `cat <<< /etc/shadow` has its text in `Word.Parts` (NOT `Hdoc`).
+  `_word_exec(word: Word) -> str` rules per part:
+  - `Lit` (top-level, unquoted): strip backslash escapes —
+    `re.sub(r"\\([^\n])", r"\1", value)` (bash unquoted: `\x` → `x`).
+  - `SglQuoted`: value verbatim (no unescaping, no expansion).
+  - `DblQuoted`: if it has nested `parts`, recurse `_word_exec`-style over each
+    nested part (nested `Lit`s get DOUBLE-QUOTE-context unescaping: only
+    `\\([$`"\\]) → \1`, since inside `"..."` bash keeps other backslashes);
+    if no nested parts, unescape its `.value` in double-quote context.
+  - `ParamExp` → `$<param>`; `CmdSubst` → `$(...)`; `ArithmExp` → `$(( ... ))`;
+    `ExtGlob` → its pattern text (keep the op if present, else just the
+    pattern); `BraceExp` → `{...}`; `ProcSubst` → `<(...)` or `>(...)`.
+  The result for `/e"tc"/passwd` is `/etc/passwd`; for `-ex\ec` it is `-exec`.
+- **D3 — bug #2 key rework, NO backwards compatibility** (project unreleased,
+  0 users): config keys become three: `command_substitution` (gates
+  `$(...)`/backticks), `process_substitution` (gates `<(...)`/`>(...)`), and
+  `subshell` (gates `( ... )`). The old single `subshell` key semantics is
+  dropped; no alias, no deprecation. Every place that reads/writes the old key
+  (schema, effective config, evaluator, tests, docs) is updated.
+- **D4 — out of scope:** BUGZ.md bugs #6 and #10 are explicitly NOT fixed here.
+  `rules.py:_find_background_flags` also uses `parts[0]` (line ~131) for the
+  background *command name* — that is not a redirection target; leave it.
 
 ---
 
-## Execution order & dependency notes
+## Step 0 — Baseline gate
 
-Step 0b is a one-line repo-hygiene change; Steps 1 → 2 → 3 → 4 are code
-changes; 5–6 add tests; 7 is final verification.
-Each step's acceptance probe stands on its own.
+**Status:** not started
 
-**Test-insertion rule (Steps 5–6):** all new test code is *appended at the
-end of its file* as a new class — no reflowing or interleaving of existing
-tests. Existing imports cover everything needed (verified at plan time);
-do not add imports unless a probe proves one is missing.
+**Files:** none (verification only; commit `PLAN.md` only).
 
-**Expected-red window: none known.** Audited the existing suite: every current
-empty-segment test in `tests/config/test_evaluate.py` is either `[[ -f x ]]`
-(no subshell — Step 2 leaves it on the wildcard path unchanged) or a C-style
-`for (( ... ))` (produces segments — never enters the empty-segment block).
-No `case` tests exist in `tests/parsing/test_segments.py`. No test asserts
-duplicated redirection reasons. **If any existing test does turn red after a
-step, STOP and report — do not "fix" the test.**
+1. From repo root run and confirm all green:
+   - `uv run pytest -m 'not linting' -q`
+   - `uv run ruff check .`
+   - `uv run mypy --strict .`
+   - `git check-ignore -q .fuzz && echo IGNORED` (must print IGNORED; if not,
+     the `.fuzz/` line is missing from `.gitignore` — report and stop.)
+2. Confirm the bug repros still reproduce (expected today):
+   ```bash
+   uv run python <<'EOF'
+   from lovely_bash_permissions.evaluate import evaluate_bash_command as ev
+   print(ev('cat /e"tc"/passwd',  {"*":"allow","blocked_paths_regex":["\\/etc"]}))
+   # today: allow  (should be deny after step 3)
+   print(ev('( rm x )', {"*":"allow","subshell":"deny"}))
+   # today: allow  (should be deny after step 6)
+   print(ev('> /etc/x && cat file', {"*":"allow","blocked_paths_regex":["\\/etc"],
+         "allowed_cmds_regex":["^cat\\s+.+$"]}))
+   # today: allow  (should be deny after step 5)
+   print(ev('echo hi > "$DIR/out.txt"', {"*":"allow","output_redirection":"allow"}))
+   # today: allow ... to /out.txt (should be ... to $DIR/out.txt after step 4)
+   EOF
+   ```
 
-Note: Step 1 touches `sys.setrecursionlimit` (process-global, raised
-monotonically, never lowered). Under `pytest -n auto` each worker is its own
-process; the elevated limit only ever applies to a worker that parsed a deep
-command. The recursive *consumer* passes (`_extract_segments`, inspection CLI
-render) run after `node_from_json` in the same process and rely on the limit
-staying raised — do not restore/lower it after conversion.
+**Acceptance:** commands pass, repros confirmed. **Commit:** `git add PLAN.md` →
+commit `plan: NEW_BUGS 1-4 implementation plan`.
 
 ---
 
-## Step 0 — verify bugs #5 + #6 are already fixed (no code changes)
+## Step 1 — `inspect.py`: add `_word_exec` (executed-form renderer)
 
-**Status: done pre-plan** (confirmed by probes in the investigation).
+**Status:** not started
 
-**Changes:** none.
+**Files:** `src/lovely_bash_permissions/inspect.py`,
+`tests/parsing/test_inspect.py`
 
-**Acceptance (all must hold, run from repo root):**
+**What to do:**
+
+1. Add, right after the `_word_raw` function (Find anchor — insert after its
+   closing `return "".join(parts)`):
+
+   ```python
+   def _word_raw(word: Word) -> str:
+       """Get the raw text of a word, preserving quotes.
+
+       Unlike _word_value, this includes quote characters for quoted parts,
+       so patterns like ^echo\\s+'hello' can match quoted arguments.
+       """
+   ```
+
+   add these two helpers (place BEFORE `_word_raw` so it can call `_word_exec_part`):
+
+   ```python
+   _UNESCAPE_UNQUOTED = re.compile(r"\\([^\n])")
+   _UNESCAPE_DBLQUOTED = re.compile(r"\\([$`\"\\])")
+
+
+   def _unescape_lit(value: str, *, in_double_quotes: bool) -> str:
+       """Bash-style backslash unescaping for a Lit value.
+
+       Unquoted: a backslash drops the next character (bash rule).
+       Double-quoted: a backslash is only special before $, `, ", \\ (and
+       newline); elsewhere it is literal.
+       """
+       if in_double_quotes:
+           return _UNESCAPE_DBLQUOTED.sub(r"\1", value)
+       return _UNESCAPE_UNQUOTED.sub(r"\1", value)
+   ```
+
+   and add `import re` at the top of the module.
+
+2. Add `_word_exec(word: Word) -> str` immediately after `_word_raw`:
+   - docstring: "Best-effort *executed* form of a word: the string bash would
+     produce after quote removal and backslash unescaping (placeholders kept
+     for expansions). Used for security pattern matching so quote-split or
+     backslash-escaped spellings of a path/flag cannot bypass the raw form."
+   - implementation: iterate `word.parts`; for each part:
+     - `Lit` → `_unescape_lit(part.value, in_double_quotes=False)`
+     - `SglQuoted` → `part.value`
+     - `DblQuoted` → if `part.parts` non-empty: recurse into each nested part
+       using the same rule table as the outer level but with
+       `in_double_quotes=True` for nested `Lit`s and skipping SglQuoted/other
+       wrappers (a `DblQuoted` nested inside a `DblQuoted` is treated like its
+       own part list); otherwise
+       `_unescape_lit(part.value or "", in_double_quotes=True)`
+     - `ParamExp` → `f"${part.param}"`
+     - `CmdSubst` → `"$(...)"`
+     - `ArithmExp` → `"$(( ... ))"`
+     - `ExtGlob` → `part.pattern.value if part.pattern else ""`
+     - `BraceExp` → `"{...}"`
+     - `ProcSubst` → `f"{part.op}...)"`
+   - Simplest faithful structure: implement a small recursive helper
+     `_exec_part(part: Node, in_double_quotes: bool) -> str` and have
+     `_word_exec(word)` join `_exec_part(p, False)` for each part.
+
+3. Tests — append a `TestWordExec` class to `tests/parsing/test_inspect.py`.
+   Build words with `parse_ast` from `lovely_bash_permissions.converter` and
+   pull the argument Word out of the CallExpr (there are existing helpers in
+   that test file — mirror its style), OR build dataclasses directly
+   (`Word(parts=[Lit(value="...")])` — `Lit`, `SglQuoted`, `DblQuoted` all
+   accept plain values; a nested-part DblQuoted is
+   `DblQuoted(parts=[Lit(value="tc")], value=None)`). Cases:
+   - `Lit("/e") + DblQuoted(Lit "tc") + Lit("/passwd")` → `/etc/passwd`
+   - single `Lit("-ex\\ec")` (Python literal `-ex\ec`) → `-exec`
+   - `DblQuoted(parts=[Lit("/e\\tc/passwd")])` (JSON/Python `/e\tc/passwd`) →
+     `/e\tc/passwd` UNCHANGED: inside `"..."` bash only unescapes `$ \` " \ and
+     newline, so `\t` keeps its backslash. Assert exactly the two-char sequence
+     `"/e\\tc/passwd"` in Python source.
+   - `SglQuoted('"a\\b"')` → `"a\b"` verbatim (no unescaping)
+   - `ParamExp(param="DIR") + Lit("/out.txt")` → `$DIR/out.txt`
+   - `CmdSubst` part + `Lit("/x")` → `$(...)/x`
+   - plain `Lit("hello")` → `hello`
+
+**Probes:**
 
 ```bash
 uv run python <<'EOF'
-from lovely_bash_permissions.segments import parse_segments
-
-def cmds(c):
-    return [s["command"] for s in parse_segments(c)]
-
-assert cmds("for i in $(seq 3); do echo $i; done") == ["seq", "echo"]
-assert cmds("if [[ $(pwd) == /root* ]]; then echo root; fi") == ["pwd", "echo"]
-assert cmds("[[ x == $(cmd) ]]") == ["cmd"]
-assert cmds("[[ -f x && $(c2) ]] && echo and") == ["c2", "echo"]
-print("ok")
+from lovely_bash_permissions.ast import Word, Lit, DblQuoted, SglQuoted, ParamExp
+from lovely_bash_permissions.inspect import _word_exec
+print(_word_exec(Word(parts=[Lit(value="/e"), DblQuoted(parts=[Lit(value="tc")], value=None), Lit(value="/passwd")])))  # /etc/passwd
+print(_word_exec(Word(parts=[Lit(value=r"-ex\ec")])))  # -exec
+print(_word_exec(Word(parts=[SglQuoted(value=r'"a\b"')])))  # "a\b"
+print(_word_exec(Word(parts=[ParamExp(param="DIR"), Lit(value="/out.txt")])))  # $DIR/out.txt
 EOF
 ```
 
----
-
-## Step 0b — repo hygiene: never commit `.fuzz/` (one-line change)
-
-**Status: done** (committed `0774495`; both acceptance checks verified)
-
-**File:** `.gitignore` (only file touched)
-
-**Why:** `.fuzz/` is currently untracked (`git status` shows `?? .fuzz/`) and
-holds fuzz artifacts that must never be committed (user requirement).
-
-**Change:** append the line `.fuzz/` at the end of `.gitignore`.
-
-Find (tail of the file):
-
-```
-dist/
-build/
-venv/
-```
-
-Replace with:
-
-```
-dist/
-build/
-venv/
-.fuzz/
-```
-
-**Acceptance:**
-
-1. `git status --short` no longer shows `?? .fuzz/`.
-2. `git check-ignore -v .fuzz/` prints the `.gitignore` rule.
+**Acceptance:** probes print the four expected strings; `TestWordExec` passes;
+full pytest/ruff/mypy green. **Commit:** stage only the two files + `PLAN.md`.
 
 ---
 
-## Step 1 — `converter.py`: recursion headroom + fail-closed `ParseError` guard (bugs #4 + #9)
+## Step 2 — `segments.py`: normalized args + full redir targets
 
-**Status: done** — all acceptance checks pass except probe 4's last assertion, which is
-blocked by a **pre-existing** segments.py limitation (verified at depth 2 on unmodified
-HEAD `bba7849`: `parse_segments("echo $($(true))") == ['echo', '$(...)']`). The CallExpr
-handler extracts `node.args[0]` as the command word and recurses only into `args[1:]`,
-so a command substitution used *as the command word* yields a phantom `$(...)` segment
-instead of descending to `true`. Accuracy-class (like #8), NOT a bypass: the subshell
-pass still gates it. Fixing it is outside Step 1's converter-only scope — logged as a
-known limitation; probe 4's assertion is to be read as "no crash / conversion succeeds".
-Two byte-level deviations from the plan block, both ruff-mandated: `max_depth =
-max(max_depth, depth)` (PLR1730) and the `raise ParseError(...) from exc` collapsed to
-one line (format). ruff/ruff-format/mypy clean; 1060 tests green.
+**Status:** not started
 
-**File:** `src/lovely_bash_permissions/converter.py` (only file touched)
+**Files:** `src/lovely_bash_permissions/segments.py`,
+`tests/parsing/test_segments.py`
 
-**Why:** the converter recurses roughly linearly in the shfmt JSON container
-depth. Measuring the *maximum JSON container nesting* iteratively (no recursion,
-so it cannot itself blow up) lets us size `sys.setrecursionlimit` to the input
-*before* any conversion recursion happens. The report explicitly sanctions
-"bump `sys.setrecursionlimit` relative to input depth".
+**What to do:**
 
-Frame budget measured against the live converter (default limit 1000):
+1. Import `_word_exec` alongside the existing import:
+   Find: `from .inspect import _word_raw, _word_value`
+   Replace with: `from .inspect import _word_exec, _word_raw, _word_value`
 
-- `$( ... )` nesting crashes at depth ~165 (≈ 6 stack frames/level; JSON
-  container depth ≈ 6× level) → ≈ 1 stack frame per JSON container level.
-- `if`/`&&`/`while` are cheaper per level (crash 247/330/329).
+2. In `_redir_dicts`, add a full reconstructed target per redir.
+   Find (inside `_redir_dicts`'s return list comprehension, per-dict body):
 
-Using `_FRAMES_PER_JSON_LEVEL = 2` gives a 2× safety margin on the worst shape;
-`_MIN_RECURSION_LIMIT = 2000` is the floor (harmless; only ever raised);
-`_MAX_RECURSION_LIMIT = 20000` caps support at roughly 1000+ `$( )` levels,
-2400+ nested ifs, or 5000+ `&&`-chained commands — an order of magnitude above
-every measured crash threshold while keeping the C-stack profile conservative.
-Inputs beyond the cap (or where a `RecursionError` still escapes) become a
-`ParseError` — the fail-closed path callers already route to the `error` policy
-(`cli.py` prints the message and returns 3; `hook._error_action` maps it).
+   ```python
+         {
+             "Op": r.op,
+             "N": {"Value": str(r.n)} if r.n is not None else {},
+             "Word": {"Parts": [{"Value": _part_value(p)} for p in (r.word.parts if r.word else [])]},
+         }
+   ```
 
-Because the limit is raised inside `node_from_json` at the **top-level** call
-(depth counter == 0), it covers all three entry points uniformly: `parse_ast`,
-`parse_segments`, and any direct `node_from_json` caller — and the elevated
-limit then stays in force for the recursive `_extract_segments` / CLI-render
-phases that run afterwards in the same process.
+   Convert to an explicit loop that also computes the target:
 
-**Change 1 — add the `sys` import.**
+   ```python
+   redir_dicts: list[dict[str, Any]] = []
+   for r in redirs or []:
+       redir_dicts.append(
+           {
+               "Op": r.op,
+               "N": {"Value": str(r.n)} if r.n is not None else {},
+               "Word": {"Parts": [{"Value": _part_value(p)} for p in (r.word.parts if r.word else [])]},
+               # Full executed-form target (all word parts, quotes removed,
+               # backslashes unescaped) so multi-part targets like "$DIR/out",
+               # "/dev""/null" or quote-split paths are identified correctly.
+               "Target": _word_exec(r.word) if r.word is not None else "",
+           }
+       )
+   return redir_dicts
+   ```
 
-Find:
+3. In the `CallExpr` branch of `_extract_segments`, the real command segment
+   currently is:
 
-```python
-from __future__ import annotations
+   ```python
+             segments.append(
+                 {
+                     "command": _word_value(node.args[0]),
+                     "arguments": [_word_raw(arg) for arg in node.args[1:]],
+                     "redirections": redir_dicts,
+                 }
+             )
+   ```
 
-import contextlib
-import logging
-from collections.abc import Callable
-from typing import Any
-```
+   Add a parallel normalized list (raw list unchanged — it is displayed by
+   CLI/hook consumers):
 
-Replace with:
+   ```python
+             segments.append(
+                 {
+                     "command": _word_value(node.args[0]),
+                     "arguments": [_word_raw(arg) for arg in node.args[1:]],
+                     "normalized_arguments": [_word_exec(arg) for arg in node.args[1:]],
+                     "redirections": redir_dicts,
+                 }
+             )
+   ```
 
-```python
-from __future__ import annotations
+   No other segment kinds (DeclClause/assignment/test pseudo-commands) get
+   `normalized_arguments` — they carry no plain Word args; consumers must use
+   `.get("normalized_arguments", args)`.
 
-import contextlib
-import logging
-import sys
-from collections.abc import Callable
-from typing import Any
-```
+4. Tests in `tests/parsing/test_segments.py`:
+   - `parse_segments('cat /e"tc"/passwd')` → one segment whose
+     `normalized_arguments == ["/etc/passwd"]` and raw `arguments == [ '/e"tc"/passwd' ]`.
+   - `parse_segments('find /tmp -ex\\ec rm')` (write as Python `"find /tmp -ex\\ec rm"`)
+     → `normalized_arguments[0] == "-exec"`.
+   - `parse_segments('echo hi > "$DIR/out.txt"')` → segment's redirections
+     `[0]["Target"] == "$DIR/out.txt"`; `parse_segments('echo hi 2>"/dev""/null"')`
+     → `Target == "/dev/null"`.
 
-**Change 2 — replace `node_from_json` (module-level constants, an iterative
-depth helper, and the guarded body).**
-
-Find (the whole current function):
-
-```python
-def node_from_json(data: dict[str, Any] | None) -> Node | None:
-    """Convert shfmt JSON node data to a typed AST node.
-
-    Returns None when *data* is None (key absent in JSON).
-
-    Uses the ``_CONVERTERS`` dispatch table to map shfmt's ``Type`` field
-    to a converter function.
-    """
-    if data is None:
-        return None
-
-    node_type = data.get("Type", "")
-
-    # Handle nodes that have 'Cmd' but no 'Type' (wrapped statements)
-    if not node_type and "Cmd" in data:
-        return node_from_json(data["Cmd"])
-
-    converter = _CONVERTERS.get(node_type)
-    if converter is not None:
-        return converter(data)
-
-    # Unknown type — wrap in a generic Node
-    pos, end = _parse_pos_end(data)
-    return Node(type=node_type, pos=pos, end=end)
-```
-
-Replace with:
-
-```python
-# degenerate commands (deeply nested $()/if/&&-chains/while) exceed
-# the interpreter's default recursion limit and crash with a raw traceback.
-# The top-level node_from_json call measures the maximum JSON container nesting
-# iteratively and raises sys.setrecursionlimit to cover it; inputs nested beyond
-# a safe cap (or a RecursionError that still escapes) fail closed with a
-# ParseError, which callers route to the configured `error` policy.
-_MIN_RECURSION_LIMIT = 2000
-_FRAMES_PER_JSON_LEVEL = 2
-_MAX_RECURSION_LIMIT = 20000
-_json_conversion_depth = 0
-
-
-def _measure_nesting_depth(top: dict[str, Any] | list[Any]) -> int:
-    """Measure the maximum container nesting depth of a JSON tree, iteratively."""
-    max_depth = 0
-    stack: list[tuple[dict[str, Any] | list[Any], int]] = [(top, 1)]
-    while stack:
-        obj, depth = stack.pop()
-        if depth > max_depth:
-            max_depth = depth
-        if isinstance(obj, dict):
-            for value in obj.values():
-                if isinstance(value, (dict, list)):
-                    stack.append((value, depth + 1))
-        else:
-            for item in obj:
-                if isinstance(item, (dict, list)):
-                    stack.append((item, depth + 1))
-    return max_depth
-
-
-def node_from_json(data: dict[str, Any] | None) -> Node | None:
-    """Convert shfmt JSON node data to a typed AST node.
-
-    Returns None when *data* is None (key absent in JSON).
-
-    Uses the ``_CONVERTERS`` dispatch table to map shfmt's ``Type`` field
-    to a converter function.
-    """
-    if data is None:
-        return None
-
-    global _json_conversion_depth
-    if _json_conversion_depth == 0:
-        depth = _measure_nesting_depth(data)
-        needed = _MIN_RECURSION_LIMIT + _FRAMES_PER_JSON_LEVEL * depth
-        if needed > _MAX_RECURSION_LIMIT:
-            from .parser import ParseError
-
-            raise ParseError(
-                f"command structure is nested too deeply to analyze safely "
-                f"(nesting depth {depth} exceeds the safe limit)"
-            )
-        if needed > sys.getrecursionlimit():
-            sys.setrecursionlimit(needed)
-
-    _json_conversion_depth += 1
-    try:
-        node_type = data.get("Type", "")
-
-        # Handle nodes that have 'Cmd' but no 'Type' (wrapped statements)
-        if not node_type and "Cmd" in data:
-            return node_from_json(data["Cmd"])
-
-        converter = _CONVERTERS.get(node_type)
-        if converter is not None:
-            return converter(data)
-
-        # Unknown type — wrap in a generic Node
-        pos, end = _parse_pos_end(data)
-        return Node(type=node_type, pos=pos, end=end)
-    except RecursionError as exc:
-        from .parser import ParseError
-
-        raise ParseError(
-            "command structure is nested too deeply to analyze safely"
-        ) from exc
-    finally:
-        _json_conversion_depth -= 1
-```
-
-Notes:
-
-- We only ever raise the limit (`needed > sys.getrecursionlimit()`) and never
-  restore it. This is deliberate: `_extract_segments` and the inspection CLI
-  render recurse on the same deep tree immediately afterwards and rely on the
-  limit staying raised.
-- `ParseError` is imported locally to avoid a module cycle (converter already
-  imports `.parser` locally in `parse_ast`).
-- Over-the-cap input is rejected with a *clean* error before any conversion —
-  no traceback, no process crash, exit code 3 from the CLI.
-
-**Acceptance (all must hold):**
-
-1. `uv run ruff check .` and `uv run ruff format --check .` (ignore PLAN.md
-   itself) — clean. `uv run mypy --strict src/lovely_bash_permissions` — clean.
-2. Deep-shape probes (quoted heredoc; previously each crashed):
-
-```bash
-uv run python <<'EOF'
-from lovely_bash_permissions.converter import parse_ast
-from lovely_bash_permissions.segments import parse_segments
-
-deep = "echo " + "$(" * 200 + "true" + ")" * 200
-ast = parse_ast(deep)
-segs = parse_segments(deep)
-assert segs[-1]["command"] == "true", [s["command"] for s in segs]
-
-parse_ast("if :; then " * 300 + "true" + "; fi" * 300)
-chain = " && ".join(["a"] * 400)
-assert len(parse_segments(chain)) == 400
-parse_ast("while :; do " * 400 + "true" + "; done" * 400)
-print("ok")
-EOF
-```
-
-1. Over-the-cap guard (fail closed, no RecursionError):
-
-```bash
-uv run python <<'EOF'
-import lovely_bash_permissions.converter as conv
-from lovely_bash_permissions.errors import LovelyDevinPermissionsError
-
-old = conv._MAX_RECURSION_LIMIT
-conv._MAX_RECURSION_LIMIT = 2000
-try:
-    from lovely_bash_permissions.converter import parse_ast
-    try:
-        parse_ast("echo " + "$(" * 400 + "true" + ")" * 400)
-        raise SystemExit("expected ParseError")
-    except LovelyDevinPermissionsError:
-        pass
-finally:
-    conv._MAX_RECURSION_LIMIT = old
-print("ok")
-EOF
-```
-
-1. CLI no-crash fix (must exit 0, render normally — no traceback):
-
-```bash
-cmd=$(python -c "print('echo ' + '\$('*180 + 'true' + ')'*180)")
-uv run lovely-bash-inspection --string "$cmd"; echo "exit=$?"
-#   before: raw traceback, exit 1
-#   after:  renders the inspection tree, exit 0
-```
+**Acceptance:** new tests pass; full suite green. **Commit:** the two files + `PLAN.md`.
 
 ---
 
-## Step 2 — `evaluate.py`: apply the resolved `subshell` policy in the empty-segment fallback (bug #7)
+## Step 3 — `evaluate.py`: union matching for argv, guards, heredoc bodies (bug #1)
 
-**Status: done** (full matrix + time/ls/+=/literal variants verified; `[[ -f x ]]` wildcard path unchanged; linters clean; 1060 tests green)
+**Status:** not started
 
-**File:** `src/lovely_bash_permissions/evaluate.py` (only file touched)
-
-**Why:** the `if not segments:` block (line ~304) computes `has_subshell`
-correctly but never consults the `subshell` policy. Per the report's fix:
-deny → deny / ask → ask, applied *before* the wildcard default; only an
-explicit `"allow"` falls through to the wildcard. The blocked-paths and heredoc
-scans (already above this point) stay untouched.
-
-**Policy resolution (important — the report is internally inconsistent here):**
-`evaluate_bash_command` already computes `rules["subshell"]` via
-`_resolve_level(config, "subshell")` (line ~284), which *inherits the wildcard*
-when `subshell` is unset. Two consequences, resolved as follows:
-
-- `{"*": "allow"}` with unset `subshell` → resolved "allow". The report's *matrix*
-  requires **ask** for this row (fail-closed for an unanalyzable, zero-segment
-  command), while its *fix text* ("apply the resolved subshell policy") would
-  give allow. **Follow the matrix**: an *inherited* allow (unset subshell under
-  a permissive wildcard) is downgraded to **ask** for this gate. Explicit
-  `subshell: "allow"` still falls through to the wildcard.
-- `{"*": "deny"}` with unset `subshell` → resolved "deny" (inherited). Keep the
-  resolved deny — do **not** use a literal `config.get("subshell", "ask")`
-  here, or a deny-everything config would downgrade to ask.
-
-**Change:** replace the empty-segment tail.
-
-Find:
-
-```python
-        if _empty_reasons:
-            _empty_reason = "; ".join(dict.fromkeys(_empty_reasons))
-        else:
-            _empty_status = _wildcard
-            _empty_reason = (
-                f"<empty command> produced no parseable segments — defaulting to wildcard policy ({_wildcard})"
-            )
-        return {"status": _empty_status, "reason": _empty_reason, "segments": []}
-```
-
-Replace with:
-
-```python
-        if _empty_reasons:
-            _empty_status = "deny"
-            _empty_reason = "; ".join(dict.fromkeys(_empty_reasons))
-        elif has_subshell:
-            # standalone arithmetic like `(( x[$(rm -rf /etc/x)] ))`
-            # produces no segments, so the fallback auto-approved it under
-            # "*": "allow" even when subshell policy is "deny". Gate it by the
-            # resolved subshell policy; only an explicit "allow" falls through
-            # to the wildcard default. An *inherited* allow (unset subshell
-            # under a permissive wildcard) becomes ask: the command produced no
-            # segments, so we cannot analyse what runs — default fail-closed.
-            _sub_policy = rules["subshell"]
-            if _sub_policy == "allow" and "subshell" not in config:
-                _sub_policy = "ask"
-            if _sub_policy == "allow":
-                _empty_status = _wildcard
-                _empty_reason = (
-                    f"<empty command> produced no parseable segments — defaulting to wildcard policy ({_wildcard})"
-                )
-            else:
-                _empty_status = _sub_policy
-                _empty_reason = "subshell or command substitution requires approval"
-        else:
-            _empty_status = _wildcard
-            _empty_reason = (
-                f"<empty command> produced no parseable segments — defaulting to wildcard policy ({_wildcard})"
-            )
-        return {"status": _empty_status, "reason": _empty_reason, "segments": []}
-```
-
-Notes:
-
-- `_sub_policy` is `ask` or `deny` at the `else`; assigning it directly to
-  `_empty_status` is safe.
-- `"subshell or command substitution requires approval"` matches the reason
-  already used by the per-segment subshell pass (asserted at
-  `tests/config/test_evaluate.py` line ~631).
-- `rules["subshell"]` is defined before the empty-segment block (line ~284); no
-  new locals to declare.
-- Post-fix behavior for the report's matrix (`(( x[$(rm -rf /etc/x)] ))`):
-
-| config (`*` / `subshell`) | before | after |
-| --- | --- | --- |
-| allow / deny | allow ❌ | **deny** |
-| allow / ask | allow ❌ | **ask** |
-| allow / (unset) | allow ❌ | **ask** (matrix row; explicit-override rule above) |
-| ask / deny | ask "for the wrong reason" | **deny** (subshell wins over wildcard, consistent with `test_explicit_option_overrides_wildcard`) |
-| deny / allow | deny | deny (unchanged) |
-| deny / (unset) | deny | **deny** (no downgrade — resolved deny kept) |
-
-  Note the discrepancy: the matrix's "expected" column for `ask / deny` says
-  *ask*, but per the report's own Fix (deny → deny) `subshell: deny` is more
-  restrictive than `*: ask` and must deny. This plan follows the Fix text for
-  that row; the matrix for the `allow / (unset)` row. Both divergences are
-  called out here so the reviewer can weigh in.
-
-- Explicit `subshell: "allow"` under any wildcard still falls through to the
-  wildcard (inheritance preserved for commands that *do* resolve to segments —
-  `test_subshell_inherits_wildcard_allow` is unaffected either way).
-
-**Acceptance (all must hold):**
-
-```bash
-uv run python <<'EOF'
-from lovely_bash_permissions.evaluate import evaluate_bash_command
-
-def s(config):
-    return evaluate_bash_command("(( x[$(rm -rf /etc/x)] ))", config)["status"]
-
-assert s({"*": "allow", "subshell": "deny"}) == "deny"
-assert s({"*": "allow"}) == "ask"
-assert s({"*": "allow", "subshell": "ask"}) == "ask"
-assert s({"*": "allow", "subshell": "allow"}) == "allow"
-assert s({"*": "ask", "subshell": "deny"}) == "deny"
-assert s({"*": "deny", "subshell": "allow"}) == "deny"
-assert s({"*": "deny"}) == "deny"
-assert evaluate_bash_command("time (( x[$(rm z)] ))", {"*": "allow", "subshell": "deny"})["status"] == "deny"
-assert evaluate_bash_command("ls; (( x[$(rm)] ))", {"*": "allow", "subshell": "deny"})["status"] == "deny"
-assert evaluate_bash_command("(( y += $(rm z) ))", {"*": "allow", "subshell": "deny"})["status"] == "deny"
-assert evaluate_bash_command("(( x = 5 ))", {"*": "allow", "subshell": "deny"})["status"] == "allow"
-print("ok")
-EOF
-```
-
-1. Also confirm `[[ -f x ]]` under `{"*": "ask"}` still reports
-   `"wildcard policy (ask)"` in the reason (unchanged path).
-
----
-
-## Step 3 — `segments.py`: recurse the `case` subject word and branch patterns (bug #8)
-
-**Status: done** — all bug-related probes pass. Note: the plan's original expected value
-`["a","b","c"]` for `case $(a) in $(b)) echo c;; esac` was a typo in this plan; the
-correct expectation is `["a","b","echo"]` (the body command is `echo`, segment
-commands are the command names). Plan corrected. Linters clean; 1060 tests green.
-
-**File:** `src/lovely_bash_permissions/segments.py` (only file touched)
-
-**Why:** the `CaseClause` handler extracts only branch bodies. The subject word
-(`node.expr`, the typed-AST name for the report's `node.word`) and each branch's
-`patterns` (list of `Word`) must be walked so nested `$( ... )` surface as
-segments — the same pattern as the `ForClause` handler's `words` recursion.
-
-**Change:** replace the `CaseClause` branch of `_extract_segments`.
-
-Find:
-
-```python
-    elif isinstance(node, CaseClause):
-        # case/switch: extract commands from each branch body
-        if hasattr(node, "branches") and node.branches:
-            for branch in node.branches:
-                if hasattr(branch, "body") and branch.body:
-                    for stmt in branch.body:
-                        segments.extend(_extract_segments(stmt, redirs))
-```
-
-Replace with:
-
-```python
-    elif isinstance(node, CaseClause):
-        # case/switch: the subject word (node.expr) and each branch's match
-        # patterns can embed command substitutions that bash evaluates before
-        # the body runs — surface them alongside the branch bodies (bug #8).
-        if getattr(node, "expr", None) is not None:
-            segments.extend(_extract_segments(node.expr, redirs))
-        if hasattr(node, "branches") and node.branches:
-            for branch in node.branches:
-                if hasattr(branch, "patterns") and branch.patterns:
-                    for pattern in branch.patterns:
-                        segments.extend(_extract_segments(pattern, redirs))
-                if hasattr(branch, "body") and branch.body:
-                    for stmt in branch.body:
-                        segments.extend(_extract_segments(stmt, redirs))
-```
-
-**Acceptance (all must hold):**
-
-```bash
-uv run python <<'EOF'
-from lovely_bash_permissions.segments import parse_segments
-
-def cmds(c):
-    return [s["command"] for s in parse_segments(c)]
-
-assert cmds("case $(evil) in a) echo 1;; esac") == ["evil", "echo"]
-assert cmds("case $x in $(evil)) echo hit;; esac") == ["evil", "echo"]
-assert cmds("select x in $(evil); do echo $x; done") == ["evil", "echo"]
-assert cmds("case $x in a) echo 1;; esac") == ["echo"]  # unchanged
-assert cmds("case $(a) in $(b)) echo c;; esac") == ["a", "b", "echo"]
-print("ok")
-EOF
-```
-
-1. `uv run ruff check .` / `uv run ruff format --check .` (source files only)
-   and `uv run mypy --strict src/lovely_bash_permissions` — clean.
-2. `uv run pytest -m 'not linting' -q` — all green (no existing `case` tests;
-   expected-red window: none).
-
----
-
-## Step 4 — `rules.py`: dedupe compound-command redirections in segment checks (bug #10)
-
-**Status: done** — see the plan-correction note at the end of this section (the `N`-is-a-dict
-fix). All probes pass; linters clean; 1060 tests green (including the ~125 that the broken
-verbatim block had crashed).
-
-**File:** `src/lovely_bash_permissions/rules.py` (only file touched)
-
-**Why:** compound-command redirections are attributed to every inner segment,
-so `while :; do echo a; done < /etc/shadow` yields two identical
-`< /etc/shadow` entries → reason `"input redirection allowed from
-/etc/shadow, /etc/shadow"`. Dedupe by (op, fd, target) at collection time;
-distinct redirections (different fds/targets/ops) are preserved, so no check is
-ever lost.
-
-**Change 1 — output redirections.** In `_check_segments_output_redirs`, replace
-the collection loop.
-
-Find:
-
-```python
-    redirections: list[dict[str, Any]] = []
-    for seg in segments:
-        for r in seg.get("redirections", []):
-            if r.get("Op") in WRITE_REDIRECT_OPS:
-                redirections.append(r)
-
-    if not redirections:
-        return {"status": "allow", "matched": False, "reason": "no output redirection"}
-```
-
-Replace with:
-
-```python
-    # compound-command redirections (while/until/if/{ } group) are
-    # attributed to every inner segment — the same redirection appears once per
-    # segment. Dedupe by (op, fd, target); distinct descriptors are preserved.
-    redirections: list[dict[str, Any]] = []
-    seen_output: set[tuple[str, str, str]] = set()
-    for seg in segments:
-        for r in seg.get("redirections", []):
-            if r.get("Op") in WRITE_REDIRECT_OPS:
-                word = r.get("Word", {})
-                parts = word.get("Parts", [])
-                target = parts[0].get("Value", "") if parts else ""
-                # segment redirection dicts serialize the fd as a dict
-                # ({} when absent, {"Value": "2"} for `2>`) — extract the scalar
-                # fd so the dedupe key is hashable.
-                n = r.get("N")
-                fd = (
-                    n.get("Value", "") if isinstance(n, dict) else ("" if n is None else str(n))
-                )
-                key = (r.get("Op", ""), fd, target)
-                if key not in seen_output:
-                    seen_output.add(key)
-                    redirections.append(r)
-
-    if not redirections:
-        return {"status": "allow", "matched": False, "reason": "no output redirection"}
-```
-
-**Change 2 — input redirections.** In `_check_segments_input_redirs`, replace
-the collection loop.
-
-Find:
-
-```python
-    input_redirs: list[dict[str, Any]] = []
-    for seg in segments:
-        for r in seg.get("redirections", []):
-            if r.get("Op") in ("<", "<<", "<<<", "<&"):
-                word = r.get("Word", {})
-                target = ""
-                parts = word.get("Parts", [])
-                if parts:
-                    target = parts[0].get("Value", "")
-                input_redirs.append({"op": r["Op"], "target": target})
-```
-
-Replace with:
-
-```python
-    # dedupe by (op, target) — compound-command redirections are
-    # attributed to every inner segment.
-    input_redirs: list[dict[str, Any]] = []
-    seen_input: set[tuple[str, str]] = set()
-    for seg in segments:
-        for r in seg.get("redirections", []):
-            if r.get("Op") in ("<", "<<", "<<<", "<&"):
-                word = r.get("Word", {})
-                target = ""
-                parts = word.get("Parts", [])
-                if parts:
-                    target = parts[0].get("Value", "")
-                key = (r["Op"], target)
-                if key not in seen_input:
-                    seen_input.add(key)
-                    input_redirs.append({"op": r["Op"], "target": target})
-```
-
-**Acceptance (all must hold):**
-
-```bash
-uv run python <<'EOF'
-from lovely_bash_permissions.evaluate import evaluate_bash_command
-
-r = evaluate_bash_command("while :; do echo a; done < /etc/shadow", {"*": "allow", "input_redirection": "allow"})
-assert r["status"] == "allow", r
-assert "/etc/shadow" in r["reason"]
-assert r["reason"].count("/etc/shadow") == 1, r["reason"]
-
-r = evaluate_bash_command("until :; do echo a; done > /tmp/out", {"*": "allow", "output_redirection": "allow"})
-assert r["reason"].count("/tmp/out") == 1, r["reason"]
-
-r = evaluate_bash_command("if :; then echo a; fi < /etc/shadow > /tmp/out", {"*": "allow", "input_redirection": "allow", "output_redirection": "allow"})
-assert r["reason"].count("/etc/shadow") == 1 and r["reason"].count("/tmp/out") == 1, r["reason"]
-print("ok")
-EOF
-```
-
-1. `uv run ruff check .` / `uv run ruff format --check .` and
-   `uv run mypy --strict src/lovely_bash_permissions` — clean.
-2. `uv run pytest -m 'not linting' -q` — all green (no test asserts duplicated
-   redirection reasons).
-
-**Plan correction (found during Step 4 implementation):** the original Change-1 block keyed
-the dedupe set on `r.get("N")` directly, but segment redirection dicts serialize the fd as a
-*dict* (`{}` when absent, `{"Value": "2"}` for `2>`, see `_redir_dicts` in segments.py),
-which is unhashable — verbatim application crashed ~125 existing tests with `TypeError` at
-the set lookup. Fix: extract the scalar fd first (applied; in the committed code the fd
-expression sits on one line to satisfy `ruff format` at line-length 120):
-
----
-
-## Step 5 — `tests/config/test_evaluate.py`: regressions for bugs #7 + #10
-
-**Status: done** (49 lines added; 3 ruff-format single-line collapses of multi-line asserts, semantics identical; 314 tests green)
-
-**File:** `tests/config/test_evaluate.py` (only file touched)
-
-Two insertions, both exact:
-
-1. **Bug #7 matrix** — append the `TestEmptySegmentSubshellPolicy` class
-   (below) at the **end of the file**. It uses plain dicts for the config
-   argument (explicit-key scenarios), not `make_config`.
-2. **Bug #10 dedup test** — add the `test_compound_input_redirection_not_duplicated`
-   method (below) to the **existing** `TestCompoundCommandRedirections` class.
-   Locate it with:
-   `rg -n "class TestCompoundCommandRedirections" tests/config/test_evaluate.py`
-   and insert the method as the **first method inside that class** (right
-   after the class line / its docstring), so it stays indented 4 spaces as a
-   method. Do not touch any other test.
-
-No new imports are needed (`evaluate_bash_command` is already imported at the
-top of the file).
-
-Tests to add:
-
-```python
-class TestEmptySegmentSubshellPolicy:
-    """standalone (( ... $(...) )) is gated by the subshell policy."""
-
-    CMD = "(( x[$(rm -rf /etc/x)] ))"
-
-    def test_allow_wildcard_deny_subshell(self) -> None:
-        assert evaluate_bash_command(self.CMD, {"*": "allow", "subshell": "deny"})["status"] == "deny"
-
-    def test_allow_wildcard_default_subshell_asks(self) -> None:
-        assert evaluate_bash_command(self.CMD, {"*": "allow"})["status"] == "ask"
-
-    def test_allow_wildcard_explicit_ask(self) -> None:
-        assert evaluate_bash_command(self.CMD, {"*": "allow", "subshell": "ask"})["status"] == "ask"
-
-    def test_allow_wildcard_explicit_subshell_allow(self) -> None:
-        assert evaluate_bash_command(self.CMD, {"*": "allow", "subshell": "allow"})["status"] == "allow"
-
-    def test_ask_wildcard_deny_subshell(self) -> None:
-        assert evaluate_bash_command(self.CMD, {"*": "ask", "subshell": "deny"})["status"] == "deny"
-
-    def test_deny_wildcard_allow_subshell(self) -> None:
-        assert evaluate_bash_command(self.CMD, {"*": "deny", "subshell": "allow"})["status"] == "deny"
-
-    def test_deny_wildcard_unset_subshell(self) -> None:
-        """No downgrade: an inherited deny (unset subshell) still denies."""
-        assert evaluate_bash_command(self.CMD, {"*": "deny"})["status"] == "deny"
-
-    def test_time_wrapped_arithmetic(self) -> None:
-        assert evaluate_bash_command(
-            "time (( x[$(rm z)] ))", {"*": "allow", "subshell": "deny"}
-        )["status"] == "deny"
-
-    def test_followed_by_real_command(self) -> None:
-        assert evaluate_bash_command(
-            "ls; (( x[$(rm)] ))", {"*": "allow", "subshell": "deny"}
-        )["status"] == "deny"
-
-    def test_plus_equals_variant(self) -> None:
-        assert evaluate_bash_command(
-            "(( y += $(rm z) ))", {"*": "allow", "subshell": "deny"}
-        )["status"] == "deny"
-
-    def test_literal_arithmetic_unaffected(self) -> None:
-        assert evaluate_bash_command(
-            "(( x = 5 ))", {"*": "allow", "subshell": "deny"}
-        )["status"] == "allow"
-```
-
-And the bug #10 test (goes inside `TestCompoundCommandRedirections`, indented
-as a method):
-
-```python
-    def test_compound_input_redirection_not_duplicated(self) -> None:
-        """< file on a while loop is attributed once, not per segment."""
-        result = evaluate_bash_command(
-            "while :; do echo a; done < /etc/shadow",
-            {"*": "allow", "input_redirection": "allow"},
-        )
-        assert result["status"] == "allow"
-        assert result["reason"].count("/etc/shadow") == 1
-```
-
-**Acceptance:** `uv run pytest tests/config/test_evaluate.py -q` — new + existing
-all green.
-
----
-
-## Step 6 — `tests/parsing/test_segments.py`, `tests/parsing/test_parser.py`, `tests/config/test_evaluate.py`: regressions for bugs #8, #4, #9
-
-**Status: done** (47 lines added across the 3 files; only linter-mandated deviations: `monkeypatch: pytest.MonkeyPatch` annotation for ANN001, one blank line after a local import; 574 tests in the three files green)
-
-**Files:** `tests/parsing/test_segments.py`, `tests/parsing/test_parser.py`,
+**Files:** `src/lovely_bash_permissions/evaluate.py`,
 `tests/config/test_evaluate.py`
 
-1. **Bug #8** — in `tests/parsing/test_segments.py`, append this class at the
-   **end of the file** (the tests use `self`, so they must live in a class;
-   there is no existing case-test class — `parse_segments` is already
-   imported at the top of the file):
+**What to do:**
 
-```python
-class TestCaseCommandSubstitution:
-    """case subject word and branch patterns are segments."""
+1. Import `_word_exec` (Find: `from .inspect import _traverse, _word_raw, _word_value, iter_children`
+   → add `_word_exec`).
 
-    def test_case_word_command_substitution_extracted(self) -> None:
-        """bug #8: the case subject word is a segment."""
-        result = parse_segments("case $(evil) in a) echo 1;; esac")
-        assert [s["command"] for s in result] == ["evil", "echo"]
+2. Extend `_match_allowed_patterns` for union matching.
+   Find:
 
-    def test_case_branch_pattern_command_substitution_extracted(self) -> None:
-        """bug #8: branch patterns are segments too."""
-        result = parse_segments("case $x in $(evil)) echo hit;; esac")
-        assert [s["command"] for s in result] == ["evil", "echo"]
-```
+   ```python
+   def _match_allowed_patterns(name: str, args: list[str], allowed_patterns: list[str]) -> list[str]:
+       """Return the allowed patterns matched by this command (name + args).
 
-1. **Bugs #4/#9** — two more append-at-end-of-file classes.
+       Matches are rejected when opaque ``$(...)`` arguments could change the
+       pattern's verdict - see :func:`_opaque_match_unreliable`.  Such commands
+       are treated as not allowed, requesting approval instead of auto-approving.
+       """
+       full = _command_string(name, args)
+       has_opaque = any("$(...)" in a for a in args)
+       matched: list[str] = []
+       for pattern in allowed_patterns:
+           if not re.search(pattern, full):
+               continue
+           if has_opaque and _opaque_match_unreliable(pattern):
+               continue
+           matched.append(pattern)
+       return matched
+   ```
 
-   In `tests/parsing/test_parser.py`, append (`parse_ast` is already imported
-   at the top of the file):
+   Replace with a version that takes an optional normalized arg list and tries
+   the raw AND normalized command strings:
 
-```python
-class TestDeepNestingRecursion:
-    """deep nesting must convert instead of raising RecursionError."""
+   ```python
+   def _match_allowed_patterns(
+       name: str, args: list[str], allowed_patterns: list[str], normalized_args: list[str] | None = None
+   ) -> list[str]:
+       """Return the allowed patterns matched by this command (name + args).
 
-    def test_deep_cmdsubst_does_not_crash(self) -> None:
-        deep = "echo " + "$(" * 200 + "true" + ")" * 200
-        parse_ast(deep)
+       Union matching: each pattern is tested against the raw command string
+       AND (when *normalized_args* is given) the quote-normalized "executed"
+       string, so interior quote splits / backslash escapes (``-e"x"ec``)
+       cannot dodge negative-lookahead guards, while patterns written with
+       explicit quotes still match the raw form.
 
-    def test_deep_compound_does_not_crash(self) -> None:
-        parse_ast("if :; then " * 300 + "true" + "; fi" * 300)
-        chain = " && ".join(["a"] * 400)
-        assert len(parse_segments(chain)) == 400
-        parse_ast("while :; do " * 400 + "true" + "; done" * 400)
-```
+       Matches are rejected when opaque ``$(...)`` arguments could change the
+       pattern's verdict - see :func:`_opaque_match_unreliable`.  Such commands
+       are treated as not allowed, requesting approval instead of auto-approving.
+       """
+       full = _command_string(name, args)
+       norm_full = _command_string(name, normalized_args) if normalized_args is not None else None
+       has_opaque = any("$(...)" in a for a in args)
+       matched: list[str] = []
+       for pattern in allowed_patterns:
+           hit = re.search(pattern, full)
+           if norm_full is not None and not hit:
+               hit = re.search(pattern, norm_full)
+           if not hit:
+               continue
+           if has_opaque and _opaque_match_unreliable(pattern):
+               continue
+           matched.append(pattern)
+       return matched
+   ```
 
-   In `tests/config/test_evaluate.py`, append (`pytest` and
-   `LovelyDevinPermissionsError` are already imported at the top of the file):
+3. In the AST-walk closure (Find: `matched = _match_allowed_patterns(name, raw_args, allowed_patterns)`),
+   pass the normalized args:
 
-```python
-class TestDeepNestingRecursion:
-    """deep nesting converts and evaluates; past the cap, fail closed."""
+   ```python
+                   raw_args = [_word_raw(a) for a in node.args[1:]]
+                   matched = _match_allowed_patterns(name, raw_args, allowed_patterns)
+   ```
 
-    def test_deep_command_substitution_evaluates_without_crash(self) -> None:
-        """deep nesting converts and evaluates instead of RecursionError."""
-        deep = "echo " + "$(" * 180 + "true" + ")" * 180
-        result = evaluate_bash_command(deep, {"*": "allow"})
-        assert result["status"] == "allow"
+   becomes:
 
-    def test_over_cap_command_fails_closed(self, monkeypatch) -> None:
-        """past the cap we fail closed with a parse error, never recurse-crash."""
-        import lovely_bash_permissions.converter as conv
-        monkeypatch.setattr(conv, "_MAX_RECURSION_LIMIT", 2000)
-        deep = "echo " + "$(" * 400 + "true" + ")" * 400
-        with pytest.raises(LovelyDevinPermissionsError):
-            conv.parse_ast(deep)
-```
+   ```python
+                   raw_args = [_word_raw(a) for a in node.args[1:]]
+                   exec_args = [_word_exec(a) for a in node.args[1:]]
+                   matched = _match_allowed_patterns(name, raw_args, allowed_patterns, exec_args)
+   ```
 
-**Acceptance:** `uv run pytest tests/parsing/test_segments.py tests/parsing/test_parser.py tests/config/test_evaluate.py -q` — green.
+4. In the per-segment loop (Find: `matched_patterns = _match_allowed_patterns(cmd_name, args, allowed_patterns)`):
+
+   ```python
+           norm_args = segment.get("normalized_arguments", args)
+           matched_patterns = _match_allowed_patterns(cmd_name, args, allowed_patterns, norm_args)
+   ```
+
+5. Blocked-path checks on segment args — check raw AND normalized.
+   Find:
+
+   ```python
+         if blocked_patterns:
+             matched, pattern, value = check_blocked_patterns(cmd_name, args, blocked_patterns)
+   ```
+
+   becomes:
+
+   ```python
+         if blocked_patterns:
+             matched, pattern, value = check_blocked_patterns(cmd_name, args, blocked_patterns)
+             if not matched:
+                 norm_args = segment.get("normalized_arguments")
+                 if norm_args is not None and norm_args != args:
+                     matched, pattern, value = check_blocked_patterns(cmd_name, norm_args, blocked_patterns)
+   ```
+
+6. Subshell-content extraction (Find: `contents.append(_word_value(arg))` inside
+   `_extract_subshell_contents`) — also append the executed form:
+
+   ```python
+                   for arg in stmt.cmd.args:
+                       raw = _word_value(arg)
+                       execd = _word_exec(arg)
+                       if raw not in contents:
+                           contents.append(raw)
+                       if execd != raw and execd not in contents:
+                           contents.append(execd)
+   ```
+
+7. Heredoc body scanning — add a quote/backslash-stripped variant of each
+   candidate in BOTH scan sites. Add a module-level helper near
+   `_heredoc_body_texts`:
+
+   ```python
+   def _block_scan_variants(text: str) -> list[str]:
+       """Raw text plus a conservative quote/backslash-stripped variant.
+
+       Stripping `'`, `"` and backslashes turns split spellings like
+       ``/e"tc"/passwd`` into the executed path so blocked patterns catch
+       them; it is a superset (it can over-match, never under-match).
+       """
+       stripped = re.sub(r"['\"\\]", "", text)
+       return [text, stripped] if stripped != text else [text]
+   ```
+
+   Then at BOTH heredoc scan sites (the empty-segment block — Find:
+   `candidates = [body] + [ln.strip() for ln in body.splitlines() if ln.strip()]`
+   appears twice; change both occurrences) replace with:
+
+   ```python
+                 candidates = []
+                 for ln in [body, *[ln.strip() for ln in body.splitlines() if ln.strip()]]:
+                     candidates.extend(_block_scan_variants(ln))
+   ```
+
+**Tests** (append to `tests/config/test_evaluate.py`; the file has a
+`make_config`-style fixture in `tests/config/conftest.py` with params
+`wildcard, subshell, ...` — use it or build plain dicts):
+
+With config
+`{"*":"allow","blocked_paths_regex":["\\/etc","\\.env$"],"allowed_cmds_regex":[r"^cat\s+.+$", r"^find(?!.*\s-(exec|delete|ok)\b).*$", r"^fd(?!.*\s+(-x|-X)).*$", r"^sort(?!\s+(-o|--output)\b).*$"]}`
+(each repro asserts the fixed behavior):
+
+| command | expected status |
+|---|---|
+| `cat /e"tc"/passwd` | deny |
+| `ls -la /e"tc"` (ls NOT in allowlist) | ask |
+| `grep x /e"tc"/passwd` (grep not allowed) | deny |
+| `cat .e"nv"` | deny |
+| `find /tmp -e"x"ec rm` | ask (guard trips → not allowed → wildcard) |
+| `find /tmp -"exec" rm` | ask |
+| `find /tmp -ex\\ec rm` (Python: `"find /tmp -ex\\ec rm"`) | ask |
+| `fd -"x" x` | ask |
+| `sort -"o" /tmp/out x` | ask |
+| contrast: `cat /etc/passwd` | deny (already) |
+| contrast: `cat "ok file"` | allow (plain quoted arg still matches `^cat\s+.+$`) |
+| `python3`-free heredoc: `"cat f <<EOF\nsecret /e\"tc\"/passwd\nEOF"` | deny |
+| `cat .env` | deny (contrast, already) |
+
+**Acceptance:** all new tests pass; the pre-existing whole-word quote tests
+(`'-exec'` / `"-o"` / `'-X'` block near the end of the file) still pass; full
+suite/ruff/mypy green. **Commit:** the two files + `PLAN.md`.
 
 ---
 
-## Step 7 — Full verification & plan wrap-up
+## Step 4 — `rules.py`: full redirection targets (bug #4)
 
-**Status: done** — all checks green at final commit:
-`ruff check .` clean; `ruff format --check .` source/test clean (PLAN.md pre-existing); `mypy --strict .` clean; `pytest -m 'not linting' -q` → 1078 passed; security probe prints `deny ok`; CLI no-crash probe exits 0.
+**Status:** not started
 
-Run from the repo root; all must pass:
+**Files:** `src/lovely_bash_permissions/rules.py`,
+`tests/config/test_rules.py`, and (only if a test encodes the old truncated
+behavior) `tests/redirections/test_output_redirection_validation.py`
 
-1. `uv run ruff check .`
-2. `uv run ruff format --check .` (source files; PLAN.md fences are a
-   pre-existing, accepted failure)
-3. `uv run mypy --strict .`
-4. `uv run pytest -m 'not linting' -q`
-5. Security probe (must print `deny ok`):
+**What to do:**
+
+1. Add two helpers after `DEV_NULL`:
+
+   ```python
+   def _raw_word_target(word: dict[str, Any]) -> str:
+       """Reconstruct a full redirection target from a raw shfmt Word dict.
+
+       Joins ALL parts (not just the first) so multi-part targets like
+       ``"$DIR/out"`` or ``"/dev""/null"`` are identified. Lit values are
+       backslash-unescaped (unquoted context); DblQuoted parts use their
+       best-effort ``Value`` or their nested parts.
+       """
+       import re as _re
+
+       chunks: list[str] = []
+       for part in word.get("Parts", []) if isinstance(word, dict) else []:
+           if not isinstance(part, dict):
+               continue
+           ptype = part.get("Type")
+           if ptype == "Lit":
+               chunks.append(_re.sub(r"\\([^\n])", r"\1", part.get("Value", "")))
+           elif ptype == "SglQuoted":
+               chunks.append(part.get("Value", ""))
+           elif ptype == "DblQuoted":
+               if part.get("Parts"):
+                   for sub in part["Parts"]:
+                       if isinstance(sub, dict):
+                           chunks.append(str(sub.get("Value", "")))
+               else:
+                   chunks.append(part.get("Value") or "")
+           else:
+               v = part.get("Value")
+               if isinstance(v, str):
+                   chunks.append(v)
+       return "".join(chunks)
+
+
+   def _redir_target(redir: dict[str, Any]) -> str:
+       """Best redirection target for policy decisions.
+
+       Prefers the segment-level ``Target`` key (full executed form, produced
+       by segments.py); falls back to reconstructing from raw Word parts.
+       """
+       t = redir.get("Target")
+       if isinstance(t, str) and t:
+           return t
+       return _raw_word_target(redir.get("Word", {}) or {})
+   ```
+
+   (Move `import re` to module top — `re` is already imported there; just use
+   it directly and drop the local import.)
+
+2. Replace every redirection-target `parts[0].get("Value", "")` with the
+   helper. The 6 sites (verify each by context; the 7th occurrence in
+   `_find_background_flags` is a command NAME — DO NOT change it):
+   - `classify_output_redirection`: Find
+     ```python
+         # Determine target value from first part's Value (filename)
+         if parts:
+             target = parts[0].get("Value", "")
+     ```
+     replace with `target = _redir_target(redir)` (delete the now-unused
+     `parts`/`word` locals above it if they become dead code — keep the `N`
+     extraction untouched).
+   - `check_output_redirection`: Find
+     ```python
+         for redir in redirections:
+             target_word = redir.get("Word", {})
+             parts = target_word.get("Parts", [])
+             if parts:
+                 targets.append(parts[0].get("Value", ""))
+     ```
+     → `targets.append(_redir_target(redir))` for each redir.
+   - `check_input_redirection`: Find
+     ```python
+             target = ""
+             word = redir.get("Word", {})
+             parts = word.get("Parts", [])
+             if parts:
+                 target = parts[0].get("Value", "")
+             redirections.append({"op": op, "target": target})
+     ```
+     → `redirections.append({"op": op, "target": _redir_target(redir)})`.
+   - `_check_segments_output_redirs` (dedupe loop): Find
+     ```python
+                 word = r.get("Word", {})
+                 parts = word.get("Parts", [])
+                 target = parts[0].get("Value", "") if parts else ""
+     ```
+     → `target = _redir_target(r)`.
+   - `_check_segments_output_redirs` (targets loop): Find
+     ```python
+         for redir in redirections:
+             word = redir.get("Word", {})
+             parts = word.get("Parts", [])
+             if parts:
+                 targets.append(parts[0].get("Value", ""))
+             kinds.extend(classify_output_redirection(redir))
+     ```
+     → `targets.append(_redir_target(redir)); kinds.extend(...)`.
+   - `_check_segments_input_redirs`: Find
+     ```python
+                 word = r.get("Word", {})
+                 target = ""
+                 parts = word.get("Parts", [])
+                 if parts:
+                     target = parts[0].get("Value", "")
+     ```
+     → `target = _redir_target(r)`.
+
+3. Tests in `tests/config/test_rules.py` (these call `evaluate_bash_command`
+   or the rules functions directly — match the file's existing style; if the
+   file tests segment-level helpers, use `parse_segments` from
+   `lovely_bash_permissions.segments` to build segment input):
+   - `evaluate_bash_command('echo hi > "$DIR/out.txt"', {"*":"allow","output_redirection":"allow"})`
+     → reason contains `$DIR/out.txt` (not `/out.txt`).
+   - `evaluate_bash_command('echo hi > "a""b"', {"*":"allow","output_redirection":"allow"})`
+     → reason contains `ab`.
+   - `evaluate_bash_command('echo hi 2>"/dev""/null"',
+       {"*":"allow","output_redirection":{"*":"ask","stderr_to_dev_null":"allow"}})`
+     → status **allow** (classification fixed).
+   - `evaluate_bash_command('echo hi > /e"tc"/x', {"*":"allow","blocked_paths_regex":["\\/etc"],"output_redirection":"allow"})`
+     → **deny** (quote-split redir target caught).
+   - `evaluate_bash_command('cat <<< /e"tc"/shadow', {"*":"allow","input_redirection":"allow","blocked_paths_regex":["\\/etc"]})`
+     → **deny** (here-string target caught).
+   - `evaluate_bash_command('echo hi > $(pwd)/out.txt', {"*":"allow","output_redirection":"allow"})`
+     → reason contains `$(...)/out.txt`.
+
+**Acceptance:** new tests pass; run `uv run pytest tests/redirections -q` and
+fix any expectation that hardcoded a truncated target (only such expectations
+may change); full suite green. **Commit:** listed files + `PLAN.md`.
+
+---
+
+## Step 5 — `converter.py`: redir-only compound operands (bug #3)
+
+**Status:** not started
+
+**Files:** `src/lovely_bash_permissions/converter.py`,
+`src/lovely_bash_permissions/rules.py`,
+`tests/parsing/test_segments.py`, `tests/config/test_evaluate.py`
+
+**Background (verified):** shfmt emits `> /etc/x && cat file` as
+`BinaryCmd{X: {Redirs: [...]}, Y: {Cmd: CallExpr}}` — the `X` operand dict has
+**no `Type` and no `Cmd`**, so `node_from_json` falls through to the generic
+`Node` and the redirection vanishes from segments.
+
+**What to do:**
+
+1. `converter.py` — in `node_from_json`, after the existing "Cmd but no Type"
+   shortcut. Find:
+
+   ```python
+         # Handle nodes that have 'Cmd' but no 'Type' (wrapped statements)
+         if not node_type and "Cmd" in data:
+             return node_from_json(data["Cmd"])
+
+         converter = _CONVERTERS.get(node_type)
+   ```
+
+   insert between the shortcut and the converter lookup:
+
+   ```python
+         # Redirection-only operand of a compound (e.g. `> /etc/x && cat f`):
+         # shfmt emits a dict with Redirs but no Type and no Cmd. Convert it as
+         # a Stmt(cmd=None) so segments.py emits the synthetic redir-only
+         # segment it already supports for top-level statements - otherwise the
+         # redirection is silently dropped and bypasses all redir/blocked-path
+         # checks (NEW_BUGS #3).
+         if not node_type and "Redirs" in data:
+             return _convert_stmt(data)
+   ```
+
+2. `rules.py` — `_find_redirs` parity for the same shape in raw-JSON walks.
+   Find:
+
+   ```python
+     redirs: list[dict[str, Any]] = []
+
+     # CallExpr has Redirs directly on the node itself
+   ```
+
+   insert before the `# CallExpr...` comment:
+
+   ```python
+     # Redirection-only compound operand (no Type/Cmd, just Redirs) - see
+     # converter.node_from_json handling for `> f && cmd` (NEW_BUGS #3).
+     if not node.get("Type") and node.get("Redirs"):
+         redirs.extend(node["Redirs"])
+
+   ```
+
+3. Tests:
+   - `tests/parsing/test_segments.py`: `parse_segments('> /etc/x && cat file')`
+     → 2 segments; the first has `command == ""`, empty arguments, and one
+     redirection with `Op == ">"` and `Target == "/etc/x"`; same check for
+     `'true | > /etc/x'` (redir on the second segment) and
+     `'cat file || > /etc/x'`.
+   - `tests/config/test_evaluate.py` (config
+     `{"*":"allow","blocked_paths_regex":["\\/etc"],"allowed_cmds_regex":[r"^cat\s+.+$"]}`):
+     | command | expected |
+     |---|---|
+     | `> /etc/x && cat file` | deny |
+     | `> /etc/x \| true` | deny (true not allowlisted → ask on its own, but redir blocked → deny) |
+     | `true \| > /etc/x` | deny |
+     | `cat file && > /etc/y` | deny |
+     | `2>/etc/e \| true` | deny |
+     | contrast `> /tmp/ok && cat file` | allow (cat allowed, redir not blocked; output_redirection unset → ask! use config with `"output_redirection":"allow"` to get allow) |
+     For the contrast row, include `"output_redirection":"allow"` in that test's config.
+   - Also assert the whole-all-redir case with
+     `{"*":"allow","blocked_paths_regex":["\\/etc"],"output_redirection":"allow"}`:
+     `'> /etc/x && > /etc/y'` → deny (previously fell to wildcard allow).
+
+**Acceptance:** probes show the segments contain the redir; new tests pass;
+full suite green (top-level `'> /etc/x'` behavior unchanged — covered by
+existing tests). **Commit:** listed files + `PLAN.md`.
+
+---
+
+## Step 6 — bug #2: split config keys (schema, effective config, evaluator)
+
+**Status:** not started
+
+**Files:** `src/lovely_bash_permissions/config/schema.py`,
+`src/lovely_bash_permissions/config/effective_bash.py`,
+`src/lovely_bash_permissions/evaluate.py`
+
+**Decisions (D3):** three keys, no back-compat.
+- `command_substitution` — gates `$(...)` and backticks (the OLD `subshell`
+  behavior for CmdSubst).
+- `process_substitution` — gates `<(...)` / `>(...)` (previously lumped into
+  old `subshell`).
+- `subshell` — NEW: gates `( ... )` paren groups.
+
+**What to do:**
+
+1. `schema.py`. Find:
+   ```python
+       subshell: PermissionLevel | None = None
+       variable_assignment: PermissionLevel | None = None
+   ```
+   Replace with:
+   ```python
+       #: Policy for $(...) / backtick command substitutions.
+       command_substitution: PermissionLevel | None = None
+       #: Policy for <(...) / >(...) process substitutions.
+       process_substitution: PermissionLevel | None = None
+       #: Policy for ( ... ) subshell groups.
+       subshell: PermissionLevel | None = None
+       variable_assignment: PermissionLevel | None = None
+   ```
+
+2. `effective_bash.py`. Find:
+   ```python
+             "error": _resolve("error"),
+             "subshell": _resolve("subshell"),
+   ```
+   Replace with:
+   ```python
+             "error": _resolve("error"),
+             "command_substitution": _resolve("command_substitution"),
+             "process_substitution": _resolve("process_substitution"),
+             "subshell": _resolve("subshell"),
+   ```
+
+3. `evaluate.py` — detectors. Replace `_has_cmd_subst` (Find its full def,
+   `def _has_cmd_subst(tree: dict[str, Any]) -> bool:` … its `return False`)
+   with one detector returning all three flags:
+
+   ```python
+   def _subst_flags(tree: dict[str, Any]) -> dict[str, bool]:
+       """Detect which of the three substitution/subshell constructs appear.
+
+       Returns ``{"command_substitution": bool, "process_substitution": bool,
+       "subshell": bool}`` where the flags mark ``$(...)``/backticks,
+       ``<(...)``/``>(...)``, and ``( ... )`` paren groups respectively.
+       Uses typed-AST traversal so constructs nested inside quoted strings
+       are detected too.
+       """
+       from .ast import Subshell
+
+       ast = node_from_json(tree)
+       if ast is None:
+           return {"command_substitution": False, "process_substitution": False, "subshell": False}
+
+       found = {"command_substitution": False, "process_substitution": False, "subshell": False}
+
+       def visitor(node: Node) -> None:
+           if isinstance(node, CmdSubst):
+               found["command_substitution"] = True
+           elif isinstance(node, ProcSubst):
+               found["process_substitution"] = True
+           elif isinstance(node, Subshell):
+               found["subshell"] = True
+
+       _traverse(ast, visitor, recurse_call_expr_args=True)
+       return found
+   ```
+
+4. `evaluate.py` — rules dict. Find:
+   ```python
+         "background_execution": _resolve_level(config, "background_execution"),
+         "subshell": _resolve_level(config, "subshell"),
+   ```
+   Replace with:
+   ```python
+         "background_execution": _resolve_level(config, "background_execution"),
+         "command_substitution": _resolve_level(config, "command_substitution"),
+         "process_substitution": _resolve_level(config, "process_substitution"),
+         "subshell": _resolve_level(config, "subshell"),
+   ```
+
+5. `evaluate.py` — main flow. Find:
+   ```python
+     has_subshell = _has_cmd_subst(raw_tree)
+   ```
+   Replace with:
+   ```python
+     subst_flags = _subst_flags(raw_tree)
+     has_cmd_subst = subst_flags["command_substitution"]
+     has_proc_subst = subst_flags["process_substitution"]
+     has_paren_subshell = subst_flags["subshell"]
+   ```
+   Then update every use of `has_subshell`:
+   - Empty-segment fallback (Find: `if has_subshell and blocked_patterns:` and
+     the later `elif has_subshell:` block): the blocked-content pre-scan uses
+     `_extract_subshell_contents` (CmdSubst/ProcSubst) — gate it on
+     `has_cmd_subst or has_proc_subst`. The policy branch currently reads:
+     ```python
+             _sub_policy = rules["subshell"]
+             if _sub_policy == "allow" and "subshell" not in config:
+                 _sub_policy = "ask"
+     ```
+     and its reason `"subshell or command substitution requires approval"`.
+     Rewrite this branch: the policy to consult is `command_substitution` when
+     `has_cmd_subst`, else `process_substitution` (the only constructs that can
+     produce zero-segment trees). With the "inherited allow → ask" rule:
+     ```python
+             _cs_policy = rules["command_substitution"] if has_cmd_subst else rules["process_substitution"]
+             _cs_key = "command_substitution" if has_cmd_subst else "process_substitution"
+             if _cs_policy == "allow" and _cs_key not in config:
+                 _cs_policy = "ask"
+             if _cs_policy == "allow":
+                 _empty_status = _wildcard
+                 _empty_reason = (
+                     f"<empty command> produced no parseable segments - defaulting to wildcard policy ({_wildcard})"
+                 )
+             else:
+                 _empty_status = _cs_policy
+                 _empty_reason = (
+                     "command substitution requires approval"
+                     if has_cmd_subst
+                     else "process substitution requires approval"
+                 )
+     ```
+   - Main subshell-policy block (Find: `subshell_policy = rules.get("subshell", "ask")`
+     followed by `if has_subshell:`). Rewrite as three independent gates:
+
+     ```python
+     # Command substitution / process substitution policy checks; also check
+     # inner content against blocked paths and allowed patterns.
+     if has_cmd_subst or has_proc_subst:
+         subshell_contents = _extract_subshell_contents(raw_tree)
+
+         if blocked_patterns and subshell_contents:
+             for text in subshell_contents:
+                 matched, pattern, value = check_blocked_patterns("", [text], blocked_patterns)
+                 if matched:
+                     overall_status = "deny"
+                     reasons.append(
+                         f'Blocked by bash permissions: Argument "{value}" matches blocked path pattern '
+                         f"{pattern}. The tool has not been run"
+                     )
+
+         if nested_non_match:
+             names_str = ", ".join(f'"{n}"' for n in sorted(nested_non_match))
+             reasons.append(f"{names_str} commands inside subshell do not match allowed patterns")
+             _sub_policy = rules.get("command_substitution", "ask") if has_cmd_subst else rules.get("process_substitution", "ask")
+             if overall_status == "deny":
+                 pass  # already denied by blocked paths
+             elif _sub_policy == "allow":
+                 overall_status = "ask"
+             elif _sub_policy == "deny":
+                 overall_status = "deny"
+             else:
+                 overall_status = _sub_policy
+
+     # $(...) and <(...) each gate independently (ask on either when overall
+     # is still allow).
+     for _flag, _key, _label in (
+         (has_cmd_subst, "command_substitution", "command substitution requires approval"),
+         (has_proc_subst, "process_substitution", "process substitution requires approval"),
+     ):
+         if _flag and overall_status == "allow":
+             _pol = rules.get(_key, "ask")
+             if _pol != "allow":
+                 overall_status = _pol
+                 reasons.append(_label)
+
+     # ( ... ) paren-group subshells: inner segments are already scanned above
+     # (blocked paths / allowed patterns); the policy gates the construct itself.
+     if has_paren_subshell and overall_status == "allow":
+         _paren_pol = rules.get("subshell", "ask")
+         if _paren_pol != "allow":
+             overall_status = _paren_pol
+             reasons.append("subshell (...) requires approval")
+     ```
+
+     Note the original code had
+     `if overall_status == "allow" and subshell_policy != "allow": ...`
+     inside `if has_subshell:` — the loop above preserves that (policy only
+     consulted when overall still allow).
+
+6. `evaluate.py` — allowed-pattern AST walk: paren groups count as nesting, so
+   commands inside `( ... )` that do not match allowed patterns flow through
+   the `nested_non_match` machinery like `$(...)` contents. Find:
+   ```python
+                 new_depth = depth + (1 if isinstance(node, (CmdSubst, ProcSubst)) else 0)
+   ```
+   Replace with:
+   ```python
+                 from .ast import Subshell as _Subshell
+
+                 new_depth = depth + (1 if isinstance(node, (CmdSubst, ProcSubst, _Subshell)) else 0)
+   ```
+   (or import `Subshell` at module top alongside the existing `CallExpr,
+   CmdSubst, Node, ProcSubst` import — preferred; then no inline import).
+
+7. `evaluate.py` docstrings: the `evaluate_bash_command` Args list documents
+   `'subshell'` (Find: `- 'subshell': allow/ask/deny policy`) — update to list
+   all three keys with their meanings. Also fix any other stale
+   "subshell" mentions in this file's comments that refer to the old combined
+   key (the `# Subshell/command substitution policy check;` comment is replaced
+   in step 5 above).
+
+**Tests this step:** update the existing test expectations so the suite is
+green AGAIN (behavioral tests for the new keys are written in Step 7):
+- `tests/config/conftest.py` (Find: fixture field `subshell: str = "ask"` and
+  `config["subshell"] = subshell`): rename the fixture param to
+  `command_substitution: str = "ask"` / `config["command_substitution"] = ...`.
+  Keep a separate optional `subshell: str = "ask"` param mapped to
+  `config["subshell"]` ONLY if needed by untouched tests — check usages first;
+  simplest is renaming and updating callers.
+- `tests/config/test_evaluate.py` (59 occurrences) and
+  `tests/config/test_effective_bash.py` (3),
+  `tests/redirections/test_nested_redirections.py` (1),
+  `tests/config/test_schema.py` (1): re-map each config dict by semantic:
+  constructs under test are `$(...)`/backticks in nearly all of these →
+  `"command_substitution"`; any test specifically using `<(...)`/`>(...)` →
+  `"process_substitution"`. Grep and re-map deliberately; do not blind-rename.
+  `test_effective_bash.py` assertions on the resolved key names change to the
+  three new keys.
+
+**Probes:**
 
 ```bash
 uv run python <<'EOF'
-from lovely_bash_permissions.evaluate import evaluate_bash_command
-
-r = evaluate_bash_command("(( x[$(rm -rf /etc/x)] ))", {"*": "allow", "subshell": "deny"})
-assert r["status"] == "deny", r
-r = evaluate_bash_command("while :; do echo a; done < /etc/shadow", {"*": "allow", "input_redirection": "allow"})
-assert r["reason"].count("/etc/shadow") == 1, r["reason"]
-print("deny ok")
+from lovely_bash_permissions.evaluate import evaluate_bash_command as ev
+print(ev('echo $(cat x)',  {"*":"allow","command_substitution":"deny"}))   # deny
+print(ev('echo $(cat x)',  {"*":"allow","subshell":"deny"}))               # allow (old key no longer gates $(...))
+print(ev('echo <(cat x)',  {"*":"allow","process_substitution":"deny"}))   # deny
+print(ev('( rm x )',       {"*":"allow","subshell":"deny"}))               # deny
+print(ev('time ( rm x )',  {"*":"allow","subshell":"deny"}))               # deny
+print(ev('( rm x )',       {"*":"allow","command_substitution":"deny"}))   # allow (different key)
 EOF
 ```
 
-1. CLI no-crash probe (exits 0, no traceback — the over-the-cap exit-3 path is
-   covered by the guard unit test in Step 6 instead):
-
-```bash
-cmd=$(python -c "print('echo ' + '\$('*180 + 'true' + ')'*180)")
-uv run lovely-bash-inspection --string "$cmd" >/dev/null 2>&1; test $? -eq 0
-```
-
-1. Mark every step in this plan `Status: done`.
+**Acceptance:** probes match; full pytest/ruff/mypy green. **Commit:** listed
+files + `PLAN.md`.
 
 ---
 
-## Resulting behaviors (reference table)
+## Step 7 — bug #2: new behavioral tests + docs
 
-| Command / config | before | after |
-| --- | --- | --- |
-| `echo $(…$(true)…)` ×165+ | `RecursionError` crash (exit 1) | converts; up to ~cap depth, else clean parse error (exit 3) |
-| ~400 × `a && a && …` | `RecursionError` | converts fine |
-| `(( x[$(rm -rf /etc/x)] ))` with `"*": "allow"` | allow ❌ | ask |
-| `(( x[$(rm -rf /etc/x)] ))` with `"*": "allow", "subshell": "deny"` | allow ❌ | deny |
-| `time (( x[$(rm z)] ))` with deny subshell | allow ❌ | deny |
-| `(( x = 5 ))` with deny subshell | allow | allow (unchanged) |
-| `case $(evil) in a) echo 1;; esac` | `['echo']` | `['evil', 'echo']` |
-| `case $x in $(evil)) echo hit;; esac` | `['echo']` | `['evil', 'echo']` |
-| `while :; do echo a; done < /etc/shadow` | reason `…from /etc/shadow, /etc/shadow` | `…from /etc/shadow` (once) |
+**Status:** not started
 
-## Invariants deliberately preserved (do not change while implementing)
+**Files:** `tests/config/test_evaluate.py`,
+`tests/config/test_effective_bash.py`,
+`README.lovely-devin-permissions.md`
 
-- Bugs #5/#6 segment behaviors (`['seq','echo']`, `['cmd','echo']`, no
-  `$(...)` phantoms) stay as verified in Step 0.
-- The empty-segment blocked-paths and heredoc scans run first and still deny —
-  the new subshell branch only changes the *default* when those scans are
-  silent (reasons match existing strings: `"wildcard policy (ask)"`,
-  `"subshell or command substitution requires approval"`).
-- Subshell-policy inheritance (`subshell: allow` → wildcard) is preserved in
-  the empty-segment path AND the per-segment path is untouched.
-- The recursion headroom is monotonic and never lowered (process-wide), so the
-  recursive segment-extraction and CLI-render passes after conversion keep their
-  headroom; the cap + `RecursionError`→`ParseError` guard guarantee fail-closed
-  behavior rather than a crash.
-- `case` handlers that currently produce only body segments with no
-  substitutions are unchanged (`["echo"]`); `select`/`ForClause` behavior is
-  unchanged (already fixed by #5).
-- Redirection dedup keeps distinct (op, fd, target) entries — no check is lost;
-  blocked-path checks still run per retained target.
-- `converter.py` keeps a local import of `.parser` (no new module-level cycle);
-  `ParseError` still subclasses `LovelyDevinPermissionsError` so CLI exit-3 and
-  hook error-policy routing are unchanged.
+**What to do:**
+
+1. New tests in `tests/config/test_evaluate.py` (class
+   `TestSubstitutionKeySplit`):
+   - `( rm x )` with `{"*":"allow","subshell":"deny"}` → deny, reason contains
+     "subshell (...) requires approval".
+   - `time ( rm x )` same → deny.
+   - `( cat /etc/passwd )` with `{"*":"allow","blocked_paths_regex":["\\/etc"]}`
+     → deny (inner blocked-path scan still works through the paren group).
+   - `( rm x )` with `{"*":"allow"}` (key unset → `subshell` inherits the
+     wildcard `allow`) and NO allow-list: the paren group is not gated, but
+     inner `rm` is a real non-allowlisted segment → overall **ask** via the
+     wildcard path. Assert `ask` (and comment that the paren construct itself
+     did not add a reason).
+   - `$(...)`: `echo $(x)` with `command_substitution: deny` → deny;
+     `process_substitution: deny` alone → allow (with `"*":"ask"` it is ask via
+     wildcard for `x`; use allowed_cmds_regex for precision:
+     `{"*":"allow","allowed_cmds_regex":[r"^echo\s+\$\(.*\)$", r"^x$"]}`...
+     simpler: `{"*":"allow","process_substitution":"deny"}` on
+     `echo $(true)` → allow; same cmd with `command_substitution: deny` → deny.
+   - `<(...)`: `echo <(true)` (allowed list covering echo) with
+     `process_substitution: deny` → deny; with only `subshell: deny` → allow.
+   - Inherited-allow fail-closed: `(( x[$(rm)] ))` (no segments) with
+     `{"*":"allow","command_substitution":"deny"}` → deny; with bare
+     `{"*":"allow"}` → ask (inherited allow downgraded — pre-existing rule,
+     key renamed).
+
+2. `tests/config/test_effective_bash.py`: assert an effective bash config
+   resolves all three keys (unset → wildcard; explicit dict/scalar respected):
+   e.g. config with `bash: {"*": "deny", "command_substitution": "allow"}` →
+   effective has `subshell == "deny"` (inherited),
+   `process_substitution == "deny"`, `command_substitution == "allow"`.
+
+3. `README.lovely-devin-permissions.md` doc updates:
+   - Find the table row (line ~135):
+     ```
+     | `subshell`                              | `"allow" \| "ask" \| "deny"`           | Policy for subshells and command substitutions (`$(...)`, backticks). If omitted, inherits `*` |
+     ```
+     Replace with three rows:
+     ```
+     | `command_substitution`                  | `"allow" \| "ask" \| "deny"`           | Policy for `$(...)` / backtick command substitutions. If omitted, inherits `*` |
+     | `process_substitution`                  | `"allow" \| "ask" \| "deny"`           | Policy for `<(...)` / `>(...)` process substitutions. If omitted, inherits `*` |
+     | `subshell`                              | `"allow" \| "ask" \| "deny"`           | Policy for `( ... )` subshell groups. If omitted, inherits `*` |
+     ```
+   - Find (line ~127) the sentence listing inherited options:
+     `(`error`, `subshell`, `variable_assignment`, redirection, and background
+     policies)` → add `command_substitution`, `process_substitution`.
+   - Example config blocks (lines ~121 and ~348) containing
+     `"subshell": "ask"` / `"subshell": "allow"`: replace with the three keys
+     (e.g. `"command_substitution": "ask", "process_substitution": "ask",
+     "subshell": "ask"`).
+
+**Acceptance:** new tests pass; full suite/ruff/mypy green; no remaining
+references to the old single-key semantics in `src/` (verify:
+`rg -n '"subshell"' src/lovely_bash_permissions/config/*.py` shows only the
+new-key context). **Commit:** listed files + `PLAN.md`.
+
+---
+
+## Step 8 — Final regression sweep (all four bugs)
+
+**Status:** not started
+
+**Files:** none (verification; commit only if a step was left open).
+
+Run the complete NEW_BUGS acceptance matrix in ONE probe script
+(`uv run python <<'EOF' ... EOF`), asserting every line:
+
+Bug #1 (config
+`{"*":"allow","blocked_paths_regex":["\\/etc","\\.env$","\\.envrc$"],"allowed_cmds_regex":[r"^cat\s+.+$", r"^ls(\s+.*)?$", r"^grep\s+\S+\s+.+$", r"^head\s+.+$", r"^find(?!.*\s-(exec|delete|ok)\b).*$", r"^fd(?!.*\s+(-x|-X)).*$", r"^sort(?!\s+(-o|--output)\b).*$"]}`):
+- `cat /e"tc"/passwd` deny · `ls -la /e"tc"` deny · `grep x /e"tc"/passwd`
+  deny · `head /e"tc"/passwd` deny · `cat .e"nv"` deny · `cat .e"nvrc"` deny
+- `find /tmp -e"x"ec rm -rf /` ask · `find /tmp -"exec" rm -rf /` ask ·
+  `find /tmp -ex\ec rm -rf /` ask (Python-escape the backslash) ·
+  `fd -"x" rm` ask · `sort -"o" /tmp/out x` ask
+- contrasts: `cat /etc/passwd` deny · `find /tmp -exec rm -rf /` ask ·
+  `cat "plain file"` allow
+- heredoc: `'cat f <<EOF\nsecret /e"tc"/passwd\nEOF'` deny (and the literal
+  `'/etc/passwd'` variant stays deny)
+
+Bug #2:
+- `( rm x )` + `subshell:deny` deny · `time ( rm x )` + `subshell:deny` deny
+- `echo $(echo hi)` + `command_substitution:deny` deny
+- `echo <(hi)` + `process_substitution:deny` deny
+- `( rm x )` + only `command_substitution:deny` → NOT gated by that key
+
+Bug #3 (config + `"output_redirection":"allow"`):
+- `> /etc/x && cat file` deny · `> /etc/x | true` deny ·
+  `true | > /etc/x` deny · `cat file && > /etc/x` deny ·
+  `2>/etc/e | true` deny · `> /etc/x; cat file` deny (regression: was already
+  fine) · `> /tmp/ok && cat file` allow
+
+Bug #4 (config `{"*":"allow","output_redirection":"allow"}`):
+- `echo hi > "$DIR/out.txt"` reason contains `$DIR/out.txt`
+- `echo hi > "a""b"` reason contains `ab`
+- `echo hi > $(pwd)/out.txt` reason contains `$(...)/out.txt`
+- `echo hi 2>"/dev""/null"` + per-kind `stderr_to_dev_null:allow` → allow
+
+Then: full `uv run pytest -m 'not linting' -q`, `uv run ruff check .`,
+`uv run mypy --strict .`. Mark all earlier step `Status:` fields `done` in
+PLAN.md and set this step done. **Commit:** `git add PLAN.md` (plus any test
+file that needed a final tweak, listed individually — never `git add -A`).
+
+**Definition of done:** every step above is `done`, the acceptance matrix
+passes verbatim, gates green, and `.fuzz/` remains untracked & ignored.
