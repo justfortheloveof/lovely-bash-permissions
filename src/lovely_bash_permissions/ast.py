@@ -96,7 +96,7 @@ class Node:
 class Word(Node):
     """A bash word composed of parts.
 
-    Words are the basic unit of bash syntax — simple literals,
+    Words are the basic unit of bash syntax - simple literals,
     variable expansions, command substitutions, or complex combinations.
 
     Attributes:
@@ -192,7 +192,7 @@ class ParamExpSlice(Node):
 class SglQuoted(Node):
     """A single-quoted shell string.
 
-    Content is taken literally — no variable expansion or special character
+    Content is taken literally - no variable expansion or special character
     interpretation.
 
     Attributes:
@@ -214,7 +214,7 @@ class DblQuoted(Node):
         value: Best-effort concatenation of literal part values.  Non-literal
             parts (e.g., ParamExp, CmdSubst) contribute empty strings, so
             this field is lossy and should only be used for display or
-            heuristic matching — not for faithful reconstruction.
+            heuristic matching - not for faithful reconstruction.
     """
 
     parts: list[Node] = field(default_factory=list)
@@ -326,7 +326,7 @@ class CallExpr(Node):
     The first argument in the args list is the command name.
 
     Attributes:
-        args: List of Word objects — first is the command name, rest are arguments
+        args: List of Word objects - first is the command name, rest are arguments
         assigns: Variable assignments before the command (e.g., "x=1 ls")
     """
 
@@ -384,7 +384,7 @@ class BinaryCmd(Node):
         right_redirs: Redirections attached to the ``Y`` (right) operand
         redirs: All redirections attached to either operand, in operand
             order (``left_redirs + right_redirs``).  Kept merged for
-            backwards compatibility — consumers that need to know which
+            backwards compatibility - consumers that need to know which
             operand a redirection belongs to should use the per-side
             fields instead.
     """
@@ -531,7 +531,7 @@ class Redir(Node):
         n: File descriptor number (e.g., 2 in ``2>file``), or None
             when no explicit descriptor is given.
         word: Word specifying the file target
-        hdoc: Heredoc body (``Hdoc`` from shfmt) — the content between
+        hdoc: Heredoc body (``Hdoc`` from shfmt) - the content between
             the delimiter and the closing marker.  Only present for
             ``<<`` / ``<<-`` redirections.  Bash expands ``$(…)``,
             backticks and ``$(<file)`` inside **unquoted** heredocs, so

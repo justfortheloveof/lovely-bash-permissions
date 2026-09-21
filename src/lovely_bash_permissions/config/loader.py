@@ -113,7 +113,7 @@ def load_permissions_config(project_dir: str) -> tuple[dict[str, Any], list[str]
         merged, merge_warnings = merge_deep(merged, cfg)
         warnings.extend(merge_warnings)
 
-    # Validate merged config — Pydantic enforces schema (typos, invalid patterns)
+    # Validate merged config - Pydantic enforces schema (typos, invalid patterns)
     try:
         PermissionsConfig.model_validate(merged)
     except ValueError as exc:

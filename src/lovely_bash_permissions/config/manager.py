@@ -33,7 +33,7 @@ class PermissionsManager:
             self._warnings.extend(warn_list)
             self._validation_errors = error_list
         except FileNotFoundError as exc:
-            # Config file missing — fall back to ask mode (safe default)
+            # Config file missing - fall back to ask mode (safe default)
             self._warnings.append(str(exc))
             self._lovely_config = {}
             self._validation_errors = [str(exc)]

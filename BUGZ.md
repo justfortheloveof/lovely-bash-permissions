@@ -37,24 +37,6 @@ without approval.
 
 ---
 
-## 7. 🟠 Blocked-path `\.env$` misses common secret variants
-
-**Area:** `~/.config/devin/lovely-permissions.jsonc` line 12
-(`blocked_paths_regex` = `\/etc`, `\.env$`, `\.envrc$`)
-
-```bash
-uv run lovely-devin-permissions -t 'cat .env'            # → block
-uv run lovely-devin-permissions -t 'cat .envrc'          # → block
-uv run lovely-devin-permissions -t 'cat .env.production' # → approve  (BUG)
-uv run lovely-devin-permissions -t 'cat .env.local'      # → approve  (BUG)
-uv run lovely-devin-permissions -t 'cat .env.development'# → approve  (BUG)
-```
-
-**Impact:** common secret-file variants slide through and are readable via the
-allow-listed `cat`/`head`/`tail`/`grep`.
-
----
-
 ## 10. ⚪ Parameter expansions inside double quotes dropped → false "ask"
 
 **Area:** `src/lovely_bash_permissions/inspect.py` (`_word_raw`/`_word_value`
@@ -80,5 +62,4 @@ argument is a double-quoted expansion.
 | # | Severity | Bug | Fix area |
 | --- | ---------- | ----- | ---------- |
 | 6 | 🟠 | `python3 -m json.tool` missing trailing `$` | default config line 46 |
-| 7 | 🟠 | `\.env$` misses `.env.production`/`.env.local` variants | default config line 12 |
 | 10 | ⚪ | `cat "$f"` false "ask" (ParamExp dropped from args) | `inspect.py` |

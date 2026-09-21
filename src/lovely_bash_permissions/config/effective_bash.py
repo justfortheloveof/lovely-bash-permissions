@@ -32,7 +32,7 @@ def get_effective_bash_config(raw_bash: object, project_dir: str, top_level_wild
     if raw_bash:
         bash: dict[str, Any] = raw_bash  # type: ignore[assignment]
         for p in bash.get("allowed_cmds_regex", []):
-            allowed_patterns.append(p)  # noqa: PERF402 — patterns used as-is
+            allowed_patterns.append(p)  # noqa: PERF402 - patterns used as-is
     allowed_patterns.extend(devin_regexes)
     # Remove duplicates while preserving order
     allowed_patterns = list(dict.fromkeys(allowed_patterns))
@@ -40,7 +40,7 @@ def get_effective_bash_config(raw_bash: object, project_dir: str, top_level_wild
     if raw_bash:
         blocked_patterns: list[str] = []
         for p in bash.get("blocked_paths_regex", []):
-            blocked_patterns.append(p)  # noqa: PERF402 — patterns used as-is
+            blocked_patterns.append(p)  # noqa: PERF402 - patterns used as-is
 
         resolved_star = bash.get("*") or top_level_wildcard or "ask"
 

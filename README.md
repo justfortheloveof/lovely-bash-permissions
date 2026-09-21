@@ -76,8 +76,8 @@ Supported dialects: `bash`, `posix`, `mksh`, `bats`, `zsh`. An unknown dialect r
 
 ### Errors
 
-- `ParseError` — raised when the input cannot be parsed (syntax error, empty command, or shfmt failure). Carries `.command`, `.returncode`, and `.stderr` attributes.
-- `LovelyDevinPermissionsError` — raised when the shfmt binary is missing or shfmt could not be run (timeout, OS error).
+- `ParseError` - raised when the input cannot be parsed (syntax error, empty command, or shfmt failure). Carries `.command`, `.returncode`, and `.stderr` attributes.
+- `LovelyDevinPermissionsError` - raised when the shfmt binary is missing or shfmt could not be run (timeout, OS error).
 
 ```python
 from lovely_bash_permissions import parse_ast, ParseError
@@ -93,8 +93,8 @@ except ParseError as exc:
 
 Parsed commands are represented as nested Python dataclasses. Every node inherits from `Node`, which provides:
 
-- `type` — the node type name (e.g. `"File"`, `"CallExpr"`, `"Word"`)
-- `pos` / `end` — `Position` source locations (`offset`, `line`, `col`)
+- `type` - the node type name (e.g. `"File"`, `"CallExpr"`, `"Word"`)
+- `pos` / `end` - `Position` source locations (`offset`, `line`, `col`)
 
 Nodes print a nested, human-readable repr (source-position fields are omitted), so you can inspect a tree directly:
 
@@ -112,7 +112,7 @@ print(tree)
 
 ### Node type reference
 
-**Words & word parts** — a `Word` is a list of parts; a part can be any of:
+**Words & word parts** - a `Word` is a list of parts; a part can be any of:
 
 | Type | Description | Key fields |
 | ------ | ------------- | ------------ |
@@ -194,10 +194,10 @@ print(tree)
 
 A `Redir` node describes one redirection:
 
-- `op` — the operator (`>`, `>>`, `<`, `<<`, `<<<`, `2>`, `>&`, `|&`…)
-- `n` — the file descriptor number (e.g. `2` in `2>file`), or `None`
-- `word` — the file target as a `Word`
-- `hdoc` — heredoc body (only for `<<` / `<<-`; bash expands `$(...)` and backticks inside unquoted heredocs)
+- `op` - the operator (`>`, `>>`, `<`, `<<`, `<<<`, `2>`, `>&`, `|&`…)
+- `n` - the file descriptor number (e.g. `2` in `2>file`), or `None`
+- `word` - the file target as a `Word`
+- `hdoc` - heredoc body (only for `<<` / `<<-`; bash expands `$(...)` and backticks inside unquoted heredocs)
 
 ## Inspection API
 
@@ -244,7 +244,7 @@ print(len(args))  # 1
 print(len(args[0]))  # 2 (two arguments: '-la' and '/tmp')
 ```
 
-Word values are best-effort and **quote delimiters are stripped** — `"hello"` and `'hello'` both yield `hello`. Variable and substitution parts are rendered in lossy form (e.g. `$VAR`, `$(...)`).
+Word values are best-effort and **quote delimiters are stripped** - `"hello"` and `'hello'` both yield `hello`. Variable and substitution parts are rendered in lossy form (e.g. `$VAR`, `$(...)`).
 
 ### Feature checks
 
@@ -286,9 +286,9 @@ The inspection functions differ in how they walk the tree:
 
 | Function | Descends into `$(...)` / assignment values? |
 | ---------- | --------------------------------------------- |
-| `get_commands`, `find_commands` | Yes — nested commands are discovered |
-| `get_arguments`, `find_arguments` | No — collects the literal argument words of each call |
-| `has_variable`, `has_pipe`, `get_redirections`, `get_target_files` | Yes — full traversal |
+| `get_commands`, `find_commands` | Yes - nested commands are discovered |
+| `get_arguments`, `find_arguments` | No - collects the literal argument words of each call |
+| `has_variable`, `has_pipe`, `get_redirections`, `get_target_files` | Yes - full traversal |
 
 ### Traversal & comparison helpers
 

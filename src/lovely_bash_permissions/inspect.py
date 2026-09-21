@@ -12,7 +12,7 @@ into variable-assignment values (via ``iter_children``), so that commands
 inside ``$(...)`` or ``VAR=$(cmd)`` are discovered.
 
 ``get_arguments`` and ``find_arguments`` recurse into CallExpr arguments
-but do **not** descend into assignment values — they collect the literal
+but do **not** descend into assignment values - they collect the literal
 argument words of each call, not nested commands.
 
 ``has_variable``, ``has_pipe``, ``get_redirections``, and ``get_target_files``
@@ -150,7 +150,7 @@ def _collect_redirs(node: Node) -> Iterator[Redir]:
 
     Other compound nodes (IfClause, ForClause, etc.) wrap their bodies
     in Stmt nodes, so their redirections are discovered when the
-    traversal visits those inner Stmt children — no special handling
+    traversal visits those inner Stmt children - no special handling
     is needed here.
     """
     if isinstance(node, (Stmt, BinaryCmd)) and node.redirs:
@@ -287,7 +287,7 @@ def get_arguments(tree: Node) -> list[list[str]]:
     """Extract command arguments for each call expression.
 
     Returns the string values of each CallExpr's arguments (excluding the
-    command name).  Does **not** descend into assignment values — use
+    command name).  Does **not** descend into assignment values - use
     ``get_commands`` for that.
     """
     args_list: list[list[str]] = []
@@ -304,7 +304,7 @@ def find_arguments(tree: Node) -> list[list[Word]]:
     """Find all argument Word lists (excluding command names) for each call.
 
     Returns the raw Word nodes.  Does **not** descend into assignment
-    values — use ``find_commands`` for that.
+    values - use ``find_commands`` for that.
     """
     args_list: list[list[Word]] = []
 

@@ -1,5 +1,5 @@
 """
-Tests for AST node types — dataclass structure and node types
+Tests for AST node types - dataclass structure and node types
 not covered by test_parser.py.
 """
 

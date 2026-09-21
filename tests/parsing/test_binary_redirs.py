@@ -48,7 +48,7 @@ class TestBinaryPerSideRedirs:
         assert merged_targets == ["left.txt", "right.txt"]
 
     def test_three_segment_left_nested_per_side(self) -> None:
-        """a > 1 | b > 2 | c > 3 — redirs split per-side across the nested chain."""
+        """a > 1 | b > 2 | c > 3 - redirs split per-side across the nested chain."""
         tree = parse_ast("a > 1 | b > 2 | c > 3")
         stmt = tree.stmts[0]
         outer = stmt.cmd

@@ -1621,7 +1621,7 @@ class TestExtGlobNodes:
     NOTE: In real bash these patterns are only valid with
     `shopt -s extglob` enabled. shfmt parses them regardless of the
     shell option, so these tests assert the AST shape without the
-    option needing to be set — see test_extglob_invalid_without_shopt
+    option needing to be set - see test_extglob_invalid_without_shopt
     """
 
     @pytest.mark.parametrize(

@@ -1,7 +1,7 @@
 """Shared exception types for lovely-devin-permissions.
 
 A single error type, :class:`LovelyDevinPermissionsError`, is raised by any
-code path that cannot reach a permission decision — bash parse failures,
+code path that cannot reach a permission decision - bash parse failures,
 missing shfmt binary, shfmt subprocess failures.  The top-level hook handler
 catches it and maps the decision to the configurable ``error`` policy
 (``bash.error``), defaulting to the bash wildcard.

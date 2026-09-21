@@ -371,7 +371,7 @@ def _convert_part(data: dict[str, Any]) -> Node:
         if result is not None:
             return result
 
-    # Unknown part type — wrap in a generic Node
+    # Unknown part type - wrap in a generic Node
     pos, end = _parse_pos_end(data)
     return Node(type=part_type, pos=pos, end=end)
 
@@ -504,8 +504,8 @@ def _convert_decl_clause(data: dict[str, Any]) -> DeclClause:
     shfmt represents declaration arguments (e.g., ``export FOO=bar``) as
     Assign-like dicts in the ``Args`` array.  We store these in two fields:
 
-    * ``assigns`` — the full Assign objects with name/value/etc.
-    * ``args`` — the *value* portion as Word nodes, so callers that only
+    * ``assigns`` - the full Assign objects with name/value/etc.
+    * ``args`` - the *value* portion as Word nodes, so callers that only
       need the word-level view don't have to dig into Assign internals.
     """
     variant = data.get("Variant", {})
@@ -975,7 +975,7 @@ def node_from_json(data: dict[str, Any] | None) -> Node | None:
         if converter is not None:
             return converter(data)
 
-        # Unknown type — wrap in a generic Node
+        # Unknown type - wrap in a generic Node
         pos, end = _parse_pos_end(data)
         return Node(type=node_type, pos=pos, end=end)
     except RecursionError as exc:

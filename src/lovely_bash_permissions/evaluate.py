@@ -30,7 +30,7 @@ class _Found(Exception):
 
 
 #: Regex metacharacters (unescaped) or lone backslashes that mark a pattern
-#: body as more than a plain escaped literal — i.e. not a bare-name anchor.
+#: body as more than a plain escaped literal - i.e. not a bare-name anchor.
 _BARE_NAME_META = re.compile(r"(?<!\\)[()\[\]{}.*+?|^$]|\\(?!\\)")
 
 
@@ -38,7 +38,7 @@ def _extract_subshell_contents(tree: dict[str, Any]) -> list[str]:
     """Extract literal text values from inside CmdSubst/ProcSubst nodes.
 
     Uses the typed AST (via :func:`~lovely_bash_permissions.converter.node_from_json`)
-    so that substitutions nested inside quoted strings are found —
+    so that substitutions nested inside quoted strings are found -
     unlike the raw-JSON visitor which missed CmdSubst/ProcSubst
     hidden inside DblQuoted/SglQuoted parts.
 
@@ -58,7 +58,7 @@ def _extract_subshell_contents(tree: dict[str, Any]) -> list[str]:
             for stmt in node.stmts:
                 if isinstance(stmt.cmd, CallExpr) and stmt.cmd.args:
                     # Extract each argument separately so blocked paths inside
-                    # arguments are found — e.g. "/etc/passwd" in "cat /etc/passwd"
+                    # arguments are found - e.g. "/etc/passwd" in "cat /etc/passwd"
                     for arg in stmt.cmd.args:
                         contents.append(_word_value(arg))
 
@@ -73,15 +73,15 @@ def _heredoc_body_texts(tree: dict[str, Any]) -> list[str]:
     stdin at runtime. For data-consuming commands (``wc``, ``sort``,
     ``json.tool``) the body is inert text; for interpreters (``python3``,
     ``node``, ``bash``, ``sh``, ...) the body is *source code* that can open
-    arbitrary files — e.g. ``open("/etc/passwd").read()``.  The body is
+    arbitrary files - e.g. ``open("/etc/passwd").read()``.  The body is
     therefore scanned against ``blocked_paths_regex`` as raw text, matching
     the tool's conservative "block on mention" precedent for command-line
     arguments (``echo /etc/passwd`` is already denied).
 
-    Command-substitution parts inside the body are excluded here — their
+    Command-substitution parts inside the body are excluded here - their
     *inner commands* are scanned separately by the subshell-content pass.
 
-    Redir dicts in the raw JSON carry no "Type" field — heredoc redirections
+    Redir dicts in the raw JSON carry no "Type" field - heredoc redirections
     are identified by their ``Op`` (``<<`` / ``<<-``) and ``Hdoc`` keys.
 
     Returns:
@@ -162,7 +162,7 @@ def _command_string(name: str, args: list[str]) -> str:
 
 #: Raw first-argument prefixes emitted by the hook for its own ``:`` no-op label.
 #: The bare ``:`` builtin ignores its arguments, so a matching segment carries
-#: no behavior — it is recognized (not "approved") so re-evaluated rewrites do
+#: no behavior - it is recognized (not "approved") so re-evaluated rewrites do
 #: not spuriously ask. Uses the raw (quote-preserving) argument form so the
 #: label's literal quoting is honored regardless of ``_strip_quotes``.
 _HOOK_LABEL_ARG_PREFIXES = ("'[♡ perms: ", '"[♡ perms: ')
@@ -209,7 +209,7 @@ def _match_allowed_patterns(name: str, args: list[str], allowed_patterns: list[s
     """Return the allowed patterns matched by this command (name + args).
 
     Matches are rejected when opaque ``$(...)`` arguments could change the
-    pattern's verdict — see :func:`_opaque_match_unreliable`.  Such commands
+    pattern's verdict - see :func:`_opaque_match_unreliable`.  Such commands
     are treated as not allowed, requesting approval instead of auto-approving.
     """
     full = _command_string(name, args)
@@ -229,7 +229,7 @@ def _resolve_level(config: dict[str, Any], key: str) -> Any:  # noqa: ANN401
 
     An explicit value wins. Dict-form policies (``output_redirection``,
     ``input_redirection``, ``background_execution``) get their missing ``*``
-    injected from the wildcard — the *immediate wildcard parent* for the
+    injected from the wildcard - the *immediate wildcard parent* for the
     per-kind levels. Otherwise the value inherits the wildcard.
     """
     value = config.get(key)
@@ -339,14 +339,14 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
             # resolved subshell policy; only an explicit "allow" falls through
             # to the wildcard default. An *inherited* allow (unset subshell
             # under a permissive wildcard) becomes ask: the command produced no
-            # segments, so we cannot analyse what runs — default fail-closed.
+            # segments, so we cannot analyse what runs - default fail-closed.
             _sub_policy = rules["subshell"]
             if _sub_policy == "allow" and "subshell" not in config:
                 _sub_policy = "ask"
             if _sub_policy == "allow":
                 _empty_status = _wildcard
                 _empty_reason = (
-                    f"<empty command> produced no parseable segments — defaulting to wildcard policy ({_wildcard})"
+                    f"<empty command> produced no parseable segments - defaulting to wildcard policy ({_wildcard})"
                 )
             else:
                 _empty_status = _sub_policy
@@ -354,7 +354,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         else:
             _empty_status = _wildcard
             _empty_reason = (
-                f"<empty command> produced no parseable segments — defaulting to wildcard policy ({_wildcard})"
+                f"<empty command> produced no parseable segments - defaulting to wildcard policy ({_wildcard})"
             )
         return {"status": _empty_status, "reason": _empty_reason, "segments": []}
 
@@ -423,7 +423,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                 overall_status = "ask"
                 reasons.append(f"variable assignment requires approval: {args}")
         elif _is_hook_label_segment(cmd_name, args):
-            # The hook's own `:` no-op label wrapper — inert (the `:` builtin
+            # The hook's own `:` no-op label wrapper - inert (the `:` builtin
             # ignores its args) and exempted from the allowed-pattern check so
             # re-evaluated rewrites don't spuriously ask. Payload segments are
             # still evaluated normally below.
@@ -472,8 +472,8 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         segment_results.append(segment_result)
 
     # Scan heredoc bodies as raw text against blocked paths. This catches
-    # interpreter-as-code vectors that have no bash-level `$(...)` expansion —
-    # e.g. `python3 <<EOF\nopen("/etc/passwd").read()\nEOF` — which would
+    # interpreter-as-code vectors that have no bash-level `$(...)` expansion -
+    # e.g. `python3 <<EOF\nopen("/etc/passwd").read()\nEOF` - which would
     # otherwise read a blocked file if the interpreter were allow-listed.
     # Mirrors the "block on mention" precedent already applied to args.
     if blocked_patterns:
@@ -497,7 +497,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     # Collect matched patterns as approval reasons (only shown when status is allow).
     # NOTE: approval_reason must be built AFTER _walk() so it includes nested command matches.
 
-    # Check redirection rules (from segments — single source of truth, issue #2/#3)
+    # Check redirection rules (from segments - single source of truth, issue #2/#3)
     output_result = _check_segments_output_redirs(segments, rules)
 
     input_result = _check_segments_input_redirs(segments, rules)

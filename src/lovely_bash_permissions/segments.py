@@ -119,7 +119,7 @@ def _extract_redirs(node: object) -> list[Redir]:
     if isinstance(node, Stmt):
         return list(node.redirs)
     elif isinstance(node, BinaryCmd):
-        # Per-side split — caller decides how to attribute them
+        # Per-side split - caller decides how to attribute them
         return []  # handled inline by the caller
     else:
         return []
@@ -188,7 +188,7 @@ def _extract_segments(
         if inherited and (not sub or isinstance(node.cmd, TestClause)):
             # The statement carries redirections but no command segments (e.g.
             # `> f` alone, `((x)) > f`, or a `[[ ... ]]` whose body has no
-            # commands — `[[ -f x ]] > f`). Emit a synthetic segment carrying
+            # commands - `[[ -f x ]] > f`). Emit a synthetic segment carrying
             # the redirections so input/output redirection policies apply
             # instead of falling through to the empty-segment wildcard
             # short-circuit. For `[[ ]]` this fires even when the
@@ -294,7 +294,7 @@ def _extract_segments(
                     args.append(_word_raw(a.value))
             segments.append({"command": "", "arguments": args, "redirections": redir_dicts})
             # Recurse into assignment sub-expressions (values, indexes, arrays) so
-            # command substitutions inside them are extracted — e.g. the redirection
+            # command substitutions inside them are extracted - e.g. the redirection
             # in `x=$(echo hi > /etc/passwd)` must surface for blocked-path checks.
             for a in node.assigns:
                 if a.index is not None:
@@ -364,7 +364,7 @@ def _extract_segments(
     elif isinstance(node, CaseClause):
         # case/switch: the subject word (node.expr) and each branch's match
         # patterns can embed command substitutions that bash evaluates before
-        # the body runs — surface them alongside the branch bodies (bug #8).
+        # the body runs - surface them alongside the branch bodies (bug #8).
         if getattr(node, "expr", None) is not None:
             segments.extend(_extract_segments(node.expr, redirs))
         if hasattr(node, "branches") and node.branches:
@@ -378,7 +378,7 @@ def _extract_segments(
 
     elif isinstance(node, (ForClause, CStyleLoop)):
         # C-style prelude: for ((init; cond; post)) arithmetic may embed
-        # command substitutions that bash evaluates — surface them first.
+        # command substitutions that bash evaluates - surface them first.
         prelude = node if isinstance(node, CStyleLoop) else getattr(node, "cstyle", None)
         if prelude is not None:
             for attr in ("init", "cond", "post"):
@@ -401,9 +401,9 @@ def _extract_segments(
                 segments.extend(_extract_segments(stmt, redirs))
 
     elif isinstance(node, TestClause):
-        # Recurse into test expression — UnaryTest/BinaryTest may contain commands in args.
+        # Recurse into test expression - UnaryTest/BinaryTest may contain commands in args.
         # Note: statement-level redirections (e.g. `[[ -f x ]] > file`) are NOT
-        # propagated here — they are surfaced by the Stmt handler's synthetic
+        # propagated here - they are surfaced by the Stmt handler's synthetic
         # segment, since test-expression nodes are pseudo-commands, not real
         # command leaves.
         if hasattr(node, "body") and node.body:
@@ -413,10 +413,10 @@ def _extract_segments(
         # Test expression: only the right operand of a logical && / || is a
         # "command" to check. Every other operator's right operand is a value
         # (regex for =~, literal/glob for ==/!=, number for -eq, ...), never a
-        # command name — recurse WITHOUT test-expr context so only nested
+        # command name - recurse WITHOUT test-expr context so only nested
         # command substitutions inside it are extracted.
         # The left operand is likewise the comparison subject (value/glob/
-        # regex/number) — recurse it WITHOUT test-expr context too, so nested
+        # regex/number) - recurse it WITHOUT test-expr context too, so nested
         # command substitutions (e.g. [[ $(pwd) == /root* ]]) surface but the
         # operand itself is not emitted as a command.
         if hasattr(node, "left") and node.left:
@@ -439,15 +439,15 @@ def _extract_segments(
             segments.extend(_extract_segments(node.body, _in_test_expr=True))
 
     elif isinstance(node, TimeClause):
-        # time <cmd> — extract the command from inside
+        # time <cmd> - extract the command from inside
         if hasattr(node, "stmt") and node.stmt:
             segments.extend(_extract_segments(node.stmt))
 
     elif isinstance(node, ArithmCmd):
-        # (( expr )) — arithmetic-only, skip (no real command)
+        # (( expr )) - arithmetic-only, skip (no real command)
         pass
     elif isinstance(node, LetClause):
-        # let — variable assignment with arithmetic
+        # let - variable assignment with arithmetic
         # Extract as variable assignment segment, capturing expressions as args.
         # Recurse into exprs to find any embedded CmdSubst/ProcSubst.
         args = []
@@ -485,7 +485,7 @@ def _extract_segments(
             segments.append({"command": "", "arguments": args, "redirections": redir_dicts})
 
     elif isinstance(node, CoprocClause):
-        # coprocess — extract command if present
+        # coprocess - extract command if present
         if hasattr(node, "stmt") and node.stmt:
             segments.extend(_extract_segments(node.stmt))
 
@@ -534,7 +534,7 @@ def _extract_segments(
             segments.append({"command": node.value, "arguments": [], "redirections": []})
 
     elif isinstance(node, DblQuoted):
-        # Double-quoted text may embed CmdSubst/ProcSubst/ParamExp parts —
+        # Double-quoted text may embed CmdSubst/ProcSubst/ParamExp parts -
         # always recurse so embedded substitutions surface as real commands.
         for part in node.parts:
             segments.extend(_extract_segments(part, _in_test_expr=_in_test_expr))
@@ -554,7 +554,7 @@ def _extract_segments(
                 segments.extend(_extract_segments(exp.word))
 
     elif isinstance(node, ParamExpSlice):
-        # Parameter-expansion slice (${x:offset:length}) — recurse into the
+        # Parameter-expansion slice (${x:offset:length}) - recurse into the
         # operands so command substitutions such as ${x:$(cmd):3} are still
         # extracted (bash runs the substitution at expansion time).
         if not _in_test_expr:
@@ -588,7 +588,7 @@ def _extract_segments(
                 segments.extend(_extract_segments(elem))
 
     elif isinstance(node, ExtGlob):
-        # Extended glob pattern is a literal pattern — no substitutions inside.
+        # Extended glob pattern is a literal pattern - no substitutions inside.
         pass
 
     elif isinstance(node, (CmdSubst, ProcSubst)):
@@ -614,7 +614,7 @@ def _extract_segments(
             segments.extend(_extract_segments(stmt))
 
     else:
-        _logger.warning("Unhandled AST node type '%s' — returning 0 segments", type(node).__name__)
+        _logger.warning("Unhandled AST node type '%s' - returning 0 segments", type(node).__name__)
 
     return segments
 

@@ -129,7 +129,7 @@ class TestAllowedPatterns:
     def test_cstyle_prelude_cmdsubst_not_bypassed(self) -> None:
         """C-style prelude substitutions in for ((...)) are no longer dropped.
 
-        Before the ForClause.cstyle fix this returned allow — the rm ran in
+        Before the ForClause.cstyle fix this returned allow - the rm ran in
         the loop init and every typed-AST pass (subshell policy, blocked-path
         scan, segment extraction) missed it. The foreach form
         for i in $(rm ...) was already correctly denied.
@@ -206,7 +206,7 @@ class TestWildcardIsBaseline:
     A command is auto-approved only by an allowed-pattern match or an explicit
     ``"*": "allow"``. No policy (subshell, variable_assignment, redirection,
     blocked-only configs) grants a blanket allow for commands that are neither
-    allow-listed nor wildcard-allowed — bug #7 and the broader fail-open class.
+    allow-listed nor wildcard-allowed - bug #7 and the broader fail-open class.
     """
 
     def test_blocked_only_config_asks_param_expansion_repro(self) -> None:
@@ -316,7 +316,7 @@ class TestWildcardIsBaseline:
         """bug #2: blocked-path scan denies before the empty-segment return.
 
         Post bug #6 fix this now fires via the real cat segment
-        blocked-path check rather than the empty-segment subshell scan —
+        blocked-path check rather than the empty-segment subshell scan -
         verdict and reason are unchanged.
         """
         result = evaluate_bash_command(
@@ -707,7 +707,7 @@ class TestSubshellHandling:
     def test_subshell_matched_pattern_listed_once(self) -> None:
         """A command matched by both the segment loop and the AST walk counts once.
 
-        Regression: `echo $(ls -l)` previously listed `^ls` twice — once from
+        Regression: `echo $(ls -l)` previously listed `^ls` twice - once from
         the flattened segment and once from the AST traversal of the same call.
         """
         result = evaluate_bash_command(
@@ -869,7 +869,7 @@ class TestOpaqueSubstitutionPatternGuard:
 
     Regression: `find . $(echo -delete)` was auto-approved because the outer
     command was matched as `find . $(...)` (the negative lookahead never saw
-    `-delete`), while the inner `echo -delete` was individually approved —
+    `-delete`), while the inner `echo -delete` was individually approved -
     even though the command line that actually runs is `find . -delete`.
     """
 
@@ -1000,7 +1000,7 @@ class TestHookLabelRecognition:
 
     The hook rewrites commands as ``: '<label>' <emoji> ; <cmd>``; when Devin
     feeds that rewritten command back, the inert ``:`` no-op segment must not
-    spuriously ask — while the payload after ``;`` is still fully vetted.
+    spuriously ask - while the payload after ``;`` is still fully vetted.
     """
 
     def test_rewritten_allow_command_reapproved(self) -> None:
@@ -1230,7 +1230,7 @@ class TestResultStructure:
         assert result["status"] == "allow"
 
     def test_quoted_heredoc_ignores_expansions(self) -> None:
-        """Quoted heredoc (<<'EOF') is literal — no command substitution runs."""
+        """Quoted heredoc (<<'EOF') is literal - no command substitution runs."""
         result = evaluate_bash_command(
             "wc -l <<'EOF'\n$(cat /etc/passwd)\nEOF",
             make_config(blocked=[r"\/etc"]),
@@ -1734,7 +1734,7 @@ class TestVariableAssignment:
         assert result["status"] == "allow"
 
     def test_variable_assignment_with_command_substitution_deny(self) -> None:
-        """x=$(cmd) is a variable assignment — variable_assignment=deny should deny it."""
+        """x=$(cmd) is a variable assignment - variable_assignment=deny should deny it."""
         result = evaluate_bash_command(
             "x=$(cat file.txt)",
             make_config(allowed=["^cat$"], subshell="allow", variable_assignment="deny"),
@@ -1838,7 +1838,7 @@ class TestBackgroundExecutionCompound:
         assert result["status"] == "deny"
 
     def test_subshell_inner_background_denied(self) -> None:
-        """`(echo hi &)` backgrounds the inner command — policy applies."""
+        """`(echo hi &)` backgrounds the inner command - policy applies."""
         result = evaluate_bash_command(
             "(echo hi &)",
             {"*": "allow", "allowed_cmds_regex": ["^echo"], "background_execution": "deny"},

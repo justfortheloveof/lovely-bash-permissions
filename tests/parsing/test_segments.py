@@ -521,7 +521,7 @@ class TestCompoundCommandRedirections:
     """Redirections on time/funcdef/coproc compound commands are kept.
 
     Regression: the converter unwrapped the Stmt-shaped body/statement of
-    TimeClause/CoprocClause/FuncDecl, silently dropping trailing redirections —
+    TimeClause/CoprocClause/FuncDecl, silently dropping trailing redirections -
     so `time echo hi > /etc/passwd` was approved while the plain command was blocked.
     """
 

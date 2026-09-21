@@ -157,7 +157,7 @@ class TestPermissionsManagerGetMethods:
 
         manager = PermissionsManager(str(mock_project))
 
-        # devin_exec_regexes may raise if no valid config found — just check it doesn't crash
+        # devin_exec_regexes may raise if no valid config found - just check it doesn't crash
         result = manager.get_devin_exec_regexes()
         assert isinstance(result, list)
 
@@ -197,7 +197,7 @@ class TestPermissionsManagerWarnings:
     """Test warnings are tracked when config files are skipped."""
 
     def test_warnings_on_invalid_file(self, mock_project: Path) -> None:
-        """One file invalid but others load — warnings list has entry, config still loads."""
+        """One file invalid but others load - warnings list has entry, config still loads."""
 
         # Project config exists and is valid; global/local don't (will be skipped with warnings)
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
@@ -215,7 +215,7 @@ class TestPermissionsManagerWarnings:
         assert any("skipped invalid config file:" in w for w in warnings)
 
     def test_no_warnings_when_all_valid(self, mock_project: Path, devin_global_config_dir: str) -> None:
-        """All files valid — no warnings."""
+        """All files valid - no warnings."""
 
         # Create all three config files as valid
         global_config = Path(devin_global_config_dir) / "lovely-permissions.jsonc"

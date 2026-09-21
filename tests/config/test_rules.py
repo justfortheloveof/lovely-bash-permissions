@@ -687,7 +687,7 @@ def test_pipe_no_double_counting() -> None:
     """BinaryCmd redirects are extracted once, not merged+wrappers twice.
 
     Regression test for issue #1: _find_redirs() must not double-count
-    redirections from a BinaryCmd — the original code collected both the
+    redirections from a BinaryCmd - the original code collected both the
     (empty) merged Redirs list and X/Y wrapper-level RedDirs.
     """
     from lovely_bash_permissions.rules import _find_redirs

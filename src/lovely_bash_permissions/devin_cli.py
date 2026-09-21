@@ -58,7 +58,7 @@ def handle_setup() -> None:
             if result.error is not None:
                 print(
                     with_error_prefix(
-                        f"config {config_path} is not valid JSON/JSONC ({result.error}) — "
+                        f"config {config_path} is not valid JSON/JSONC ({result.error}) - "
                         "aborting to avoid overwriting it"
                     ),
                     file=sys.stderr,
@@ -67,7 +67,7 @@ def handle_setup() -> None:
             if not isinstance(result.value, dict):
                 print(
                     with_error_prefix(
-                        f"config {config_path} must be a JSON object, got {type(result.value).__name__} — "
+                        f"config {config_path} must be a JSON object, got {type(result.value).__name__} - "
                         "aborting to avoid overwriting it"
                     ),
                     file=sys.stderr,
@@ -81,7 +81,7 @@ def handle_setup() -> None:
     if "permissions" in config and not isinstance(config["permissions"], dict):
         print(
             with_error_prefix(
-                f"config {config_path} has a non-object 'permissions' field — aborting to avoid overwriting it"
+                f"config {config_path} has a non-object 'permissions' field - aborting to avoid overwriting it"
             ),
             file=sys.stderr,
         )
@@ -90,7 +90,7 @@ def handle_setup() -> None:
     if "allow" in permissions and not isinstance(permissions["allow"], list):
         print(
             with_error_prefix(
-                f"config {config_path} has a non-list 'permissions.allow' field — aborting to avoid overwriting it"
+                f"config {config_path} has a non-list 'permissions.allow' field - aborting to avoid overwriting it"
             ),
             file=sys.stderr,
         )
@@ -234,7 +234,7 @@ def main() -> None:
                 if response.get("decision") == "block":
                     sys.exit(2)
             sys.exit(0)
-    except Exception as exc:  # noqa: BLE001 — hook mode fails closed, other modes error out
+    except Exception as exc:  # noqa: BLE001 - hook mode fails closed, other modes error out
         if hook_mode:
             emit_block(with_error_prefix(f"unexpected error: {exc}"))
         print(with_error_prefix(f"unexpected error: {exc}"), file=sys.stderr)

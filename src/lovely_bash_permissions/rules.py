@@ -52,7 +52,7 @@ def _find_redirs(node: dict[str, Any]) -> list[dict[str, Any]]:
 
     Also recurses into heredoc bodies (``Hdoc.Parts``) so that command
     substitutions inside unquoted heredocs (``<<EOF … $(cmd) … EOF``)
-    are discovered — bash expands these at runtime.
+    are discovered - bash expands these at runtime.
 
     Args:
         node: A dict representing an AST node from shfmt's JSON output.
@@ -71,7 +71,7 @@ def _find_redirs(node: dict[str, Any]) -> list[dict[str, Any]]:
 
     # BinaryCmd: redirects live on X/Y wrapper nodes (left/right operands).
     # The converter merges these into a single ``redirs`` field for the
-    # typed AST, but in raw JSON there is no merged list — only X/Y.
+    # typed AST, but in raw JSON there is no merged list - only X/Y.
     if node.get("Type") == "BinaryCmd":
         x = node.get("X", {})
         redirs.extend(x.get("Redirs", []))
@@ -440,7 +440,7 @@ def check_input_redirection(tree: dict[str, Any], rules: dict[str, Any] | None =
 def _check_segments_output_redirs(segments: list[dict[str, Any]], rules: dict[str, Any]) -> dict[str, Any]:
     """Evaluate output redirections collected from segments.
 
-    Works on segment dicts produced by ``parse_segments`` — each segment's
+    Works on segment dicts produced by ``parse_segments`` - each segment's
     ``"redirections"`` list contains dicts with ``Op``, ``N``, and ``Word``.
     Applies the same policy logic as :func:`check_output_redirection` but
     operates on segment-level data (single source of truth, issue #2/#3).
@@ -455,7 +455,7 @@ def _check_segments_output_redirs(segments: list[dict[str, Any]], rules: dict[st
     policy = rules.get("output_redirection", "ask")
 
     # compound-command redirections (while/until/if/{ } group) are
-    # attributed to every inner segment — the same redirection appears once per
+    # attributed to every inner segment - the same redirection appears once per
     # segment. Dedupe by (op, fd, target); distinct descriptors are preserved.
     redirections: list[dict[str, Any]] = []
     seen_output: set[tuple[str, str, str]] = set()
@@ -466,7 +466,7 @@ def _check_segments_output_redirs(segments: list[dict[str, Any]], rules: dict[st
                 parts = word.get("Parts", [])
                 target = parts[0].get("Value", "") if parts else ""
                 # segment redirection dicts serialize the fd as a dict
-                # ({} when absent, {"Value": "2"} for `2>`) — extract the scalar
+                # ({} when absent, {"Value": "2"} for `2>`) - extract the scalar
                 # fd so the dedupe key is hashable.
                 n = r.get("N")
                 fd = n.get("Value", "") if isinstance(n, dict) else ("" if n is None else str(n))
@@ -524,7 +524,7 @@ def _check_segments_input_redirs(segments: list[dict[str, Any]], rules: dict[str
     policy = rules.get("input_redirection", "ask")
     level = policy.get("*", "ask") if isinstance(policy, dict) else policy
 
-    # dedupe by (op, target) — compound-command redirections are
+    # dedupe by (op, target) - compound-command redirections are
     # attributed to every inner segment.
     input_redirs: list[dict[str, Any]] = []
     seen_input: set[tuple[str, str]] = set()
@@ -567,7 +567,7 @@ def _collect_background_command_names(node: dict[str, Any], results: list[str]) 
     """Recursively collect command names being run in the background.
 
     Background flags can appear on any statement in the tree, not just the
-    top-level ones — e.g. ``(echo hi &)`` or ``x=$(echo hi &)`` background the
+    top-level ones - e.g. ``(echo hi &)`` or ``x=$(echo hi &)`` background the
     inner command while the outer statement has ``Background=false``.
     """
     if not isinstance(node, dict):
@@ -586,8 +586,8 @@ def _collect_background_command_names(node: dict[str, Any], results: list[str]) 
 def check_background_execution(tree: dict[str, Any], rules: dict[str, Any]) -> dict[str, Any]:
     """Evaluate background execution against rules.
 
-    Detects background execution (trailing & operator) anywhere in the AST —
-    including backgrounds nested inside subshells and command substitutions —
+    Detects background execution (trailing & operator) anywhere in the AST -
+    including backgrounds nested inside subshells and command substitutions -
     and applies the configured allow/ask/deny policy.
 
     Args:

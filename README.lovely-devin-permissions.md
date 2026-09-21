@@ -144,7 +144,7 @@ The `bash` config key supports these keys:
 | `allowed_cmds_regex`                    | `string[]`                             | Regexes that approve a command when matched against the full command line of each segment. Unanchored - anchor with `^` and `$`                     |
 | `blocked_paths_regex`                   | `string[]`                             | Regexes that block a command when matched in arguments or redirection targets. Unanchored substrings - anchor as needed                             |
 
->`error` covers commands the parser cannot handle (e.g. `echo "unclosed`, `(((invalid`). Because both `allowed_cmds_regex` and `blocked_paths_regex` are skipped for such input, the `error` policy decides the outcome — defaulting to the bash `*` wildcard. Set it to `"ask"` (recommended) or `"deny"` so malformed but bash-accepted syntax is never silently auto-approved under `"*": "allow"`.
+>`error` covers commands the parser cannot handle (e.g. `echo "unclosed`, `(((invalid`). Because both `allowed_cmds_regex` and `blocked_paths_regex` are skipped for such input, the `error` policy decides the outcome - defaulting to the bash `*` wildcard. Set it to `"ask"` (recommended) or `"deny"` so malformed but bash-accepted syntax is never silently auto-approved under `"*": "allow"`.
 
 ### Devin config
 
@@ -205,7 +205,7 @@ flowchart TD
     style R stroke:#0000ff,stroke-width:2px
 ```
 
-Fired *before* the command runs. The hook modifies the command by prepending a no-op `:` label with user-facing status info — green 💚 for auto-approved, red ❤️ for auto-rejected, yellow 💛 for commands needing user approval. The label matches `Exec(: '[♡ perms:)` in Devin's `permissions.allow` (added by `--setup`), so Devin auto-approves the label — but the actual command after `;` is still assessed by both lovely-devin-permissions and Devin's permission system.
+Fired *before* the command runs. The hook modifies the command by prepending a no-op `:` label with user-facing status info - green 💚 for auto-approved, red ❤️ for auto-rejected, yellow 💛 for commands needing user approval. The label matches `Exec(: '[♡ perms:)` in Devin's `permissions.allow` (added by `--setup`), so Devin auto-approves the label - but the actual command after `;` is still assessed by both lovely-devin-permissions and Devin's permission system.
 
 ### PermissionRequest
 
@@ -247,7 +247,7 @@ The hook prints a JSON object to `stdout` and exits with a code:
 | `2`   | Block - the command was denied. Also used when the hook fails closed: unparseable stdin (`[♡ perms: ERROR]` reason) or an invalid/unusable permissions config.       |
 | Other | Error in a non-hook mode only (e.g. `--setup`/`--show-config` failure, or the binary could not start). Hook mode never lets a command run when it cannot compute a verdict. |
 
-When the hook cannot compute a verdict at all — unparseable stdin (invalid JSON, a JSON value that is not an object, or an `exec`/`write_to_process` event whose `tool_input` is not an object) — it fails closed: it prints `{ "decision": "block", "reason": "[♡ perms: ERROR] ..." }` on `stdout` and exits with code `2`, so the tool is denied rather than run. Because the command text is unavailable in those cases, the `PreToolUse` block response omits `hookSpecificOutput.updatedInput`; the bare `decision: block` still prevents execution.
+When the hook cannot compute a verdict at all - unparseable stdin (invalid JSON, a JSON value that is not an object, or an `exec`/`write_to_process` event whose `tool_input` is not an object) - it fails closed: it prints `{ "decision": "block", "reason": "[♡ perms: ERROR] ..." }` on `stdout` and exits with code `2`, so the tool is denied rather than run. Because the command text is unavailable in those cases, the `PreToolUse` block response omits `hookSpecificOutput.updatedInput`; the bare `decision: block` still prevents execution.
 
 For `PreToolUse` the hook rewrites the command with a leading no-op label for user visibility/convenience:
 

@@ -7,7 +7,7 @@ arguments and asserts the exit code plus captured stdout.  Exit codes:
     2  usage error (bad or missing arguments)
     3  parse error
 
-Tests are deliberately thin — they verify the *integration* between
+Tests are deliberately thin - they verify the *integration* between
 argument parsing, input reading, and AST rendering rather than deep
 unit behaviour.
 """
@@ -78,7 +78,7 @@ def test_main_parse_error(capsys: pytest.CaptureFixture[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 5. test_main_no_input — stdin is a tty, no --string/--file
+# 5. test_main_no_input - stdin is a tty, no --string/--file
 # ---------------------------------------------------------------------------
 
 

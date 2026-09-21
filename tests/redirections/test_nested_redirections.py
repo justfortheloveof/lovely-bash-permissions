@@ -91,7 +91,7 @@ class TestNestedRedirectionsOutputPolicy:
 class TestNestedRedirectionsEvaluateBashCommand:
     """Full pipeline tests: evaluate_bash_command returns ask for nested redirects.
 
-    Regression test for Issue #1 — previously, if nested commands inside $()
+    Regression test for Issue #1 - previously, if nested commands inside $()
     matched allowed patterns, the unconditional override at line ~210
     set overall_status = "allow", swallowing output/input redirection asks.
     """

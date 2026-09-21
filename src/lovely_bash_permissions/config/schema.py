@@ -21,10 +21,10 @@ class OutputRedirectionPolicy(BaseModel):
     Accepts either a plain ``PermissionLevel`` string (\"allow\", \"deny\", \"ask\")
     or a dict with optional keys:
 
-    - ``*`` — wildcard/default for any redirection not otherwise matched
-    - ``stdout_to_dev_null`` — level for ``>/dev/null``-style discards
-    - ``stderr_to_dev_null`` — level for ``2>/dev/null``-style discards
-    - ``stderr_to_stdout`` — level for ``2>&1``-style fd duplication
+    - ``*`` - wildcard/default for any redirection not otherwise matched
+    - ``stdout_to_dev_null`` - level for ``>/dev/null``-style discards
+    - ``stderr_to_dev_null`` - level for ``2>/dev/null``-style discards
+    - ``stderr_to_stdout`` - level for ``2>&1``-style fd duplication
     """
 
     wildcard: PermissionLevel | None = Field(None, alias="*")
@@ -43,10 +43,10 @@ class ToolConfig(BaseModel):
         for key in self.model_extra or {}:
             if key in ("allow", "deny"):
                 raise ValueError(
-                    f"config key '{key}' is not supported — "
+                    f"config key '{key}' is not supported - "
                     f"use {('allowed_cmds_regex' if key == 'allow' else 'blocked_paths_regex')} instead"
                 )
-            log.warning("unknown config key '%s' — unrecognized tool field or typo?", key)
+            log.warning("unknown config key '%s' - unrecognized tool field or typo?", key)
         return self
 
     wildcard: PermissionLevel | None = Field(None, alias="*")  # default permission for unmatched tools
@@ -66,7 +66,7 @@ class ToolConfig(BaseModel):
     def validate_regexes(cls, v: list[str], info: ValidationInfo) -> list[str]:
         """Validate that each pattern compiles as a regex.
 
-        Patterns are used as-written — no stripping or mutation.
+        Patterns are used as-written - no stripping or mutation.
         """
         result: list[str] = []
         for p in v:
@@ -103,5 +103,5 @@ class PermissionsConfig(BaseModel):
         known = {"version", "wildcard"} | KNOWN_TOOLS
         for key in self.model_extra or {}:
             if key not in known:
-                log.warning("unknown config key '%s' — unrecognized tool name or typo?", key)
+                log.warning("unknown config key '%s' - unrecognized tool name or typo?", key)
         return self

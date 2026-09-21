@@ -12,7 +12,7 @@ from .evaluate import evaluate_bash_command
 
 HOOK_LABEL_PREFIX = "[♡ perms: "
 
-#: (emoji, status label) per decision action — single source for both the
+#: (emoji, status label) per decision action - single source for both the
 #: label prefix and the trailing marker after the label.
 HOOK_STATUS = {
     "allow": ("💚", "auto-approved"),
@@ -148,14 +148,14 @@ def process_hook_event(event: dict[str, Any]) -> dict[str, Any]:
         reason = (manager and manager.get_error()) or "permissions config load failed"
         return {"action": "ask", "reason": f"config error (fallback to ask): {reason}"}
     except ValueError as exc:
-        # Config exists but is invalid — do not let the command run
+        # Config exists but is invalid - do not let the command run
         # (previously this escaped to exit 1, which Devin logs and then runs).
         return {"action": "block", "reason": f"invalid permissions config (blocked): {exc}"}
 
     try:
         config = get_effective_bash_config(raw_config.get("bash"), project_dir, raw_config.get("*", "ask"))
     except (ValueError, FileNotFoundError, OSError) as exc:
-        # Effective config (lovely + Devin exec rules) could not be computed —
+        # Effective config (lovely + Devin exec rules) could not be computed -
         # e.g. a malformed Devin Exec(...) allow rule. Fail closed instead of
         # asking, since a broken Devin config would also break the hook's own
         # label auto-approval.
@@ -164,7 +164,7 @@ def process_hook_event(event: dict[str, Any]) -> dict[str, Any]:
 
     try:
         result = evaluate_bash_command(command, config)
-    except Exception as exc:  # noqa: BLE001 — uniform routing through the `error` policy
+    except Exception as exc:  # noqa: BLE001 - uniform routing through the `error` policy
         return _error_action(config, exc)
 
     status = result.get("status", "ask")
