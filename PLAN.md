@@ -105,7 +105,7 @@ Base commit: `23341cc`. All steps build on it.
 
 ## Step 0 — Baseline gate
 
-**Status:** not started
+**Status:** done — all gates green (1078 passed, ruff/mypy clean, `.fuzz` IGNORED), all 4 bug repros confirmed.
 
 **Files:** none (verification only; commit `PLAN.md` only).
 
