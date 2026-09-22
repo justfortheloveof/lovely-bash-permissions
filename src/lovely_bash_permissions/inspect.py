@@ -24,6 +24,7 @@ assignments are still found via normal child traversal of Word parts).
 from __future__ import annotations
 
 import dataclasses
+import re
 from collections.abc import Callable, Iterator
 from typing import TypedDict
 
@@ -187,6 +188,22 @@ def _word_value(word: Word) -> str:
     return "".join(parts)
 
 
+_UNESCAPE_UNQUOTED = re.compile(r"\\([^\n])")
+_UNESCAPE_DBLQUOTED = re.compile(r"\\([$`\"\\])")
+
+
+def _unescape_lit(value: str, *, in_double_quotes: bool) -> str:
+    """Bash-style backslash unescaping for a Lit value.
+
+    Unquoted: a backslash drops the next character (bash rule).
+    Double-quoted: a backslash is only special before $, `, ", \\ (and
+    newline); elsewhere it is literal.
+    """
+    if in_double_quotes:
+        return _UNESCAPE_DBLQUOTED.sub(r"\1", value)
+    return _UNESCAPE_UNQUOTED.sub(r"\1", value)
+
+
 def _word_raw(word: Word) -> str:
     """Get the raw text of a word, preserving quotes.
 
@@ -216,6 +233,49 @@ def _word_raw(word: Word) -> str:
         elif isinstance(part, ProcSubst):
             parts.append(f"{part.op}...)")
     return "".join(parts)
+
+
+def _exec_part(part: Node, in_double_quotes: bool) -> str:
+    """Render one word part in its executed form.
+
+    *in_double_quotes* is True when the part occurs inside a ``"..."``
+    region (including nested double-quoted regions), which changes how
+    backslashes in :class:`Lit` values are unescaped.
+    """
+    if isinstance(part, Lit):
+        return _unescape_lit(part.value, in_double_quotes=in_double_quotes)
+    if isinstance(part, SglQuoted):
+        if in_double_quotes:
+            # Quote characters are literal inside "..."; the content follows
+            # double-quote-context backslash rules.
+            return _unescape_lit(part.value, in_double_quotes=True)
+        return part.value
+    if isinstance(part, DblQuoted):
+        if part.parts:
+            return "".join(_exec_part(p, True) for p in part.parts)
+        return _unescape_lit(part.value or "", in_double_quotes=True)
+    if isinstance(part, ParamExp):
+        return f"${part.param}"
+    if isinstance(part, CmdSubst):
+        return "$(...)"
+    if isinstance(part, ArithmExp):
+        return "$(( ... ))"
+    if isinstance(part, ExtGlob):
+        return part.pattern.value if part.pattern else ""
+    if isinstance(part, BraceExp):
+        return "{...}"
+    if isinstance(part, ProcSubst):
+        return f"{part.op}...)"
+    return ""
+
+
+def _word_exec(word: Word) -> str:
+    """Best-effort *executed* form of a word: the string bash would produce
+    after quote removal and backslash unescaping (placeholders kept for
+    expansions). Used for security pattern matching so quote-split or
+    backslash-escaped spellings of a path/flag cannot bypass the raw form.
+    """
+    return "".join(_exec_part(part, False) for part in word.parts)
 
 
 def get_commands(tree: Node) -> list[str]:

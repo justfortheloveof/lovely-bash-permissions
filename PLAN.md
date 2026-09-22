@@ -138,7 +138,7 @@ commit `plan: NEW_BUGS 1-4 implementation plan`.
 
 ## Step 1 — `inspect.py`: add `_word_exec` (executed-form renderer)
 
-**Status:** not started
+**Status:** done — `_word_exec`/`_exec_part`/`_unescape_lit` added; TestWordExec (9 cases) passes; probes verified; suite 1087 passed; ruff/mypy clean.
 
 **Files:** `src/lovely_bash_permissions/inspect.py`,
 `tests/parsing/test_inspect.py`
