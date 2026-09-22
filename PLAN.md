@@ -46,10 +46,18 @@ Base commit: `23341cc`. All steps build on it.
 
 ### Confirmed design decisions (do not revisit)
 
-- **D1 — union matching (bug #1):** allowed/blocked patterns are checked
-  against BOTH the raw form and a quote-normalized "executed" form. A match in
-  either counts. This fixes the bypasses without breaking existing
-  `allowed_cmds_regex` written with explicit quotes.
+- **D1 — executed-form matching (bug #1):** allowed patterns are matched
+  against the quote-normalized "executed" string **first**; this is what closes
+  the negative-lookahead guard bypass, because the guard is evaluated on the
+  text bash actually runs (`find /tmp -exec rm` trips `-e"x"ec`'s guard).
+  A raw-form match is honored **only** when the pattern has no negative
+  lookahead (`"(?!"` not in the pattern — the only shape interior
+  quote-splits/backslash-escapes can dodge), which preserves patterns written
+  with explicit quotes. **Union matching (raw OR norm, either counts) is
+  WRONG and must NOT be used** — the raw form always satisfies the guard, so
+  union still auto-approves the bypass (verified by replaying the regexes).
+  Blocked-path checks (Step 3 item 5) are the exception: there "either form
+  denies" is correct, since they are deny-style checks.
 - **D2 — the "executed" form (`_word_exec`, bug #1/#4):**
   shfmt JSON facts (verified): an unquoted word `/e"tc"/passwd` parses to
   `Parts: [Lit("/e"), DblQuoted(Parts=[Lit("tc")]), Lit("/passwd")]`;
@@ -74,9 +82,24 @@ Base commit: `23341cc`. All steps build on it.
   `subshell` (gates `( ... )`). The old single `subshell` key semantics is
   dropped; no alias, no deprecation. Every place that reads/writes the old key
   (schema, effective config, evaluator, tests, docs) is updated.
-- **D4 — out of scope:** BUGZ.md bugs #6 and #10 are explicitly NOT fixed here.
+- **D4 — out of scope:** BUGZ.md bugs #6 and #10 are explicitly NOT fixed here
+  (no tests assert their buggy behavior, so nothing breaks). Note: executed-form
+  matching (Step 3) *incidentally* fixes #10 (`cat "$f"` → executed `cat $f`
+  matches `^cat\s+.+$`). That is an acceptable bonus — do not add a regression
+  test asserting the old false-ask.
   `rules.py:_find_background_flags` also uses `parts[0]` (line ~131) for the
   background *command name* — that is not a redirection target; leave it.
+- **D5 — guard-authoring contract (documents D1's precondition):** negative-
+  lookahead guards in `allowed_cmds_regex` must be written in **executed
+  form** — the text after de-quoting and backslash unescaping. Flags that can
+  be quote-split are covered with a character class (`["x]`, as in D1's
+  `-e["x]ec`) or a plain executed-form token (as in
+  `^find(?!.*\s-(exec|delete|ok)\b)`). A guard containing a **literal** quote
+  character (e.g. `(?!.*-e"xec)`) can never trip on the normalized text,
+  which contains no quotes, so the pattern would auto-approve its own target
+  (and a backslash-escaped spelling dodges it in the raw form too, so
+  intersection matching would not save it either). This is a pattern-authoring
+  error; the convention is documented in Step 7, not enforced in code.
 
 ---
 
@@ -302,7 +325,7 @@ full pytest/ruff/mypy green. **Commit:** stage only the two files + `PLAN.md`.
 
 ---
 
-## Step 3 — `evaluate.py`: union matching for argv, guards, heredoc bodies (bug #1)
+## Step 3 — `evaluate.py`: executed-form matching for argv, guards, heredoc bodies (bug #1)
 
 **Status:** not started
 
@@ -314,7 +337,7 @@ full pytest/ruff/mypy green. **Commit:** stage only the two files + `PLAN.md`.
 1. Import `_word_exec` (Find: `from .inspect import _traverse, _word_raw, _word_value, iter_children`
    → add `_word_exec`).
 
-2. Extend `_match_allowed_patterns` for union matching.
+2. Extend `_match_allowed_patterns` for executed-form matching.
    Find:
 
    ```python
@@ -337,8 +360,8 @@ full pytest/ruff/mypy green. **Commit:** stage only the two files + `PLAN.md`.
        return matched
    ```
 
-   Replace with a version that takes an optional normalized arg list and tries
-   the raw AND normalized command strings:
+   Replace with a version that takes an optional normalized arg list and matches
+   against the executed string first (executed-form matching, NOT raw-OR-norm union):
 
    ```python
    def _match_allowed_patterns(
@@ -346,11 +369,13 @@ full pytest/ruff/mypy green. **Commit:** stage only the two files + `PLAN.md`.
    ) -> list[str]:
        """Return the allowed patterns matched by this command (name + args).
 
-       Union matching: each pattern is tested against the raw command string
-       AND (when *normalized_args* is given) the quote-normalized "executed"
-       string, so interior quote splits / backslash escapes (``-e"x"ec``)
-       cannot dodge negative-lookahead guards, while patterns written with
-       explicit quotes still match the raw form.
+       Executed-form matching: when *normalized_args* is given the pattern is
+       matched against the quote-normalized "executed" command string first, so
+       the negative lookaheads (``(?!...``) in guard patterns are evaluated on
+       the text bash actually runs - interior quote splits / backslash escapes
+       (``-e"x"ec``) therefore cannot dodge them. A raw-only match is honored
+       ONLY when the pattern contains no negative lookahead (the only shape a
+       split text can fake), preserving patterns written with explicit quotes.
 
        Matches are rejected when opaque ``$(...)`` arguments could change the
        pattern's verdict - see :func:`_opaque_match_unreliable`.  Such commands
@@ -361,9 +386,14 @@ full pytest/ruff/mypy green. **Commit:** stage only the two files + `PLAN.md`.
        has_opaque = any("$(...)" in a for a in args)
        matched: list[str] = []
        for pattern in allowed_patterns:
-           hit = re.search(pattern, full)
-           if norm_full is not None and not hit:
-               hit = re.search(pattern, norm_full)
+           if norm_full is not None:
+               hit = re.search(pattern, norm_full) is not None
+               if not hit and "(?!" not in pattern:
+                   # Executed form missed but no guard could be faked - honor
+                   # a raw-form match (quoted-pattern compatibility).
+                   hit = re.search(pattern, full) is not None
+           else:
+               hit = re.search(pattern, full) is not None
            if not hit:
                continue
            if has_opaque and _opaque_match_unreliable(pattern):
@@ -458,16 +488,21 @@ full pytest/ruff/mypy green. **Commit:** stage only the two files + `PLAN.md`.
 `wildcard, subshell, ...` — use it or build plain dicts):
 
 With config
-`{"*":"allow","blocked_paths_regex":["\\/etc","\\.env$"],"allowed_cmds_regex":[r"^cat\s+.+$", r"^find(?!.*\s-(exec|delete|ok)\b).*$", r"^fd(?!.*\s+(-x|-X)).*$", r"^sort(?!\s+(-o|--output)\b).*$"]}`
-(each repro asserts the fixed behavior):
+`{"*":"ask","blocked_paths_regex":["\\/etc","\\.env$"],"allowed_cmds_regex":[r"^cat\s+.+$", r"^find(?!.*\s-(exec|delete|ok)\b).*$", r"^fd(?!.*\s+(-x|-X)).*$", r"^sort(?!\s+(-o|--output)\b).*$"]}`
+(each repro asserts the fixed behavior). Wildcard must be `"ask"` (mirrors the
+user's real config): under `"*":"allow"` a guard-tripped command falls through
+to the allow wildcard and reads `allow`, not `ask` — use `*:ask` so the intent
+"guard-trip → not auto-approved → ask" is observable. Note some rows are `deny`
+via the blocked-path check on the *normalized* arg (e.g. `ls -la /e"tc"` →
+`/etc`), which is exactly the fix:
 
 | command | expected status |
 |---|---|
-| `cat /e"tc"/passwd` | deny |
-| `ls -la /e"tc"` (ls NOT in allowlist) | ask |
-| `grep x /e"tc"/passwd` (grep not allowed) | deny |
-| `cat .e"nv"` | deny |
-| `find /tmp -e"x"ec rm` | ask (guard trips → not allowed → wildcard) |
+| `cat /e"tc"/passwd` | deny (blocked `/etc/passwd`) |
+| `ls -la /e"tc"` (ls NOT in allowlist) | deny (blocked `/etc` on normalized arg) |
+| `grep x /e"tc"/passwd` (grep not allowed) | deny (blocked `/etc/passwd`) |
+| `cat .e"nv"` | deny (blocked `.env` on normalized arg) |
+| `find /tmp -e"x"ec rm` | ask (guard trips on executed form → not allowed → wildcard) |
 | `find /tmp -"exec" rm` | ask |
 | `find /tmp -ex\\ec rm` (Python: `"find /tmp -ex\\ec rm"`) | ask |
 | `fd -"x" x` | ask |
@@ -476,6 +511,12 @@ With config
 | contrast: `cat "ok file"` | allow (plain quoted arg still matches `^cat\s+.+$`) |
 | `python3`-free heredoc: `"cat f <<EOF\nsecret /e\"tc\"/passwd\nEOF"` | deny |
 | `cat .env` | deny (contrast, already) |
+
+For contrast, the pre-existing `test_single_quoted_safe_command_still_allowed`
+(`find . -name '*.txt'` → allow) must STILL pass: the executed form
+`find . -name *.txt` satisfies the guard, so a safe find remains auto-approved —
+only the split/escaped `exec`/`delete`/`ok` spellings stop matching. This also
+guards against the union-matching regression (D1).
 
 **Acceptance:** all new tests pass; the pre-existing whole-word quote tests
 (`'-exec'` / `"-o"` / `'-X'` block near the end of the file) still pass; full
@@ -683,6 +724,22 @@ may change); full suite green. **Commit:** listed files + `PLAN.md`.
          redirs.extend(node["Redirs"])
 
    ```
+
+   Note: this branch is belt-and-braces for the raw-JSON walk; `_find_redirs`
+   already collects binary X/Y redirs via `x.get("Redirs")` (rules.py:79-80).
+   Keep it only if it doesn't duplicate entries for operands that DO carry a
+   `Type` (e.g. a redirection on a `CallExpr` operand is handled by the
+   `Type == "CallExpr"` branch). Verify no double-collection after adding it;
+   delete it if redundant.
+
+   Known cosmetic duplication (DO NOT chase it): after the converter fix, a
+   redir-only operand becomes `Stmt(cmd=None)` whose redirs are also lifted into
+   `BinaryCmd.left_redirs` by `_convert_binary_cmd` (converter.py:486) *and*
+   re-merged by the segments `Stmt` branch (`inherited = redirs + node.redirs`).
+   The synthetic segment therefore carries the redirection up to ~3×. Policy
+   outcome is unaffected (same redir checked repeatedly; `_check_segments_output_redirs`
+   dedupes) and the new tests assert `redirections[0]`, so leave it — but do NOT
+   assert the exact `len(redirections)` anywhere.
 
 3. Tests:
    - `tests/parsing/test_segments.py`: `parse_segments('> /etc/x && cat file')`
@@ -982,10 +1039,14 @@ files + `PLAN.md`.
    - `( cat /etc/passwd )` with `{"*":"allow","blocked_paths_regex":["\\/etc"]}`
      → deny (inner blocked-path scan still works through the paren group).
    - `( rm x )` with `{"*":"allow"}` (key unset → `subshell` inherits the
-     wildcard `allow`) and NO allow-list: the paren group is not gated, but
-     inner `rm` is a real non-allowlisted segment → overall **ask** via the
-     wildcard path. Assert `ask` (and comment that the paren construct itself
-     did not add a reason).
+     wildcard `allow`) and NO allow-list: the paren group is NOT gated by
+     `subshell` (inherited `allow`), and inner `rm` is allowed by the `*`
+     wildcard → overall **allow**. Assert `allow` and that the reason does NOT
+     contain "requires approval" (the paren construct itself adds no reason
+     under an inheriting wildcard). To observe the paren gate at all you must
+     set `"subshell": "deny"`/`"ask"` (first two bullets) — a bare
+     `{"*":"allow"}` never asks. (Do NOT assert `ask` here; a not-gated,
+     wildcard-`allow` command is `allow`.)
    - `$(...)`: `echo $(x)` with `command_substitution: deny` → deny;
      `process_substitution: deny` alone → allow (with `"*":"ask"` it is ask via
      wildcard for `x`; use allowed_cmds_regex for precision:
@@ -1023,6 +1084,15 @@ files + `PLAN.md`.
      `"subshell": "ask"` / `"subshell": "allow"`: replace with the three keys
      (e.g. `"command_substitution": "ask", "process_substitution": "ask",
      "subshell": "ask"`).
+   - (D5) In the `## Security notes` section, Find the first bullet (the one
+     about unanchored substring matches):
+     ```
+     - Patterns in `allowed_cmds_regex` and `blocked_paths_regex` are unanchored substring matches unless you anchor them. For example, `git` also matches `echo git`. Anchor with `^git log$` or similar.
+     ```
+     and append after it a new bullet:
+     ```
+     - Guard patterns (negative lookaheads, e.g. `^find(?!.*\s-(exec|delete|ok)\b)`) are matched against the **executed** form of the command, where quotes are removed and backslash escapes are resolved — so write them in executed form, as you would write the command unquoted. Flags that may be quote- or backslash-split (e.g. `find -exec` as `-e"x"ec` / `-ex\ec`) must be covered with a character class such as `-e["x]ec` or a plain executed-form token — a guard with a **literal** quote character (e.g. `(?!.*-e"xec)`) can never trip, because the executed form contains no quotes.
+     ```
 
 **Acceptance:** new tests pass; full suite/ruff/mypy green; no remaining
 references to the old single-key semantics in `src/` (verify:
@@ -1041,7 +1111,10 @@ Run the complete NEW_BUGS acceptance matrix in ONE probe script
 (`uv run python <<'EOF' ... EOF`), asserting every line:
 
 Bug #1 (config
-`{"*":"allow","blocked_paths_regex":["\\/etc","\\.env$","\\.envrc$"],"allowed_cmds_regex":[r"^cat\s+.+$", r"^ls(\s+.*)?$", r"^grep\s+\S+\s+.+$", r"^head\s+.+$", r"^find(?!.*\s-(exec|delete|ok)\b).*$", r"^fd(?!.*\s+(-x|-X)).*$", r"^sort(?!\s+(-o|--output)\b).*$"]}`):
+`{"*":"ask","blocked_paths_regex":["\\/etc","\\.env$","\\.envrc$"],"allowed_cmds_regex":[r"^cat\s+.+$", r"^ls(\s+.*)?$", r"^grep\s+\S+\s+.+$", r"^head\s+.+$", r"^find(?!.*\s-(exec|delete|ok)\b).*$", r"^fd(?!.*\s+(-x|-X)).*$", r"^sort(?!\s+(-o|--output)\b).*$"]}` —
+wildcard must be `"ask"`: the guard/find rows resolve to `ask` via the wildcard,
+exactly as in the user's real config; under `"*":"allow"` they would read `allow`
+via fall-through, which is NOT the intent):
 - `cat /e"tc"/passwd` deny · `ls -la /e"tc"` deny · `grep x /e"tc"/passwd`
   deny · `head /e"tc"/passwd` deny · `cat .e"nv"` deny · `cat .e"nvrc"` deny
 - `find /tmp -e"x"ec rm -rf /` ask · `find /tmp -"exec" rm -rf /` ask ·
