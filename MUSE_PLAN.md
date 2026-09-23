@@ -9,6 +9,30 @@
 - [x] 5.5 Reason-string and `rules.py` updates
 - [x] 5.6 Docs and example configs
 - [x] 5.7 Tests
+- [x] 6. Verification (see notes below)
+
+## 8. Verification notes
+
+- `rg blocked_paths_regex src tests README.lovely-devin-permissions.md
+  pyproject.toml .devin` → only the two intentional old-key-ignored tests
+  (`tests/config/test_schema.py::test_renamed_blocked_key_ignored_with_warning`,
+  `tests/config/test_evaluate.py::test_old_key_ignored`, required by §5.7)
+  plus untouched history docs (`BUGZ.md`, `NEW_BUGS.md`, `MUSE_BUGS.md`,
+  `PLAN.md`). `src` is fully clean.
+- `rg blocked_cmds_regex` → hits in schema, effective_bash, evaluate,
+  rules, README, tests.
+- `rg "blocked path pattern"` → zero hits.
+- `uv run pytest` → 1142 passed, 1 failed:
+  `tests/tooling/test_format_lint.py::test_ruff_format_check` is a
+  pre-existing failure (fails identically on the base commit: ruff wants to
+  reformat untouched history docs `NEW_BUGS.md`/`PLAN.md` plus drift lines
+  elsewhere; `uv run ruff check` is clean and all edited regions are
+  format-clean).
+- Manual CLI checks (via isolated `HOME` config): `--test 'echo
+  /etc/passwd'` with `blocked_cmds_regex: ["\\/etc"]` → `block` (reason
+  reports joined line `"echo /etc/passwd"`, "matches blocked pattern");
+  `echo foo.env bar` with `\.env$` → `approve`, with `\.env` → `block`;
+  `--show-config` prints `blocked_cmds_regex`.
 - [ ] 6. Verification
 
 ## 1. Background and goal
