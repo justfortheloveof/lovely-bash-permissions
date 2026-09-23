@@ -75,7 +75,7 @@ def _heredoc_body_texts(tree: dict[str, Any]) -> list[str]:
     ``json.tool``) the body is inert text; for interpreters (``python3``,
     ``node``, ``bash``, ``sh``, ...) the body is *source code* that can open
     arbitrary files - e.g. ``open("/etc/passwd").read()``.  The body is
-    therefore scanned against ``blocked_paths_regex`` as raw text, matching
+    therefore scanned against ``blocked_cmds_regex`` as raw text, matching
     the tool's conservative "block on mention" precedent for command-line
     arguments (``echo /etc/passwd`` is already denied).
 
@@ -350,7 +350,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
             - 'subshell': allow/ask/deny policy for ( ... ) paren groups
             - 'variable_assignment': allow/ask/deny policy
             - 'allowed_cmds_regex': list of regex patterns for allowed commands
-            - 'blocked_paths_regex': list of regex patterns for blocked paths
+            - 'blocked_cmds_regex': list of regex patterns for blocked commands
             - '*': wildcard policy; any option omitted above inherits it
               (default "ask")
 
@@ -368,7 +368,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     """
     # Extract rules from config
     allowed_patterns = config.get("allowed_cmds_regex", [])
-    blocked_patterns = config.get("blocked_paths_regex", [])
+    blocked_patterns = config.get("blocked_cmds_regex", [])
 
     rules = {
         "output_redirection": _resolve_level(config, "output_redirection"),
@@ -378,7 +378,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         "process_substitution": _resolve_level(config, "process_substitution"),
         "subshell": _resolve_level(config, "subshell"),
         "variable_assignment": _resolve_level(config, "variable_assignment"),
-        "blocked_paths_regex": blocked_patterns,
+        "blocked_cmds_regex": blocked_patterns,
     }
 
     # Parse the command to check for command substitution.  Any parse or
@@ -405,20 +405,18 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         _empty_reasons: list[str] = []
         if (has_cmd_subst or has_proc_subst) and blocked_patterns:
             for text in _extract_subshell_contents(raw_tree):
-                matched, pattern, value = check_blocked_patterns("", [text], blocked_patterns)
+                matched, pattern, value = _match_blocked_patterns("", [text], blocked_patterns)
                 if matched:
                     _empty_status = "deny"
                     _empty_reasons.append(
-                        f'Blocked by bash permissions: Argument "{value}" matches blocked path pattern '
+                        f'Blocked by bash permissions: Argument "{value}" matches blocked pattern '
                         f"{pattern}. The tool has not been run"
                     )
         if blocked_patterns:
             for body in _heredoc_body_texts(raw_tree):
-                candidates = []
-                for ln in [body, *[ln.strip() for ln in body.splitlines() if ln.strip()]]:
-                    candidates.extend(_block_scan_variants(ln))
+                candidates = _block_scan_variants(body)
                 for candidate in candidates:
-                    matched, pattern, _value = check_blocked_patterns("", [candidate], blocked_patterns)
+                    matched, pattern, _value = _match_blocked_patterns("", [candidate], blocked_patterns)
                     if matched:
                         snippet = candidate.strip()
                         if len(snippet) > 80:
@@ -426,7 +424,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                         _empty_status = "deny"
                         _empty_reasons.append(
                             f'Blocked by bash permissions: Heredoc body contains "{snippet}" '
-                            f"matching blocked path pattern {pattern}. The tool has not been run"
+                            f"matching blocked pattern {pattern}. The tool has not been run"
                         )
                         break
         if _empty_reasons:
@@ -564,16 +562,13 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
 
         # Check blocked patterns
         if blocked_patterns:
-            matched, pattern, value = check_blocked_patterns(cmd_name, args, blocked_patterns)
-            if not matched:
-                norm_args = segment.get("normalized_arguments")
-                if norm_args is not None and norm_args != args:
-                    matched, pattern, value = check_blocked_patterns(cmd_name, norm_args, blocked_patterns)
+            norm_args = segment.get("normalized_arguments")
+            matched, pattern, value = _match_blocked_patterns(cmd_name, args, blocked_patterns, norm_args)
             if matched:
                 segment_result["blocked"] = True
                 overall_status = "deny"
                 reasons.append(
-                    f'Blocked by bash permissions: Argument "{value}" matches blocked path pattern '
+                    f'Blocked by bash permissions: Argument "{value}" matches blocked pattern '
                     f"{pattern}. The tool has not been run"
                 )
             else:
@@ -583,20 +578,16 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
 
         segment_results.append(segment_result)
 
-    # Scan heredoc bodies as raw text against blocked paths. This catches
+    # Scan heredoc bodies as raw text against blocked patterns. This catches
     # interpreter-as-code vectors that have no bash-level `$(...)` expansion -
     # e.g. `python3 <<EOF\nopen("/etc/passwd").read()\nEOF` - which would
     # otherwise read a blocked file if the interpreter were allow-listed.
     # Mirrors the "block on mention" precedent already applied to args.
     if blocked_patterns:
         for body in _heredoc_body_texts(raw_tree):
-            # Check the whole body and each non-empty line, so end-anchored
-            # patterns (e.g. `\.env$`) match a path on its own line.
-            candidates = []
-            for ln in [body, *[ln.strip() for ln in body.splitlines() if ln.strip()]]:
-                candidates.extend(_block_scan_variants(ln))
+            candidates = _block_scan_variants(body)
             for candidate in candidates:
-                matched, pattern, _value = check_blocked_patterns("", [candidate], blocked_patterns)
+                matched, pattern, _value = _match_blocked_patterns("", [candidate], blocked_patterns)
                 if matched:
                     snippet = candidate.strip()
                     if len(snippet) > 80:
@@ -604,7 +595,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                     overall_status = "deny"
                     reasons.append(
                         f'Blocked by bash permissions: Heredoc body contains "{snippet}" '
-                        f"matching blocked path pattern {pattern}. The tool has not been run"
+                        f"matching blocked pattern {pattern}. The tool has not been run"
                     )
                     break
 
@@ -647,18 +638,18 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
             overall_status = wildcard
 
     # Command substitution / process substitution policy checks; also check
-    # inner content against blocked paths and allowed patterns.
+    # inner content against blocked patterns and allowed patterns.
     if has_cmd_subst or has_proc_subst:
         subshell_contents = _extract_subshell_contents(raw_tree)
 
-        # Check nested commands against blocked paths (already done above, keep it)
+        # Check nested commands against blocked patterns (already done above, keep it)
         if blocked_patterns and subshell_contents:
             for text in subshell_contents:
-                matched, pattern, value = check_blocked_patterns("", [text], blocked_patterns)
+                matched, pattern, value = _match_blocked_patterns("", [text], blocked_patterns)
                 if matched:
                     overall_status = "deny"
                     reasons.append(
-                        f'Blocked by bash permissions: Argument "{value}" matches blocked path pattern '
+                        f'Blocked by bash permissions: Argument "{value}" matches blocked pattern '
                         f"{pattern}. The tool has not been run"
                     )
 
@@ -672,7 +663,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                 rules.get("command_substitution", "ask") if has_cmd_subst else rules.get("process_substitution", "ask")
             )
             if overall_status == "deny":
-                # Already denied by blocked paths check above, keep it
+                # Already denied by blocked patterns check above, keep it
                 pass
             elif _sub_policy == "allow":
                 overall_status = "ask"  # Validation failed, allow policy → ask for approval
@@ -694,7 +685,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                 reasons.append(_label)
 
     # ( ... ) paren-group subshells: inner segments are already scanned above
-    # (blocked paths / allowed patterns); the policy gates the construct itself.
+    # (blocked patterns / allowed patterns); the policy gates the construct itself.
     if has_paren_subshell and overall_status == "allow":
         _paren_pol = rules.get("subshell", "ask")
         if _paren_pol != "allow":

@@ -5,7 +5,7 @@
 - [x] 5.1 `config/schema.py`
 - [x] 5.2 `config/effective_bash.py`
 - [x] 5.3 New unified blocked matcher
-- [ ] 5.4 Call-site replacements in `evaluate.py`
+- [x] 5.4 Call-site replacements in `evaluate.py`
 - [ ] 5.5 Reason-string and `rules.py` updates
 - [ ] 5.6 Docs and example configs
 - [ ] 5.7 Tests
