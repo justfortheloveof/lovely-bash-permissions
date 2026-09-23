@@ -16,6 +16,49 @@ COMBINED_OPS: frozenset[str] = frozenset({">&", "&>", "&>>"})
 DEV_NULL: str = "/dev/null"
 
 
+def _raw_word_target(word: dict[str, Any]) -> str:
+    """Reconstruct a full redirection target from a raw shfmt Word dict.
+
+    Joins ALL parts (not just the first) so multi-part targets like
+    ``"$DIR/out"`` or ``"/dev""/null"`` are identified. Lit values are
+    backslash-unescaped (unquoted context); DblQuoted parts use their
+    best-effort ``Value`` or their nested parts.
+    """
+    chunks: list[str] = []
+    for part in word.get("Parts", []) if isinstance(word, dict) else []:
+        if not isinstance(part, dict):
+            continue
+        ptype = part.get("Type")
+        if ptype == "Lit":
+            chunks.append(re.sub(r"\\([^\n])", r"\1", part.get("Value", "")))
+        elif ptype == "SglQuoted":
+            chunks.append(part.get("Value", ""))
+        elif ptype == "DblQuoted":
+            if part.get("Parts"):
+                for sub in part["Parts"]:
+                    if isinstance(sub, dict):
+                        chunks.append(str(sub.get("Value", "")))
+            else:
+                chunks.append(part.get("Value") or "")
+        else:
+            v = part.get("Value")
+            if isinstance(v, str):
+                chunks.append(v)
+    return "".join(chunks)
+
+
+def _redir_target(redir: dict[str, Any]) -> str:
+    """Best redirection target for policy decisions.
+
+    Prefers the segment-level ``Target`` key (full executed form, produced
+    by segments.py); falls back to reconstructing from raw Word parts.
+    """
+    t = redir.get("Target")
+    if isinstance(t, str) and t:
+        return t
+    return _raw_word_target(redir.get("Word", {}) or {})
+
+
 @lru_cache(maxsize=512)
 def _compile_pattern(pattern: str) -> re.Pattern[str]:
     """Compile and cache a regex pattern. Raises ValueError on invalid pattern."""
@@ -207,21 +250,14 @@ def classify_output_redirection(redir: dict[str, Any]) -> list[str]:
     if op not in WRITE_REDIRECT_OPS:
         return []
 
-    # Extract fd number (e.g. "2" from 2>&1) and target
-    word = redir.get("Word", {})
-    parts = word.get("Parts", [])
-
-    target: str = ""
-
     # For >&/&>/& >> ops, shfmt puts fd in N.Value when present
     n = redir.get("N", {})
     fd: str | None = None
     if isinstance(n, dict):
         fd = n.get("Value")
 
-    # Determine target value from first part's Value (filename)
-    if parts:
-        target = parts[0].get("Value", "")
+    # Determine target value (full target reconstructed from all parts)
+    target: str = _redir_target(redir)
 
     # fd duplication: 2>&1 means stderr -> stdout
     if op == ">&" and fd == "2" and target == "1":
@@ -284,10 +320,7 @@ def check_output_redirection(tree: dict[str, Any], rules: dict[str, Any]) -> dic
     targets = []
     kinds: list[str] = []
     for redir in redirections:
-        target_word = redir.get("Word", {})
-        parts = target_word.get("Parts", [])
-        if parts:
-            targets.append(parts[0].get("Value", ""))
+        targets.append(_redir_target(redir))
         kinds.extend(classify_output_redirection(redir))
 
     # Check redirect targets against blocked paths (security check, applies to all policies).
@@ -394,12 +427,7 @@ def check_input_redirection(tree: dict[str, Any], rules: dict[str, Any] | None =
     for redir in redirs:
         op = redir.get("Op", "")
         if op in ("<", "<<", "<<<", "<&"):
-            target = ""
-            word = redir.get("Word", {})
-            parts = word.get("Parts", [])
-            if parts:
-                target = parts[0].get("Value", "")
-            redirections.append({"op": op, "target": target})
+            redirections.append({"op": op, "target": _redir_target(redir)})
 
     if not redirections:
         return {
@@ -462,9 +490,7 @@ def _check_segments_output_redirs(segments: list[dict[str, Any]], rules: dict[st
     for seg in segments:
         for r in seg.get("redirections", []):
             if r.get("Op") in WRITE_REDIRECT_OPS:
-                word = r.get("Word", {})
-                parts = word.get("Parts", [])
-                target = parts[0].get("Value", "") if parts else ""
+                target = _redir_target(r)
                 # segment redirection dicts serialize the fd as a dict
                 # ({} when absent, {"Value": "2"} for `2>`) - extract the scalar
                 # fd so the dedupe key is hashable.
@@ -481,10 +507,7 @@ def _check_segments_output_redirs(segments: list[dict[str, Any]], rules: dict[st
     targets: list[str] = []
     kinds: list[str] = []
     for redir in redirections:
-        word = redir.get("Word", {})
-        parts = word.get("Parts", [])
-        if parts:
-            targets.append(parts[0].get("Value", ""))
+        targets.append(_redir_target(redir))
         kinds.extend(classify_output_redirection(redir))
 
     # Check redirect targets against blocked paths (security check, applies to all policies).
@@ -531,11 +554,7 @@ def _check_segments_input_redirs(segments: list[dict[str, Any]], rules: dict[str
     for seg in segments:
         for r in seg.get("redirections", []):
             if r.get("Op") in ("<", "<<", "<<<", "<&"):
-                word = r.get("Word", {})
-                target = ""
-                parts = word.get("Parts", [])
-                if parts:
-                    target = parts[0].get("Value", "")
+                target = _redir_target(r)
                 key = (r["Op"], target)
                 if key not in seen_input:
                     seen_input.add(key)

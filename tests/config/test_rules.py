@@ -2,6 +2,7 @@
 
 import pytest
 
+from lovely_bash_permissions.evaluate import evaluate_bash_command
 from lovely_bash_permissions.parser import parse
 from lovely_bash_permissions.rules import (
     _compile_pattern,
@@ -743,3 +744,54 @@ def test_pipe_chain_with_background() -> None:
     assert result["status"] == "ask"
     assert "a" in result["reason"]
     assert "b" in result["reason"]
+
+
+# Tests for multi-part redirection targets (bug #4)
+
+
+def test_multipart_target_variable_in_reason() -> None:
+    """Quoted-var + lit target is reported in full, not truncated to first part."""
+    result = evaluate_bash_command('echo hi > "$DIR/out.txt"', {"*": "allow", "output_redirection": "allow"})
+    assert result["status"] == "allow"
+    assert "$DIR/out.txt" in result["reason"]
+
+
+def test_multipart_target_consecutive_quoted() -> None:
+    """Two adjacent quoted parts are joined into one target."""
+    result = evaluate_bash_command('echo hi > "a""b"', {"*": "allow", "output_redirection": "allow"})
+    assert result["status"] == "allow"
+    assert "ab" in result["reason"]
+
+
+def test_multipart_target_dev_null_allows_kind_policy() -> None:
+    """2>/dev/null spelled as two quoted parts is recognized as dev-null."""
+    result = evaluate_bash_command(
+        'echo hi 2>"/dev""/null"',
+        {"*": "allow", "output_redirection": {"*": "ask", "stderr_to_dev_null": "allow"}},
+    )
+    assert result["status"] == "allow"
+
+
+def test_multipart_target_blocked_path_denied() -> None:
+    """Quote-split /etc path in an output redirection matches blocked_paths_regex."""
+    result = evaluate_bash_command(
+        'echo hi > /e"tc"/x',
+        {"*": "allow", "blocked_paths_regex": ["\\/etc"], "output_redirection": "allow"},
+    )
+    assert result["status"] == "deny"
+
+
+def test_multipart_input_target_blocked_path_denied() -> None:
+    """Quote-split /etc path in an input redirection matches blocked_paths_regex."""
+    result = evaluate_bash_command(
+        'cat <<< /e"tc"/shadow',
+        {"*": "allow", "input_redirection": "allow", "blocked_paths_regex": ["\\/etc"]},
+    )
+    assert result["status"] == "deny"
+
+
+def test_multipart_target_cmdsubst_in_reason() -> None:
+    """Command-substitution prefix target is reported as $(...)/file, not truncated."""
+    result = evaluate_bash_command('echo hi > $(pwd)/out.txt', {"*": "allow", "output_redirection": "allow"})
+    assert result["status"] == "allow"
+    assert "$(...)/out.txt" in result["reason"]
