@@ -24,7 +24,7 @@ def get_effective_bash_config(raw_bash: object, project_dir: str, top_level_wild
 
     Returns:
         dict with at least "*" : "ask", "error" : (bash error or wildcard),
-        "allowed_cmds_regex" list, and "blocked_paths_regex" list
+        "allowed_cmds_regex" list, and "blocked_cmds_regex" list
     """
     devin_regexes = load_devin_exec_regexes(project_dir)
 
@@ -39,7 +39,7 @@ def get_effective_bash_config(raw_bash: object, project_dir: str, top_level_wild
 
     if raw_bash:
         blocked_patterns: list[str] = []
-        for p in bash.get("blocked_paths_regex", []):
+        for p in bash.get("blocked_cmds_regex", []):
             blocked_patterns.append(p)  # noqa: PERF402 - patterns used as-is
 
         resolved_star = bash.get("*") or top_level_wildcard or "ask"
@@ -63,12 +63,12 @@ def get_effective_bash_config(raw_bash: object, project_dir: str, top_level_wild
             "background_execution": _resolve("background_execution"),
             "output_redirection": _resolve("output_redirection"),
             "allowed_cmds_regex": allowed_patterns,
-            "blocked_paths_regex": blocked_patterns,
+            "blocked_cmds_regex": blocked_patterns,
         }
 
     return {
         "*": top_level_wildcard or "ask",
         "error": top_level_wildcard or "ask",
         "allowed_cmds_regex": allowed_patterns,
-        "blocked_paths_regex": [],
+        "blocked_cmds_regex": [],
     }

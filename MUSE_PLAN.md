@@ -3,7 +3,7 @@
 ## 0. Progress
 
 - [x] 5.1 `config/schema.py`
-- [ ] 5.2 `config/effective_bash.py`
+- [x] 5.2 `config/effective_bash.py`
 - [ ] 5.3 New unified blocked matcher
 - [ ] 5.4 Call-site replacements in `evaluate.py`
 - [ ] 5.5 Reason-string and `rules.py` updates
