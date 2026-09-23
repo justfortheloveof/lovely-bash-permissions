@@ -1103,7 +1103,7 @@ new-key context). **Commit:** listed files + `PLAN.md`.
 
 ## Step 8 — Final regression sweep (all four bugs)
 
-**Status:** in progress — worker `step8_worker` (pi, herdr pane `w3Y:p1`) runs the acceptance matrix (verification only — no file edits). Next iteration: `herdr agent wait step8_worker --timeout 2700000` (herdr timeout **ms**; tool-call timeout **seconds**, max 2147483), read output, RE-RUN the full matrix myself, then mark ALL step Status fields done, `git add PLAN.md` + commit `plan: mark steps done — all four bugs fixed`.
+**Status:** done — full acceptance matrix run by worker `step8_worker` (33/33 OK) and RE-RUN independently by the orchestrator (31/31 rows pass: bug #1 15, bug #2 5, bug #3 7, bug #4 4); gates: 1130 passed, ruff clean, mypy --strict clean, `.fuzz` IGNORED. All four NEW_BUGS fixed.
 
 **Files:** none (verification; commit only if a step was left open).
 
