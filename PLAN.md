@@ -669,7 +669,7 @@ may change); full suite green. **Commit:** listed files + `PLAN.md`.
 
 ## Step 5 — `converter.py`: redir-only compound operands (bug #3)
 
-**Status:** in progress — worker `step5_worker` (pi, herdr pane `w3Y:p1`, workspace `w3Y`) is implementing it. Next iteration: `herdr agent wait step5_worker --timeout 2700000` (herdr timeout **ms**; tool-call timeout **seconds**, max 2147483), read output, verify independently (diff converter.py/rules.py/tests; run the step-5 test cases + segments probes; full pytest/ruff/mypy gates; check `.fuzz` still ignored), mark done, `git add src/lovely_bash_permissions/converter.py src/lovely_bash_permissions/rules.py tests/parsing/test_segments.py tests/config/test_evaluate.py PLAN.md` + commit `Step 5: converter.py redir-only compound operands`, `herdr pane send-keys w3Y:p1 ctrl+d`, then start step6_worker for Step 6.
+**Status:** done — converter.py redir-only branch (`_convert_stmt` for no-Type+Redirs dicts) and `_find_redirs` no-Type branch added (guarded `not node.get("Type")` — no duplication, confirmed by suite); `TestRedirectionOnlyOperands` added to both test files (segments: 2 segments with `command==""` + `Op==">"` `Target=="/etc/x"`; evaluate: all 7 rows incl. contrast + all-redir); all 10 probes pass; suite 1121 passed; ruff/mypy clean.
 
 **Files:** `src/lovely_bash_permissions/converter.py`,
 `src/lovely_bash_permissions/rules.py`,

@@ -971,6 +971,15 @@ def node_from_json(data: dict[str, Any] | None) -> Node | None:
         if not node_type and "Cmd" in data:
             return node_from_json(data["Cmd"])
 
+        # Redirection-only operand of a compound (e.g. `> /etc/x && cat f`):
+        # shfmt emits a dict with Redirs but no Type and no Cmd. Convert it as
+        # a Stmt(cmd=None) so segments.py emits the synthetic redir-only
+        # segment it already supports for top-level statements - otherwise the
+        # redirection is silently dropped and bypasses all redir/blocked-path
+        # checks (NEW_BUGS #3).
+        if not node_type and "Redirs" in data:
+            return _convert_stmt(data)
+
         converter = _CONVERTERS.get(node_type)
         if converter is not None:
             return converter(data)

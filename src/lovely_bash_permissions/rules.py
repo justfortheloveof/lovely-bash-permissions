@@ -105,6 +105,11 @@ def _find_redirs(node: dict[str, Any]) -> list[dict[str, Any]]:
     """
     redirs: list[dict[str, Any]] = []
 
+    # Redirection-only compound operand (no Type/Cmd, just Redirs) - see
+    # converter.node_from_json handling for `> f && cmd` (NEW_BUGS #3).
+    if not node.get("Type") and node.get("Redirs"):
+        redirs.extend(node["Redirs"])
+
     # CallExpr has Redirs directly on the node itself
     if node.get("Type") == "CallExpr":
         redirs.extend(node.get("Redirs", []))

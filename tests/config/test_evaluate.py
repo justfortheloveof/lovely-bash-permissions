@@ -2499,3 +2499,44 @@ class TestExecutedFormMatching:
         """A safe single-quoted find stays auto-approved (union-regression guard)."""
         result = evaluate_bash_command("find . -name '*.txt'", self.CONFIG)
         assert result["status"] == "allow"
+
+
+class TestRedirectionOnlyOperands:
+    """Redirection-only operands of && / || / | must not bypass policy (NEW_BUGS #3).
+
+    shfmt emits e.g. `> /etc/x && cat file` as an operand dict with Redirs but
+    no Type and no Cmd; before the fix the redirection was silently dropped
+    and slipped past all output-redirection / blocked-path checks.
+    """
+
+    CONFIG_A: ClassVar[dict[str, str | list[str]]] = {
+        "*": "allow",
+        "blocked_paths_regex": ["\\/etc"],
+        "allowed_cmds_regex": [r"^cat\s+.+$"],
+    }
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "> /etc/x && cat file",
+            "> /etc/x | true",
+            "true | > /etc/x",
+            "cat file && > /etc/y",
+            "2>/etc/e | true",
+        ],
+    )
+    def test_blocked_target_denied(self, command: str) -> None:
+        result = evaluate_bash_command(command, self.CONFIG_A)
+        assert result["status"] == "deny"
+
+    def test_allowed_target_allowed(self) -> None:
+        """Contrast: with output_redirection=allow, a non-blocked target is approved."""
+        config = {**self.CONFIG_A, "output_redirection": "allow"}
+        result = evaluate_bash_command("> /tmp/ok && cat file", config)
+        assert result["status"] == "allow"
+
+    def test_output_allow_still_blocks_blocked_path(self) -> None:
+        """output_redirection=allow never waives the blocked-path security check."""
+        config = {"*": "allow", "blocked_paths_regex": ["\\/etc"], "output_redirection": "allow"}
+        result = evaluate_bash_command("> /etc/x && > /etc/y", config)
+        assert result["status"] == "deny"

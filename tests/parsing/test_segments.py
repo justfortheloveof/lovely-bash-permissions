@@ -546,6 +546,45 @@ class TestCompoundCommandRedirections:
         assert segs[0]["redirections"][0]["Word"]["Parts"][0]["Value"] == "/etc/passwd"
 
 
+class TestRedirectionOnlyOperands:
+    """Redirection-only operands of && / || / | (NEW_BUGS #3).
+
+    shfmt emits these as operand dicts with Redirs but no Type and no Cmd,
+    e.g. `> /etc/x && cat file`. The converter turns them into Stmt(cmd=None)
+    and the segment parser emits a synthetic redir-only segment - otherwise
+    the redirection is silently dropped and bypasses all redir/blocked-path
+    checks. (The redir can be duplicated cosmetically inside the segment; do
+    not assert on the exact redirection count.)
+    """
+
+    def test_and_left_redirection_only(self) -> None:
+        segs = parse_segments("> /etc/x && cat file")
+        assert len(segs) == 2
+        assert segs[0]["command"] == ""
+        assert segs[0]["arguments"] == []
+        redir = segs[0]["redirections"][0]
+        assert redir["Op"] == ">"
+        assert redir["Target"] == "/etc/x"
+
+    def test_pipe_right_redirection_only(self) -> None:
+        segs = parse_segments("true | > /etc/x")
+        assert len(segs) == 2
+        assert segs[1]["command"] == ""
+        assert segs[1]["arguments"] == []
+        redir = segs[1]["redirections"][0]
+        assert redir["Op"] == ">"
+        assert redir["Target"] == "/etc/x"
+
+    def test_or_right_redirection_only(self) -> None:
+        segs = parse_segments("cat file || > /etc/x")
+        assert len(segs) == 2
+        assert segs[1]["command"] == ""
+        assert segs[1]["arguments"] == []
+        redir = segs[1]["redirections"][0]
+        assert redir["Op"] == ">"
+        assert redir["Target"] == "/etc/x"
+
+
 class TestErrorHandling:
     """Tests for error handling."""
 
