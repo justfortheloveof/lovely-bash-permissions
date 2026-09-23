@@ -93,7 +93,7 @@ If either source approves the command, the hook lets it run. If neither matches,
 
 ## Security notes
 
-- Patterns in `allowed_cmds_regex` and `blocked_paths_regex` are unanchored substring matches unless you anchor them. For example, `git` also matches `echo git`. Anchor with `^git log$` or similar.
+- Patterns in `allowed_cmds_regex` and `blocked_cmds_regex` are unanchored substring matches unless you anchor them. For example, `git` also matches `echo git`. Anchor with `^git log$` or similar. Both lists are matched against the full command line of each segment, so anchoring is honored literally: an end-anchored pattern such as `\.env$` only matches at the end of the segment line (`echo foo.env bar` does not match `\.env$` — use `\.env` or `\b\.env\b` to block mid-line mentions).
 - Guard patterns (negative lookaheads, e.g. `^find(?!.*\s-(exec|delete|ok)\b)`) are matched against the **executed** form of the command, where quotes are removed and backslash escapes are resolved — so write them in executed form, as you would write the command unquoted. Flags that may be quote- or backslash-split (e.g. `find -exec` as `-e"x"ec` / `-ex\ec`) must be covered with a character class such as `-e["x]ec` or a plain executed-form token — a guard with a **literal** quote character (e.g. `(?!.*-e"xec)`) can never trip, because the executed form contains no quotes.
 - This is a policy layer, not a sandbox. It statically analyzes the command as written: backtick and `$(...)` command substitutions, process substitutions, brace groups (`{ ...; }`), subshells, functions, loops, conditionals, and heredoc bodies are all walked and their inner commands checked, so no syntax form silently skips evaluation. Environment assignment prefixes like `a=1 rm -rf /` are detected and evaluated separately via the `variable_assignment` policy. It is still best-effort static analysis, not a runtime boundary: things bash only reveals at runtime (expansion results, substitution output) cannot be verified, and anything the parser cannot analyze falls through to the `error` policy. Use it as guard-rails against accidental execution, not as a security boundary around untrusted input.
 
@@ -118,7 +118,7 @@ A typical project config:
     "*": "ask",
     "error": "ask",
     "allowed_cmds_regex": ["^git status$", "^git (log|ls-files)$"],
-    "blocked_paths_regex": ["^/etc"],
+    "blocked_cmds_regex": ["^/etc"],
     "command_substitution": "ask",
     "process_substitution": "ask",
     "subshell": "ask",
@@ -127,7 +127,7 @@ A typical project config:
 }
 ```
 
-At the config root, `*` sets the overall wildcard (default `"ask"`). Inside `bash`, `*` is the bash-scope wildcard and falls back to the config-root `*`. Any permission-level bash option that is omitted (`error`, `command_substitution`, `process_substitution`, `subshell`, `variable_assignment`, redirection, and background policies) inherits the bash-scope `*`, then the config-root `*`, then defaults to `"ask"`. The regex list keys (`allowed_cmds_regex`, `blocked_paths_regex`) instead default to empty lists.
+At the config root, `*` sets the overall wildcard (default `"ask"`). Inside `bash`, `*` is the bash-scope wildcard and falls back to the config-root `*`. Any permission-level bash option that is omitted (`error`, `command_substitution`, `process_substitution`, `subshell`, `variable_assignment`, redirection, and background policies) inherits the bash-scope `*`, then the config-root `*`, then defaults to `"ask"`. The regex list keys (`allowed_cmds_regex`, `blocked_cmds_regex`) instead default to empty lists.
 
 The `bash` config key supports these keys:
 
@@ -147,9 +147,9 @@ The `bash` config key supports these keys:
 | `output_redirection`                    | `"allow" \| "ask" \| "deny"` or object | Parent key for output redirection policy. A string applies to all output redirections. An object uses the keys below. If omitted, inherits `*`      |
 | `variable_assignment`                   | `"allow" \| "ask" \| "deny"`           | Policy for standalone variable assignments (`FOO=bar`) and variable assignment before commands (`FOO=bar ls`). If omitted, inherits `*`              |
 | `allowed_cmds_regex`                    | `string[]`                             | Regexes that approve a command when matched against the full command line of each segment. Unanchored - anchor with `^` and `$`                     |
-| `blocked_paths_regex`                   | `string[]`                             | Regexes that block a command when matched in arguments or redirection targets. Unanchored substrings - anchor as needed                             |
+| `blocked_cmds_regex`                    | `string[]`                             | Regexes that deny a command when matched against the full command line of each segment (same joined-line semantics as `allowed_cmds_regex`). Unanchored substrings — anchor with `^`/`$`/`\b` as needed; end-anchored patterns only match at the end of the segment line (e.g. use `\.env` or `\b\.env\b` instead of `\.env$` to block mid-line mentions). Also applied to redirection targets, substitution contents, and heredoc bodies. |
 
->`error` covers commands the parser cannot handle (e.g. `echo "unclosed`, `(((invalid`). Because both `allowed_cmds_regex` and `blocked_paths_regex` are skipped for such input, the `error` policy decides the outcome - defaulting to the bash `*` wildcard. Set it to `"ask"` (recommended) or `"deny"` so malformed but bash-accepted syntax is never silently auto-approved under `"*": "allow"`.
+>`error` covers commands the parser cannot handle (e.g. `echo "unclosed`, `(((invalid`). Because both `allowed_cmds_regex` and `blocked_cmds_regex` are skipped for such input, the `error` policy decides the outcome - defaulting to the bash `*` wildcard. Set it to `"ask"` (recommended) or `"deny"` so malformed but bash-accepted syntax is never silently auto-approved under `"*": "allow"`.
 
 ### Devin config
 
@@ -353,7 +353,7 @@ Example `lovely-permissions.jsonc`:
     "command_substitution": "allow",
     "process_substitution": "allow",
     "subshell": "allow",
-    "blocked_paths_regex": ["\\/etc", "\\.env$", "\\.envrc$"],
+    "blocked_cmds_regex": ["\\/etc", "\\.env$", "\\.envrc$"],
     "allowed_cmds_regex": [
       "^cat\\s+.+$",
       "^echo(\\s+.*)?$",
