@@ -2,13 +2,12 @@
 
 import pytest
 
-from lovely_bash_permissions.evaluate import evaluate_bash_command
+from lovely_bash_permissions.evaluate import _match_blocked_patterns, evaluate_bash_command
 from lovely_bash_permissions.parser import parse
 from lovely_bash_permissions.rules import (
     _compile_pattern,
     check_allowed_patterns,
     check_background_execution,
-    check_blocked_patterns,
     check_input_redirection,
     check_output_redirection,
 )
@@ -72,50 +71,59 @@ def test_compile_pattern_invalid_raises_message() -> None:
     assert "invalid pattern" in str(exc.value)
 
 
-# Tests for check_blocked_patterns
+# Tests for _match_blocked_patterns (joined-line semantics)
 
 
 def test_blocked_single_arg_matches() -> None:
     """Single argument matches a blocked pattern."""
-    matched, _, value = check_blocked_patterns("cmd", ["/etc/passwd"], ["/etc/passwd"])
+    matched, _, value = _match_blocked_patterns("cmd", ["/etc/passwd"], ["/etc/passwd"])
     assert matched is True
-    assert value == "/etc/passwd"
+    assert value == "cmd /etc/passwd"
 
 
 def test_blocked_multiple_args_one_matches() -> None:
     """Multiple arguments, one matches a blocked pattern."""
     args = ["/var/log", "/etc/passwd", "/tmp"]
     patterns = ["/etc/passwd"]
-    matched, _, value = check_blocked_patterns("cmd", args, patterns)
+    matched, _, value = _match_blocked_patterns("cmd", args, patterns)
     assert matched is True
-    assert value == "/etc/passwd"
+    assert value == "cmd /var/log /etc/passwd /tmp"
 
 
 def test_blocked_multiple_args_none_match() -> None:
     """Multiple arguments, none match any blocked pattern."""
     args = ["/var/log", "/tmp", "/usr/bin"]
     patterns = ["/etc/passwd", "/root"]
-    matched, _, _ = check_blocked_patterns("cmd", args, patterns)
+    matched, _, _ = _match_blocked_patterns("cmd", args, patterns)
     assert matched is False
 
 
 def test_blocked_empty_args() -> None:
     """Empty args list returns False."""
-    matched, _, _ = check_blocked_patterns("cmd", [], ["/etc/passwd"])
+    matched, _, _ = _match_blocked_patterns("cmd", [], ["/etc/passwd"])
     assert matched is False
 
 
 def test_blocked_empty_patterns() -> None:
     """Empty blocked_patterns list returns False."""
-    matched, _, _ = check_blocked_patterns("cmd", ["/etc/passwd"], [])
+    matched, _, _ = _match_blocked_patterns("cmd", ["/etc/passwd"], [])
     assert matched is False
 
 
 def test_blocked_pattern_matches_part_of_path() -> None:
     """Pattern matches part of path (not anchored)."""
-    matched, _, value = check_blocked_patterns("cmd", ["/etc/passwd.backup"], ["/etc/passwd"])
+    matched, _, value = _match_blocked_patterns("cmd", ["/etc/passwd.backup"], ["/etc/passwd"])
     assert matched is True
-    assert value == "/etc/passwd.backup"
+    assert value == "cmd /etc/passwd.backup"
+
+
+def test_blocked_end_anchor_honored_literally() -> None:
+    """End-anchored pattern does not fire mid-line on the joined command line."""
+    matched, _, _ = _match_blocked_patterns("echo", ["foo.env", "bar"], [r"\.env$"])
+    assert matched is False
+    matched, _, value = _match_blocked_patterns("echo", ["foo.env", "bar"], [r"\.env"])
+    assert matched is True
+    assert value == "echo foo.env bar"
 
 
 # Tests for check_output_redirection
@@ -773,19 +781,19 @@ def test_multipart_target_dev_null_allows_kind_policy() -> None:
 
 
 def test_multipart_target_blocked_path_denied() -> None:
-    """Quote-split /etc path in an output redirection matches blocked_paths_regex."""
+    """Quote-split /etc path in an output redirection matches blocked_cmds_regex."""
     result = evaluate_bash_command(
         'echo hi > /e"tc"/x',
-        {"*": "allow", "blocked_paths_regex": ["\\/etc"], "output_redirection": "allow"},
+        {"*": "allow", "blocked_cmds_regex": ["\\/etc"], "output_redirection": "allow"},
     )
     assert result["status"] == "deny"
 
 
 def test_multipart_input_target_blocked_path_denied() -> None:
-    """Quote-split /etc path in an input redirection matches blocked_paths_regex."""
+    """Quote-split /etc path in an input redirection matches blocked_cmds_regex."""
     result = evaluate_bash_command(
         'cat <<< /e"tc"/shadow',
-        {"*": "allow", "input_redirection": "allow", "blocked_paths_regex": ["\\/etc"]},
+        {"*": "allow", "input_redirection": "allow", "blocked_cmds_regex": ["\\/etc"]},
     )
     assert result["status"] == "deny"
 

@@ -22,7 +22,7 @@ def make_config(
     if allowed is not None:
         config["allowed_cmds_regex"] = allowed
     if blocked is not None:
-        config["blocked_paths_regex"] = blocked
+        config["blocked_cmds_regex"] = blocked
     if output != "allow":
         config["output_redirection"] = output
     if input_redir != "allow":

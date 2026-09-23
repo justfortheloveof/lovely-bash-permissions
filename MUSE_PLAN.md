@@ -8,7 +8,7 @@
 - [x] 5.4 Call-site replacements in `evaluate.py`
 - [x] 5.5 Reason-string and `rules.py` updates
 - [x] 5.6 Docs and example configs
-- [ ] 5.7 Tests
+- [x] 5.7 Tests
 - [ ] 6. Verification
 
 ## 1. Background and goal

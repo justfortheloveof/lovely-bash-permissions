@@ -14,7 +14,7 @@ def test_valid_config() -> None:
 
 
 def test_valid_bash_config() -> None:
-    config = {"bash": {"permission": "allow", "blocked_paths_regex": ["^/tmp/"]}}
+    config = {"bash": {"permission": "allow", "blocked_cmds_regex": ["^/tmp/"]}}
     PermissionsConfig.model_validate(config)
 
 
@@ -46,12 +46,12 @@ def test_null_tool_config() -> None:
 
 
 def test_valid_regex() -> None:
-    config = {"bash": {"blocked_paths_regex": ["^/tmp/"]}}
+    config = {"bash": {"blocked_cmds_regex": ["^/tmp/"]}}
     PermissionsConfig.model_validate(config)
 
 
 def test_invalid_regex() -> None:
-    config = {"bash": {"blocked_paths_regex": ["["]}}
+    config = {"bash": {"blocked_cmds_regex": ["["]}}
     try:
         PermissionsConfig.model_validate(config)
         raise AssertionError("expected ValidationError")
@@ -84,7 +84,7 @@ def test_tool_string_instead_of_object_rejected() -> None:
 
 
 def test_invalid_regex_rejected_with_path() -> None:
-    config = {"bash": {"blocked_paths_regex": "["}}
+    config = {"bash": {"blocked_cmds_regex": "["}}
     try:
         PermissionsConfig.model_validate(config)
         raise AssertionError("expected ValidationError")
@@ -132,14 +132,14 @@ def test_trailing_dot_unchanged() -> None:
     """Patterns are used as-written; trailing dots (escaped or bare) preserved."""
     config = ToolConfig(
         allowed_cmds_regex=[r"^git\."],
-        blocked_paths_regex=["^/tmp/."],  # bare dot preserved
+        blocked_cmds_regex=["^/tmp/."],  # bare dot preserved
     )  # type: ignore[call-arg]
     assert config.allowed_cmds_regex == [r"^git\."]  # escaped dot kept
-    assert config.blocked_paths_regex == ["^/tmp/."]  # bare dot kept
+    assert config.blocked_cmds_regex == ["^/tmp/."]  # bare dot kept
 
 
 def test_invalid_regex_rejected_at_load() -> None:
-    config = {"bash": {"blocked_paths_regex": ["["]}}
+    config = {"bash": {"blocked_cmds_regex": ["["]}}
     try:
         PermissionsConfig.model_validate(config)
     except ValidationError as exc:
@@ -149,8 +149,8 @@ def test_invalid_regex_rejected_at_load() -> None:
 
 
 def test_empty_pattern_acceptable() -> None:
-    config = ToolConfig(blocked_paths_regex=[""])  # type: ignore[call-arg]
-    assert config.blocked_paths_regex == [""]
+    config = ToolConfig(blocked_cmds_regex=[""])  # type: ignore[call-arg]
+    assert config.blocked_cmds_regex == [""]
 
 
 def test_unknown_top_level_key_rejected(caplog: pytest.LogCaptureFixture) -> None:
@@ -235,7 +235,7 @@ def test_allow_deny_shorthand_rejected() -> None:
     """Legacy allow/deny shortcut fields are rejected as config errors."""
     with pytest.raises(ValueError, match="config key 'allow' is not supported.*allowed_cmds_regex"):
         PermissionsConfig.model_validate({"bash": {"allow": ["git"]}})
-    with pytest.raises(ValueError, match="config key 'deny' is not supported.*blocked_paths_regex"):
+    with pytest.raises(ValueError, match="config key 'deny' is not supported.*blocked_cmds_regex"):
         PermissionsConfig.model_validate({"bash": {"deny": ["rm"]}})
 
 
@@ -265,6 +265,14 @@ def test_typo_key_logs_warning(caplog: pytest.LogCaptureFixture) -> None:
     assert result is not None
     warnings = [r[2] for r in caplog.record_tuples]
     assert any("unknown config key 'blocked_path_regex'" in m for m in warnings)
+
+
+def test_renamed_blocked_key_ignored_with_warning(caplog: pytest.LogCaptureFixture) -> None:
+    """The old `blocked_paths_regex` key is an ordinary unknown key: warned, not read."""
+    config = ToolConfig.model_validate({"blocked_paths_regex": ["^/etc"]})
+    assert config.blocked_cmds_regex == []
+    warnings = [r[2] for r in caplog.record_tuples]
+    assert any("unknown config key 'blocked_paths_regex'" in m for m in warnings)
 
 
 def test_known_tool_bash_accepted() -> None:

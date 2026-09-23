@@ -332,7 +332,7 @@ class _NodeCoverageBase:
     _CONFIG: ClassVar[dict[str, dict[str, list[str]]]] = {
         "bash": {
             "allowed_cmds_regex": ["^zzz$"],
-            "blocked_paths_regex": [],
+            "blocked_cmds_regex": [],
         }
     }
 
@@ -380,7 +380,7 @@ class TestCliTestMultipleApprovalReasons(_NodeCoverageBase):
             {
                 "bash": {
                     "allowed_cmds_regex": ["^ls", "^cat"],
-                    "blocked_paths_regex": [],
+                    "blocked_cmds_regex": [],
                     "output_redirection": "ask",
                     "input_redirection": "ask",
                     "background_execution": "ask",
@@ -400,7 +400,7 @@ class TestCliTestMultipleApprovalReasons(_NodeCoverageBase):
             {
                 "bash": {
                     "allowed_cmds_regex": ["^ls", "^cat"],
-                    "blocked_paths_regex": [],
+                    "blocked_cmds_regex": [],
                     "output_redirection": "ask",
                     "input_redirection": "ask",
                     "background_execution": "ask",
@@ -425,7 +425,7 @@ class TestCliTestAutoApprovalReasons(_NodeCoverageBase):
             {
                 "bash": {
                     "allowed_cmds_regex": ["^ls(\\s+.*)?$"],
-                    "blocked_paths_regex": [],
+                    "blocked_cmds_regex": [],
                     "output_redirection": "allow",
                     "input_redirection": "allow",
                     "background_execution": "allow",
@@ -445,7 +445,7 @@ class TestCliTestAutoApprovalReasons(_NodeCoverageBase):
             {
                 "bash": {
                     "allowed_cmds_regex": ["^ls(\\s+.*)?$"],
-                    "blocked_paths_regex": [],
+                    "blocked_cmds_regex": [],
                     "output_redirection": "allow",
                     "input_redirection": "allow",
                     "background_execution": "allow",

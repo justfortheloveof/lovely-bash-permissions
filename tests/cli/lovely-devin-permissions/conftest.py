@@ -23,7 +23,7 @@ def project_with_bash_config(tmp_project: Path) -> Path:
     config = {
         "bash": {
             "allowed_cmds_regex": ["^git", "^ls", "^cat"],
-            "blocked_paths_regex": ["curl"],
+            "blocked_cmds_regex": ["curl"],
         }
     }
     with open(devin_dir / "config.json", "w") as f:

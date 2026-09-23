@@ -33,7 +33,7 @@ class TestPermissionsManagerConstruction:
 
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(config_path, "w") as f:
-            json.dump({"bash": {"blocked_paths_regex": ["["]}}, f)
+            json.dump({"bash": {"blocked_cmds_regex": ["["]}}, f)
 
         manager = PermissionsManager(str(mock_project))
 
@@ -46,7 +46,7 @@ class TestPermissionsManagerConstruction:
 
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(config_path, "w") as f:
-            json.dump({"bash": {"blocked_paths_regex": ["["]}}, f)
+            json.dump({"bash": {"blocked_cmds_regex": ["["]}}, f)
 
         manager = PermissionsManager(str(mock_project))
 
@@ -82,7 +82,7 @@ class TestPermissionsManagerReload:
         # Start with invalid file
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(config_path, "w") as f:
-            json.dump({"bash": {"blocked_paths_regex": ["["]}}, f)
+            json.dump({"bash": {"blocked_cmds_regex": ["["]}}, f)
 
         manager = PermissionsManager(str(mock_project))
         assert not manager.is_valid()
@@ -111,7 +111,7 @@ class TestPermissionsManagerReload:
 
         # Write invalid config and reload
         with open(config_path, "w") as f:
-            json.dump({"bash": {"blocked_paths_regex": ["["]}}, f)
+            json.dump({"bash": {"blocked_cmds_regex": ["["]}}, f)
 
         manager.reload()
 
@@ -185,7 +185,7 @@ class TestPermissionsManagerGetMethods:
 
         # Write invalid config and reload
         with open(config_path, "w") as f:
-            f.write(json.dumps({"bash": {"blocked_paths_regex": ["["]}}))
+            f.write(json.dumps({"bash": {"blocked_cmds_regex": ["["]}}))
         manager.reload()
 
         assert not manager.is_valid()
@@ -220,7 +220,7 @@ class TestPermissionsManagerWarnings:
         # Create all three config files as valid
         global_config = Path(devin_global_config_dir) / "lovely-permissions.jsonc"
         with open(global_config, "w") as f:
-            json.dump({"bash": {"blocked_paths_regex": ["^/tmp/"]}}, f)
+            json.dump({"bash": {"blocked_cmds_regex": ["^/tmp/"]}}, f)
 
         project_config = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(project_config, "w") as f:
@@ -317,7 +317,7 @@ class TestPermissionsManagerEndToEnd:
 
         local_config = mock_project / ".devin" / "lovely-permissions.local.jsonc"
         with open(local_config, "w") as f:
-            json.dump({"bash": {"blocked_paths_regex": ["/etc"]}}, f)
+            json.dump({"bash": {"blocked_cmds_regex": ["/etc"]}}, f)
 
         manager = PermissionsManager(str(mock_project))
 
@@ -325,4 +325,4 @@ class TestPermissionsManagerEndToEnd:
         bash_cfg = manager.get_lovely_config()["bash"]
         assert bash_cfg["permission"] == "allow"
         assert bash_cfg["allowed_cmds_regex"] == ["^git"]
-        assert bash_cfg["blocked_paths_regex"] == ["/etc"]
+        assert bash_cfg["blocked_cmds_regex"] == ["/etc"]

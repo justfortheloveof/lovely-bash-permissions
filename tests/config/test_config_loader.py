@@ -282,7 +282,7 @@ class TestLoadPermissionsConfig:
         project_file = devin_dir / "lovely-permissions.jsonc"
         self._write_jsonc(
             project_file,
-            {"bash": {"blocked_paths_regex": ["/tmp/"]}},
+            {"bash": {"blocked_cmds_regex": ["/tmp/"]}},
         )
 
         monkeypatch.setattr(
@@ -292,7 +292,7 @@ class TestLoadPermissionsConfig:
         merged, _, _ = load_permissions_config(project_dir)
         assert merged["bash"]["permission"] == "ask"
         assert merged["bash"]["allowed_cmds_regex"] == ["^ls", "^cat"]
-        assert merged["bash"]["blocked_paths_regex"] == ["/tmp/"]
+        assert merged["bash"]["blocked_cmds_regex"] == ["/tmp/"]
 
     def test_arrays_concatenated_across_files(
         self, monkeypatch: pytest.MonkeyPatch, temp_global: tuple[Path, Path]
@@ -414,11 +414,11 @@ class TestLoadPermissionsConfig:
             lambda: config_dir,
         )
         project_file = temp_project[1] / "lovely-permissions.jsonc"
-        self._write_jsonc(project_file, {"bash": {"blocked_paths_regex": ["["]}})
+        self._write_jsonc(project_file, {"bash": {"blocked_cmds_regex": ["["]}})
         _, warnings, _errors = load_permissions_config(str(temp_project[0]))
         assert len(warnings) >= 1
         combined = " ".join(warnings)
-        assert "blocked_paths_regex" in combined
+        assert "blocked_cmds_regex" in combined
 
     def test_multiple_errors_all_reported(
         self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
@@ -434,7 +434,7 @@ class TestLoadPermissionsConfig:
         project_file = temp_project[1] / "lovely-permissions.jsonc"
         self._write_jsonc(
             project_file,
-            {"bash": {"permission": "alow", "blocked_paths_regex": ["["]}},
+            {"bash": {"permission": "alow", "blocked_cmds_regex": ["["]}},
         )
         _, warnings, errors = load_permissions_config(str(temp_project[0]))
         assert len(warnings) >= 1
@@ -469,12 +469,12 @@ class TestLoadPermissionsConfig:
             lambda: config_dir,
         )
         project_file = temp_project[1] / "lovely-permissions.jsonc"
-        self._write_jsonc(project_file, {"bash": {"blocked_paths_regex": ["["]}})
+        self._write_jsonc(project_file, {"bash": {"blocked_cmds_regex": ["["]}})
         _, warnings, errors = load_permissions_config(str(temp_project[0]))
         assert len(warnings) >= 1
         assert len(errors) == 1
         combined = " ".join(warnings)
-        assert "blocked_paths_regex" in combined
+        assert "blocked_cmds_regex" in combined
 
     def test_manager_validation_errors_property(
         self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
@@ -490,12 +490,12 @@ class TestLoadPermissionsConfig:
             lambda: config_dir,
         )
         project_file = temp_project[1] / "lovely-permissions.jsonc"
-        self._write_jsonc(project_file, {"bash": {"blocked_paths_regex": ["["]}})
+        self._write_jsonc(project_file, {"bash": {"blocked_cmds_regex": ["["]}})
 
         manager = PermissionsManager(str(temp_project[0]))
         assert len(manager.validation_errors) >= 1
         combined = " ".join(manager.validation_errors)
-        assert "blocked_paths_regex" in combined
+        assert "blocked_cmds_regex" in combined
 
     def test_get_lovely_config_raises_on_errors(
         self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
@@ -511,12 +511,12 @@ class TestLoadPermissionsConfig:
             lambda: config_dir,
         )
         project_file = temp_project[1] / "lovely-permissions.jsonc"
-        self._write_jsonc(project_file, {"bash": {"blocked_paths_regex": ["["]}})
+        self._write_jsonc(project_file, {"bash": {"blocked_cmds_regex": ["["]}})
 
         manager = PermissionsManager(str(temp_project[0]))
         assert len(manager.validation_errors) >= 1
         combined = " ".join(manager.validation_errors)
-        assert "blocked_paths_regex" in combined
+        assert "blocked_cmds_regex" in combined
 
     def test_has_validation_errors_property(
         self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
@@ -532,7 +532,7 @@ class TestLoadPermissionsConfig:
             lambda: config_dir,
         )
         project_file = temp_project[1] / "lovely-permissions.jsonc"
-        self._write_jsonc(project_file, {"bash": {"blocked_paths_regex": ["["]}})
+        self._write_jsonc(project_file, {"bash": {"blocked_cmds_regex": ["["]}})
 
         manager = PermissionsManager(str(temp_project[0]))
         assert manager.has_validation_errors is True

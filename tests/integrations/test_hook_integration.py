@@ -281,7 +281,7 @@ def test_reason_preserved_in_block() -> None:
 
 
 def _effective_config(error: str = "ask", wildcard: str = "ask") -> dict[str, str | list[str]]:
-    return {"*": wildcard, "error": error, "allowed_cmds_regex": [], "blocked_paths_regex": []}
+    return {"*": wildcard, "error": error, "allowed_cmds_regex": [], "blocked_cmds_regex": []}
 
 
 def test_error_policy_defaults_to_wildcard_ask() -> None:

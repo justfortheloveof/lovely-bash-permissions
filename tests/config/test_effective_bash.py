@@ -1,6 +1,6 @@
 """Tests for lovely-bash-permissions effective bash config.
 
-Verifies that blocked_paths_regex from config is loaded correctly.
+Verifies that blocked_cmds_regex from config is loaded correctly.
 """
 
 import pytest
@@ -22,7 +22,7 @@ class TestGetEffectiveBashConfig:
             "*": "ask",
             "error": "ask",
             "allowed_cmds_regex": [],
-            "blocked_paths_regex": [],
+            "blocked_cmds_regex": [],
         }
 
     def test_raw_bash_empty(self) -> None:
@@ -33,24 +33,24 @@ class TestGetEffectiveBashConfig:
         assert result["*"] == "ask"
         assert result["allowed_cmds_regex"] == []
 
-    def test_blocked_paths_regex_loaded(self) -> None:
-        """blocked_paths_regex from config is loaded directly."""
+    def test_blocked_cmds_regex_loaded(self) -> None:
+        """blocked_cmds_regex from config is loaded directly."""
 
-        raw = {"*": "ask", "blocked_paths_regex": ["^/tmp/", "^/etc/"]}
+        raw = {"*": "ask", "blocked_cmds_regex": ["^/tmp/", "^/etc/"]}
         result = get_effective_bash_config(raw, "/project")
 
         assert result["*"] == "ask"
-        blocked = result["blocked_paths_regex"]
+        blocked = result["blocked_cmds_regex"]
         assert "^/tmp/" in blocked
         assert "^/etc/" in blocked
 
-    def test_blocked_paths_regex_kept_as_is(self) -> None:
-        """blocked_paths_regex patterns are passed through unmodified."""
+    def test_blocked_cmds_regex_kept_as_is(self) -> None:
+        """blocked_cmds_regex patterns are passed through unmodified."""
 
-        raw = {"blocked_paths_regex": ["^/tmp/", "cat", "\\.env$"]}
+        raw = {"blocked_cmds_regex": ["^/tmp/", "cat", "\\.env$"]}
         result = get_effective_bash_config(raw, "/project")
 
-        assert result["blocked_paths_regex"] == ["^/tmp/", "cat", "\\.env$"]
+        assert result["blocked_cmds_regex"] == ["^/tmp/", "cat", "\\.env$"]
 
     def test_hook_label_regex_not_injected(self) -> None:
         """The hook `:` label is recognized structurally by the evaluator, not
@@ -71,13 +71,13 @@ class TestGetEffectiveBashConfig:
         assert "^git" in allowed
 
     def test_blocked_paths_not_in_allowed_patterns(self) -> None:
-        """blocked_paths_regex becomes blocked patterns, not allowed ones."""
+        """blocked_cmds_regex becomes blocked patterns, not allowed ones."""
 
-        raw = {"blocked_paths_regex": ["^curl$"], "allowed_cmds_regex": ["^git"]}
+        raw = {"blocked_cmds_regex": ["^curl$"], "allowed_cmds_regex": ["^git"]}
         result = get_effective_bash_config(raw, "/project")
 
         assert "^curl$" not in result["allowed_cmds_regex"]
-        assert "^curl$" in result["blocked_paths_regex"]
+        assert "^curl$" in result["blocked_cmds_regex"]
 
     def test_wildcard_allow(self) -> None:
         """Config with '*' = 'allow' produces effective '*' == 'allow'."""
