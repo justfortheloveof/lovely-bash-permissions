@@ -240,7 +240,7 @@ full pytest/ruff/mypy green. **Commit:** stage only the two files + `PLAN.md`.
 
 ## Step 2 — `segments.py`: normalized args + full redir targets
 
-**Status:** not started
+**Status:** done — `normalized_arguments` + redir `Target` added; tests pass (note: the plan said `normalized_arguments[0] == "-exec"` for `find /tmp -ex\ec rm`, but `/tmp` is index 0 — the agent correctly asserted index 1); suite 1091 passed; ruff/mypy clean.
 
 **Files:** `src/lovely_bash_permissions/segments.py`,
 `tests/parsing/test_segments.py`

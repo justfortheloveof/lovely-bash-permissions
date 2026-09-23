@@ -67,7 +67,7 @@ from .ast import (
 )
 from .converter import node_from_json
 from .errors import LovelyDevinPermissionsError
-from .inspect import _word_raw, _word_value
+from .inspect import _word_exec, _word_raw, _word_value
 from .parser import parse
 
 _logger = logging.getLogger(__name__)
@@ -94,14 +94,20 @@ def _redir_dicts(redirs: list[Redir]) -> list[dict[str, Any]]:
     can classify them uniformly. shfmt normalizes fd-prefixed operators into the
     ``N`` field (e.g. ``2>`` -> ``Op: ">", N: {"Value": "2"}``).
     """
-    return [
-        {
-            "Op": r.op,
-            "N": {"Value": str(r.n)} if r.n is not None else {},
-            "Word": {"Parts": [{"Value": _part_value(p)} for p in (r.word.parts if r.word else [])]},
-        }
-        for r in (redirs or [])
-    ]
+    redir_dicts: list[dict[str, Any]] = []
+    for r in redirs or []:
+        redir_dicts.append(
+            {
+                "Op": r.op,
+                "N": {"Value": str(r.n)} if r.n is not None else {},
+                "Word": {"Parts": [{"Value": _part_value(p)} for p in (r.word.parts if r.word else [])]},
+                # Full executed-form target (all word parts, quotes removed,
+                # backslashes unescaped) so multi-part targets like "$DIR/out",
+                # "/dev""/null" or quote-split paths are identified correctly.
+                "Target": _word_exec(r.word) if r.word is not None else "",
+            }
+        )
+    return redir_dicts
 
 
 def _extract_redirs(node: object) -> list[Redir]:
@@ -253,6 +259,7 @@ def _extract_segments(
                 {
                     "command": _word_value(node.args[0]),
                     "arguments": [_word_raw(arg) for arg in node.args[1:]],
+                    "normalized_arguments": [_word_exec(arg) for arg in node.args[1:]],
                     "redirections": redir_dicts,
                 }
             )

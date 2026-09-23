@@ -634,3 +634,31 @@ class TestCaseCommandSubstitution:
         """bug #8: branch patterns are segments too."""
         result = parse_segments("case $x in $(evil)) echo hit;; esac")
         assert [s["command"] for s in result] == ["evil", "echo"]
+
+
+class TestNormalizedArguments:
+    """normalized_arguments: quote/backslash-normalized (executed) form of args."""
+
+    def test_quote_split_argument_normalized(self) -> None:
+        segs = parse_segments('cat /e"tc"/passwd')
+        assert len(segs) == 1
+        assert segs[0]["arguments"] == ['/e"tc"/passwd']
+        assert segs[0]["normalized_arguments"] == ["/etc/passwd"]
+
+    def test_backslash_escaped_flag_normalized(self) -> None:
+        segs = parse_segments("find /tmp -ex\\ec rm")
+        assert len(segs) == 1
+        assert segs[0]["arguments"][1] == "-ex\\ec"
+        assert segs[0]["normalized_arguments"][1] == "-exec"
+
+
+class TestRedirTarget:
+    """redirections carry the full executed-form target (all word parts)."""
+
+    def test_quoted_param_exp_target(self) -> None:
+        segs = parse_segments('echo hi > "$DIR/out.txt"')
+        assert segs[0]["redirections"][0]["Target"] == "$DIR/out.txt"
+
+    def test_concatenated_quoted_target(self) -> None:
+        segs = parse_segments('echo hi 2>"/dev""/null"')
+        assert segs[0]["redirections"][0]["Target"] == "/dev/null"
