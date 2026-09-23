@@ -55,6 +55,8 @@ def get_effective_bash_config(raw_bash: object, project_dir: str, top_level_wild
             **bash,
             "*": resolved_star,
             "error": _resolve("error"),
+            "command_substitution": _resolve("command_substitution"),
+            "process_substitution": _resolve("process_substitution"),
             "subshell": _resolve("subshell"),
             "variable_assignment": _resolve("variable_assignment"),
             "input_redirection": _resolve("input_redirection"),

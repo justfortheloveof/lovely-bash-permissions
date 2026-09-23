@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .ast import CallExpr, CmdSubst, Node, ProcSubst
+from .ast import CallExpr, CmdSubst, Node, ProcSubst, Subshell
 from .converter import node_from_json
 from .inspect import _traverse, _word_exec, _word_raw, _word_value, iter_children
 from .parser import parse
@@ -23,11 +23,6 @@ from .rules import (
     check_blocked_patterns,
 )
 from .segments import parse_segments
-
-
-class _Found(Exception):
-    """Raised to short-circuit traversal when a match is found."""
-
 
 #: Regex metacharacters (unescaped) or lone backslashes that mark a pattern
 #: body as more than a plain escaped literal - i.e. not a bare-name anchor.
@@ -115,27 +110,41 @@ def _heredoc_body_texts(tree: dict[str, Any]) -> list[str]:
     return texts
 
 
-def _has_cmd_subst(tree: dict[str, Any]) -> bool:
-    """Check if the AST contains any command substitution.
+def _subst_flags(tree: dict[str, Any]) -> dict[str, bool]:
+    """Detect which of the three substitution/subshell constructs appear.
 
-    Uses typed AST traversal so that substitutions nested inside quoted
-    strings are detected, unlike the raw-JSON visitor which missed them.
+    Returns ``{"command_substitution": bool, "process_substitution": bool,
+    "subshell": bool}`` where the flags mark ``$(...)``/backticks,
+    ``<(...)``/``>(...)``, and ``( ... )`` paren groups respectively.
+    Uses typed-AST traversal so constructs nested inside quoted strings
+    are detected too.
     """
     ast = node_from_json(tree)
     if ast is None:
-        return False
+        return {"command_substitution": False, "process_substitution": False, "subshell": False}
+
+    found = {"command_substitution": False, "process_substitution": False, "subshell": False}
 
     def visitor(node: Node) -> None:
-        from .ast import CmdSubst, ProcSubst
+        if isinstance(node, CmdSubst):
+            found["command_substitution"] = True
+        elif isinstance(node, ProcSubst):
+            found["process_substitution"] = True
+        elif isinstance(node, Subshell):
+            found["subshell"] = True
 
-        if isinstance(node, (CmdSubst, ProcSubst)):
-            raise _Found
+    _traverse(ast, visitor, recurse_call_expr_args=True)
+    return found
 
-    try:
-        _traverse(ast, visitor, recurse_call_expr_args=True)
-    except _Found:
-        return True
-    return False
+
+def _has_cmd_subst(tree: dict[str, Any]) -> bool:
+    """Check if the AST contains any command or process substitution.
+
+    Retained for backwards compatibility with existing callers; new code
+    should use :func:`_subst_flags` and gate each construct on its own key.
+    """
+    flags = _subst_flags(tree)
+    return flags["command_substitution"] or flags["process_substitution"]
 
 
 def _block_scan_variants(text: str) -> list[str]:
@@ -288,8 +297,9 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         config: Permission configuration dict with keys:
             - 'output_redirection': allow/ask/deny policy
             - 'input_redirection': allow/ask/deny policy
-            - 'background_execution': allow/ask/deny policy
-            - 'subshell': allow/ask/deny policy
+            - 'command_substitution': allow/ask/deny policy for $(...) / backticks
+            - 'process_substitution': allow/ask/deny policy for <(...) / >(...)
+            - 'subshell': allow/ask/deny policy for ( ... ) paren groups
             - 'variable_assignment': allow/ask/deny policy
             - 'allowed_cmds_regex': list of regex patterns for allowed commands
             - 'blocked_paths_regex': list of regex patterns for blocked paths
@@ -316,6 +326,8 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         "output_redirection": _resolve_level(config, "output_redirection"),
         "input_redirection": _resolve_level(config, "input_redirection"),
         "background_execution": _resolve_level(config, "background_execution"),
+        "command_substitution": _resolve_level(config, "command_substitution"),
+        "process_substitution": _resolve_level(config, "process_substitution"),
         "subshell": _resolve_level(config, "subshell"),
         "variable_assignment": _resolve_level(config, "variable_assignment"),
         "blocked_paths_regex": blocked_patterns,
@@ -327,7 +339,10 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     # instead of silently falling back to the wildcard (bug #2).
     raw_tree = parse(command)
 
-    has_subshell = _has_cmd_subst(raw_tree)
+    subst_flags = _subst_flags(raw_tree)
+    has_cmd_subst = subst_flags["command_substitution"]
+    has_proc_subst = subst_flags["process_substitution"]
+    has_paren_subshell = subst_flags["subshell"]
 
     # Extract segments
     segments = parse_segments(command)
@@ -340,7 +355,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         _wildcard = config.get("*", "ask")
         _empty_status: str = "allow"
         _empty_reasons: list[str] = []
-        if has_subshell and blocked_patterns:
+        if (has_cmd_subst or has_proc_subst) and blocked_patterns:
             for text in _extract_subshell_contents(raw_tree):
                 matched, pattern, value = check_blocked_patterns("", [text], blocked_patterns)
                 if matched:
@@ -369,25 +384,31 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         if _empty_reasons:
             _empty_status = "deny"
             _empty_reason = "; ".join(dict.fromkeys(_empty_reasons))
-        elif has_subshell:
+        elif has_cmd_subst or has_proc_subst:
             # standalone arithmetic like `(( x[$(rm -rf /etc/x)] ))`
             # produces no segments, so the fallback auto-approved it under
-            # "*": "allow" even when subshell policy is "deny". Gate it by the
-            # resolved subshell policy; only an explicit "allow" falls through
-            # to the wildcard default. An *inherited* allow (unset subshell
-            # under a permissive wildcard) becomes ask: the command produced no
-            # segments, so we cannot analyse what runs - default fail-closed.
-            _sub_policy = rules["subshell"]
-            if _sub_policy == "allow" and "subshell" not in config:
-                _sub_policy = "ask"
-            if _sub_policy == "allow":
+            # "*": "allow" even when the substitution policy is "deny". Gate
+            # it by the resolved substitution policy; only an explicit
+            # "allow" falls through to the wildcard default. An *inherited*
+            # allow (key unset under a permissive wildcard) becomes ask: the
+            # command produced no segments, so we cannot analyse what runs -
+            # default fail-closed.
+            _cs_policy = rules["command_substitution"] if has_cmd_subst else rules["process_substitution"]
+            _cs_key = "command_substitution" if has_cmd_subst else "process_substitution"
+            if _cs_policy == "allow" and _cs_key not in config:
+                _cs_policy = "ask"
+            if _cs_policy == "allow":
                 _empty_status = _wildcard
                 _empty_reason = (
                     f"<empty command> produced no parseable segments - defaulting to wildcard policy ({_wildcard})"
                 )
             else:
-                _empty_status = _sub_policy
-                _empty_reason = "subshell or command substitution requires approval"
+                _empty_status = _cs_policy
+                _empty_reason = (
+                    "command substitution requires approval"
+                    if has_cmd_subst
+                    else "process substitution requires approval"
+                )
         else:
             _empty_status = _wildcard
             _empty_reason = (
@@ -433,7 +454,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                         rest = " ".join(_word_value(a) for a in node.args[1:])
                         full_cmd = name if not rest else f"{name} {rest}"
                         nested_non_match.add(name if name != full_cmd else full_cmd)
-                new_depth = depth + (1 if isinstance(node, (CmdSubst, ProcSubst)) else 0)
+                new_depth = depth + (1 if isinstance(node, (CmdSubst, ProcSubst, Subshell)) else 0)
                 for child in iter_children(node, include_call_args=True):
                     _walk(child, new_depth)
 
@@ -577,10 +598,9 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         if overall_status == "allow":
             overall_status = wildcard
 
-    # Subshell/command substitution policy check;
-    # also check inner content against blocked paths and allowed patterns
-    subshell_policy = rules.get("subshell", "ask")
-    if has_subshell:
+    # Command substitution / process substitution policy checks; also check
+    # inner content against blocked paths and allowed patterns.
+    if has_cmd_subst or has_proc_subst:
         subshell_contents = _extract_subshell_contents(raw_tree)
 
         # Check nested commands against blocked paths (already done above, keep it)
@@ -600,18 +620,38 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         if nested_non_match:
             names_str = ", ".join(f'"{n}"' for n in sorted(nested_non_match))
             reasons.append(f"{names_str} commands inside subshell do not match allowed patterns")
+            _sub_policy = (
+                rules.get("command_substitution", "ask") if has_cmd_subst else rules.get("process_substitution", "ask")
+            )
             if overall_status == "deny":
                 # Already denied by blocked paths check above, keep it
                 pass
-            elif subshell_policy == "allow":
+            elif _sub_policy == "allow":
                 overall_status = "ask"  # Validation failed, allow policy → ask for approval
-            elif subshell_policy == "deny":
+            elif _sub_policy == "deny":
                 overall_status = "deny"  # Validation failed, deny policy → reject outright
             else:  # ask
-                overall_status = subshell_policy
-        if overall_status == "allow" and subshell_policy != "allow":
-            overall_status = subshell_policy
-            reasons.append("subshell or command substitution requires approval")
+                overall_status = _sub_policy
+
+    # $(...) and <(...) each gate independently (ask on either when overall
+    # is still allow).
+    for _flag, _key, _label in (
+        (has_cmd_subst, "command_substitution", "command substitution requires approval"),
+        (has_proc_subst, "process_substitution", "process substitution requires approval"),
+    ):
+        if _flag and overall_status == "allow":
+            _pol = rules.get(_key, "ask")
+            if _pol != "allow":
+                overall_status = _pol
+                reasons.append(_label)
+
+    # ( ... ) paren-group subshells: inner segments are already scanned above
+    # (blocked paths / allowed patterns); the policy gates the construct itself.
+    if has_paren_subshell and overall_status == "allow":
+        _paren_pol = rules.get("subshell", "ask")
+        if _paren_pol != "allow":
+            overall_status = _paren_pol
+            reasons.append("subshell (...) requires approval")
     # Only include approval reasons when status is allow; hide them for ask/deny
     if overall_status == "allow" and all_matched_patterns:
         # Build approval reason from ALL matched patterns (top-level + nested)

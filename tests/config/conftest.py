@@ -12,7 +12,8 @@ def make_config(
     output: str = "allow",
     input_redir: str = "allow",
     background: str = "allow",
-    subshell: str = "ask",
+    command_substitution: str = "ask",
+    subshell: str | None = None,
     wildcard: str = "ask",
     variable_assignment: str | None = None,
 ) -> dict[str, list[str] | str]:
@@ -28,7 +29,9 @@ def make_config(
         config["input_redirection"] = input_redir
     if background != "allow":
         config["background_execution"] = background
-    if subshell != "ask":
+    if command_substitution != "ask":
+        config["command_substitution"] = command_substitution
+    if subshell is not None:
         config["subshell"] = subshell
     if variable_assignment is not None:
         config["variable_assignment"] = variable_assignment

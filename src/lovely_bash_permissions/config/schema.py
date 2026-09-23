@@ -58,6 +58,11 @@ class ToolConfig(BaseModel):
     output_redirection: OutputRedirectionPolicy | PermissionLevel | None = None
     input_redirection: PermissionLevel | None = None
     background_execution: PermissionLevel | None = None
+    #: Policy for $(...) / backtick command substitutions.
+    command_substitution: PermissionLevel | None = None
+    #: Policy for <(...) / >(...) process substitutions.
+    process_substitution: PermissionLevel | None = None
+    #: Policy for ( ... ) subshell groups.
     subshell: PermissionLevel | None = None
     variable_assignment: PermissionLevel | None = None
 

@@ -770,7 +770,7 @@ existing tests). **Commit:** listed files + `PLAN.md`.
 
 ## Step 6 — bug #2: split config keys (schema, effective config, evaluator)
 
-**Status:** not started
+**Status:** done (two workers: 6a src, 6b tests) — schema/effective_bash/evaluate.py split into `command_substitution`/`process_substitution`/`subshell`; `_subst_flags` detector (3 flags); three independent gates; `Subshell` counts as nesting in the allowed-pattern walk; reason strings updated; `_has_cmd_subst` kept as a thin wrapper (a unit test imports it). Tests remapped semantically (conftest: `command_substitution` param + optional `subshell` param; test_evaluate.py ~60 sites; test_nested_redirections.py 1 site; test_effective_bash.py/test_schema.py left as-is — the `subshell` key is still valid for paren groups, those tests never went red). All 6 step-6 probes pass; suite 1121 passed; ruff/mypy clean.
 
 **Files:** `src/lovely_bash_permissions/config/schema.py`,
 `src/lovely_bash_permissions/config/effective_bash.py`,
@@ -1023,7 +1023,7 @@ files + `PLAN.md`.
 
 ## Step 7 — bug #2: new behavioral tests + docs
 
-**Status:** not started
+**Status:** in progress — worker `step7_worker` (pi, herdr pane `w3Y:p1`, workspace `w3Y`) is implementing it. Next iteration: `herdr agent wait step7_worker --timeout 2700000` (herdr timeout **ms**; tool-call timeout **seconds**, max 2147483), read output, verify independently (new `TestSubstitutionKeySplit` tests, README diff, `rg -n '"subshell"' src/lovely_bash_permissions/config/*.py`, full pytest/ruff/mypy), mark done, `git add tests/config/test_evaluate.py tests/config/test_effective_bash.py README.lovely-devin-permissions.md PLAN.md` + commit `Step 7: bug #2 behavioral tests + docs`, `herdr pane send-keys w3Y:p1 ctrl+d`, then start step8_worker for Step 8 (final regression sweep — a verification-only step; the worker may just run the matrix).
 
 **Files:** `tests/config/test_evaluate.py`,
 `tests/config/test_effective_bash.py`,

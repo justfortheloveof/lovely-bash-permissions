@@ -114,7 +114,7 @@ class TestAllowedPatterns:
         """Commands inside parentheses (...) are extracted."""
         result = evaluate_bash_command(
             "( ls )",
-            make_config(allowed=["^ls$"]),
+            make_config(allowed=["^ls$"], subshell="allow"),
         )
         assert result["status"] == "allow"  # 'ls' inside parens matches pattern
 
@@ -136,7 +136,7 @@ class TestAllowedPatterns:
         """
         result = evaluate_bash_command(
             "for ((i=$(rm -rf /etc/passwd); i<1; i++)); do :; done",
-            {"*": "allow", "subshell": "deny", "blocked_paths_regex": [r"/etc"]},
+            {"*": "allow", "command_substitution": "deny", "blocked_paths_regex": [r"/etc"]},
         )
         assert result["status"] == "deny"
 
@@ -250,10 +250,10 @@ class TestWildcardIsBaseline:
         assert evaluate_bash_command("cat /etc/passwd", config)["status"] == "deny"
 
     def test_subshell_allow_does_not_approve_outer_command(self) -> None:
-        """`echo $(date)` + subshell=allow + ask wildcard asks for `echo`."""
+        """`echo $(date)` + command_substitution=allow + ask wildcard asks for `echo`."""
         result = evaluate_bash_command(
             "echo $(date)",
-            {"*": "ask", "subshell": "allow"},
+            {"*": "ask", "command_substitution": "allow"},
         )
         assert result["status"] == "ask"
 
@@ -261,7 +261,7 @@ class TestWildcardIsBaseline:
         """Subshell=allow approves when outer and inner commands are allow-listed."""
         result = evaluate_bash_command(
             "echo $(date)",
-            {"*": "ask", "subshell": "allow", "allowed_cmds_regex": [r"^echo(\s+.*)?$", r"^date$"]},
+            {"*": "ask", "command_substitution": "allow", "allowed_cmds_regex": [r"^echo(\s+.*)?$", r"^date$"]},
         )
         assert result["status"] == "allow"
 
@@ -590,7 +590,7 @@ class TestInheritance:
         """An explicit option beats an inherited allow."""
         result = evaluate_bash_command(
             "echo $(cat x)",
-            make_config(wildcard="allow", subshell="deny"),
+            make_config(wildcard="allow", command_substitution="deny"),
         )
         assert result["status"] == "deny"
 
@@ -628,7 +628,7 @@ class TestSubshellHandling:
             "cat $(ls)",
             make_config(allowed=[r"^cat(\s+.*)?$", r"^ls(\s+.*)?$"]),
         )
-        assert result["reason"] == "subshell or command substitution requires approval"
+        assert result["reason"] == "command substitution requires approval"
 
     def test_subshell_blocked_path(self) -> None:
         """Dangerous commands inside subshells are blocked."""
@@ -689,18 +689,18 @@ class TestSubshellHandling:
         assert result["status"] == "deny"
 
     def test_subshell_policy_allow_does_not_blanket_approve(self) -> None:
-        """subshell=allow permits the subshell construct, not unapproved commands."""
+        """command_substitution=allow permits the subshell construct, not unapproved commands."""
         result = evaluate_bash_command(
             "ls $(ls)",
-            make_config(subshell="allow"),
+            make_config(command_substitution="allow"),
         )
         assert result["status"] == "ask"
 
     def test_subshell_policy_allow_with_approved_commands(self) -> None:
-        """subshell=allow approves the substitution when the commands are approved."""
+        """command_substitution=allow approves the substitution when the commands are approved."""
         result = evaluate_bash_command(
             "ls $(ls)",
-            make_config(subshell="allow", wildcard="allow"),
+            make_config(command_substitution="allow", wildcard="allow"),
         )
         assert result["status"] == "allow"
 
@@ -712,7 +712,7 @@ class TestSubshellHandling:
         """
         result = evaluate_bash_command(
             "echo $(ls -l)",
-            make_config(allowed=[r"^echo(\s+.*)?$", r"^ls(\s+.*)?$"], subshell="allow"),
+            make_config(allowed=[r"^echo(\s+.*)?$", r"^ls(\s+.*)?$"], command_substitution="allow"),
         )
         assert result["status"] == "allow"
         assert result["reason"].count(r"^echo(\s+.*)?$") == 1
@@ -722,7 +722,7 @@ class TestSubshellHandling:
         """Two distinct `ls` commands list `^ls` twice (no de-duplication)."""
         result = evaluate_bash_command(
             "ls --color $(ls -a)",
-            make_config(allowed=[r"^ls(\s+.*)?$"], subshell="allow"),
+            make_config(allowed=[r"^ls(\s+.*)?$"], command_substitution="allow"),
         )
         assert result["status"] == "allow"
         assert result["reason"].count(r"^ls(\s+.*)?$") == 2
@@ -733,7 +733,7 @@ class TestSubshellHandling:
             "echo $(ls); x=$(cat /tmp/ed)",
             make_config(
                 allowed=[r"^echo(\s+.*)?$", r"^ls(\s+.*)?$", r"^cat(\s+.*)?$"],
-                subshell="allow",
+                command_substitution="allow",
                 variable_assignment="allow",
             ),
         )
@@ -760,9 +760,9 @@ class TestSubshellHandling:
         assert result["status"] == "allow"
 
     def test_declclause_substitution_value_not_silently_allowed(self) -> None:
-        """Nested substitution in a decl variant value asks when subshell=ask."""
+        """Nested substitution in a decl variant value asks when command_substitution=ask."""
         config = make_config(wildcard="allow")
-        config["subshell"] = "ask"
+        config["command_substitution"] = "ask"
         result = evaluate_bash_command("declare FOO=$(cat x)", config)
         assert result["status"] == "ask"
 
@@ -770,15 +770,15 @@ class TestSubshellHandling:
         """Blocked path inside a decl variant value denies even with wildcard allow."""
         result = evaluate_bash_command(
             "local PATH=$(cat /etc/passwd)",
-            make_config(blocked=[r"^/etc/passwd$"], wildcard="allow", subshell="allow"),
+            make_config(blocked=[r"^/etc/passwd$"], wildcard="allow", command_substitution="allow"),
         )
         assert result["status"] == "deny"
 
     def test_subshell_policy_deny(self) -> None:
-        """subshell=deny forces denial regardless of wildcard."""
+        """command_substitution=deny forces denial regardless of wildcard."""
         result = evaluate_bash_command(
             "ls $(ls)",
-            make_config(wildcard="allow", subshell="deny"),
+            make_config(wildcard="allow", command_substitution="deny"),
         )
         assert result["status"] == "deny"
 
@@ -786,7 +786,7 @@ class TestSubshellHandling:
         """Blocked paths inside subshell still deny even with allow policy."""
         result = evaluate_bash_command(
             'echo "$(cat /etc/passwd)"',
-            make_config(subshell="allow", blocked=["^/etc/passwd$"]),
+            make_config(command_substitution="allow", blocked=["^/etc/passwd$"]),
         )
         assert result["status"] == "deny"
 
@@ -800,18 +800,18 @@ class TestParamExpansionSubstitutions:
     """
 
     def test_repl_replacement_subshell_denied(self) -> None:
-        """Bug 1: substitution in replacement part abides by subshell=deny."""
+        """Bug 1: substitution in replacement part abides by command_substitution=deny."""
         result = evaluate_bash_command(
             "echo ${x//a/$(rm -rf x)}",
-            make_config(allowed=[r"^echo(\s+.*)?$"], subshell="deny"),
+            make_config(allowed=[r"^echo(\s+.*)?$"], command_substitution="deny"),
         )
         assert result["status"] == "deny"
 
     def test_repl_pattern_subshell_denied(self) -> None:
-        """Bug 1: substitution in the pattern part abides by subshell=deny."""
+        """Bug 1: substitution in the pattern part abides by command_substitution=deny."""
         result = evaluate_bash_command(
             "echo ${x//$(recon_cmd)/y}",
-            make_config(allowed=[r"^echo(\s+.*)?$"], subshell="deny"),
+            make_config(allowed=[r"^echo(\s+.*)?$"], command_substitution="deny"),
         )
         assert result["status"] == "deny"
 
@@ -832,18 +832,18 @@ class TestParamExpansionSubstitutions:
         assert result["status"] == "ask"
 
     def test_exp_default_subshell_denied(self) -> None:
-        """Bug 3: substitution in ${var:-...} abides by subshell=deny."""
+        """Bug 3: substitution in ${var:-...} abides by command_substitution=deny."""
         result = evaluate_bash_command(
             'echo "${y:-$(rm -rf x)}"',
-            make_config(allowed=[r"^echo(\s+.*)?$"], subshell="deny"),
+            make_config(allowed=[r"^echo(\s+.*)?$"], command_substitution="deny"),
         )
         assert result["status"] == "deny"
 
     def test_exp_trim_subshell_denied(self) -> None:
-        """Bug 3: substitution in ${var%...} abides by subshell=deny."""
+        """Bug 3: substitution in ${var%...} abides by command_substitution=deny."""
         result = evaluate_bash_command(
             'echo "${z%$(rm -rf x)}"',
-            make_config(allowed=[r"^echo(\s+.*)?$"], subshell="deny"),
+            make_config(allowed=[r"^echo(\s+.*)?$"], command_substitution="deny"),
         )
         assert result["status"] == "deny"
 
@@ -856,10 +856,10 @@ class TestParamExpansionSubstitutions:
         assert result["status"] == "deny"
 
     def test_slice_subshell_denied(self) -> None:
-        """Bug 3: substitution in ${var:offset} abides by subshell=deny."""
+        """Bug 3: substitution in ${var:offset} abides by command_substitution=deny."""
         result = evaluate_bash_command(
             "echo ${x:0:$(rm -rf x)}",
-            make_config(allowed=[r"^echo(\s+.*)?$"], subshell="deny"),
+            make_config(allowed=[r"^echo(\s+.*)?$"], command_substitution="deny"),
         )
         assert result["status"] == "deny"
 
@@ -874,14 +874,14 @@ class TestOpaqueSubstitutionPatternGuard:
     """
 
     def test_lookahead_pattern_bypass_not_allowed(self) -> None:
-        cfg = make_config(allowed=[r"^find(?!.*\s-(exec|delete|ok)(\s|;|$)).*$"], subshell="allow")
+        cfg = make_config(allowed=[r"^find(?!.*\s-(exec|delete|ok)(\s|;|$)).*$"], command_substitution="allow")
         assert evaluate_bash_command("find . -delete", cfg)["status"] == "ask"
         assert evaluate_bash_command("find . $(echo -delete)", cfg)["status"] == "ask"
         assert evaluate_bash_command(r"find . $(echo -exec rm {} \;)", cfg)["status"] == "ask"
 
     def test_git_output_guard_bypass_not_allowed(self) -> None:
         cfg = make_config(
-            allowed=[r"^git\s+(?!.*--output\b)(-C\s+[\w./\\\\-]+\s+)?(log|diff|show)(\s+.*)?$"], subshell="allow"
+            allowed=[r"^git\s+(?!.*--output\b)(-C\s+[\w./\\\\-]+\s+)?(log|diff|show)(\s+.*)?$"], command_substitution="allow"
         )
         assert evaluate_bash_command("git diff --output=/tmp/x", cfg)["status"] == "ask"
         assert evaluate_bash_command("git diff $(echo --output=/tmp/x)", cfg)["status"] == "ask"
@@ -890,14 +890,14 @@ class TestOpaqueSubstitutionPatternGuard:
         assert evaluate_bash_command("git status", cfg)["status"] == "ask"
 
     def test_bare_name_anchor_not_bypassed(self) -> None:
-        cfg = make_config(allowed=["^true$"], subshell="allow")
+        cfg = make_config(allowed=["^true$"], command_substitution="allow")
         assert evaluate_bash_command("true", cfg)["status"] == "allow"
         assert evaluate_bash_command("true --flag", cfg)["status"] == "ask"
         assert evaluate_bash_command("true $(echo --flag)", cfg)["status"] == "ask"
 
     def test_free_tail_pattern_still_allows_substitution(self) -> None:
         """Patterns that accept arbitrary arguments are unaffected."""
-        cfg = make_config(allowed=[r"^echo(\s+.*)?$", r"^ls(\s+.*)?$"], subshell="allow")
+        cfg = make_config(allowed=[r"^echo(\s+.*)?$", r"^ls(\s+.*)?$"], command_substitution="allow")
         assert evaluate_bash_command("echo $(echo hi)", cfg)["status"] == "allow"
         assert evaluate_bash_command("echo $(echo $(echo hi))", cfg)["status"] == "allow"
         assert evaluate_bash_command("ls $(echo -la)", cfg)["status"] == "allow"
@@ -1224,7 +1224,7 @@ class TestResultStructure:
                 "*": "ask",
                 "allowed_cmds_regex": [r"^wc(\s+.*)?$", r"^echo(\s+.*)?$"],
                 "input_redirection": "allow",
-                "subshell": "allow",
+                "command_substitution": "allow",
             },
         )
         assert result["status"] == "allow"
@@ -1261,7 +1261,7 @@ class TestResultStructure:
                 "allowed_cmds_regex": [r"^python3(\s+.*)?$"],
                 "blocked_paths_regex": [r"\/etc"],
                 "input_redirection": "allow",
-                "subshell": "allow",
+                "command_substitution": "allow",
             },
         )
         assert result["status"] == "deny"
@@ -1276,7 +1276,7 @@ class TestResultStructure:
                 "allowed_cmds_regex": [r"^python3(\s+.*)?$"],
                 "blocked_paths_regex": [r"\/etc"],
                 "input_redirection": "allow",
-                "subshell": "allow",
+                "command_substitution": "allow",
             },
         )
         assert result["status"] == "allow"
@@ -1290,7 +1290,7 @@ class TestResultStructure:
                 "allowed_cmds_regex": [r"^wc(\s+.*)?$"],
                 "blocked_paths_regex": [r"\.env$"],
                 "input_redirection": "allow",
-                "subshell": "allow",
+                "command_substitution": "allow",
             },
         )
         assert result["status"] == "deny"
@@ -1313,7 +1313,7 @@ class TestResultStructure:
                 "allowed_cmds_regex": [r"^wc(\s+.*)?$"],
                 "blocked_paths_regex": [r"\/etc"],
                 "input_redirection": "allow",
-                "subshell": "allow",
+                "command_substitution": "allow",
             },
         )
         assert result["status"] == "allow"
@@ -1737,15 +1737,15 @@ class TestVariableAssignment:
         """x=$(cmd) is a variable assignment - variable_assignment=deny should deny it."""
         result = evaluate_bash_command(
             "x=$(cat file.txt)",
-            make_config(allowed=["^cat$"], subshell="allow", variable_assignment="deny"),
+            make_config(allowed=["^cat$"], command_substitution="allow", variable_assignment="deny"),
         )
         assert result["status"] == "deny"
 
     def test_variable_assignment_with_command_substitution_allow(self) -> None:
-        """x=$(cmd) with variable_assignment=allow and subshell=allow auto-approves."""
+        """x=$(cmd) with variable_assignment=allow and command_substitution=allow auto-approves."""
         result = evaluate_bash_command(
             "x=$(cat file.txt)",
-            make_config(allowed=[r"^cat(\s+.*)?$"], subshell="allow", variable_assignment="allow"),
+            make_config(allowed=[r"^cat(\s+.*)?$"], command_substitution="allow", variable_assignment="allow"),
         )
         assert result["status"] == "allow"
 
@@ -1758,7 +1758,7 @@ class TestVariableAssignment:
         """
         result = evaluate_bash_command(
             "x=$(echo hi > /etc/passwd)",
-            make_config(blocked=[r"^/etc/passwd$"], subshell="allow", variable_assignment="allow"),
+            make_config(blocked=[r"^/etc/passwd$"], command_substitution="allow", variable_assignment="allow"),
         )
         assert result["status"] == "deny"
         assert "matches blocked path pattern" in result["reason"]
@@ -1772,7 +1772,7 @@ class TestVariableAssignment:
         """
         result = evaluate_bash_command(
             "x=$(echo hi > /tmp/out)",
-            make_config(allowed=[r"^echo(\s+.*)?$"], output="ask", subshell="allow", variable_assignment="allow"),
+            make_config(allowed=[r"^echo(\s+.*)?$"], output="ask", command_substitution="allow", variable_assignment="allow"),
         )
         assert result["status"] == "ask"
         assert "output redirection requires approval" in result["reason"]
@@ -1781,7 +1781,7 @@ class TestVariableAssignment:
         """A blocked-path read inside `x=$(...)` substitutions is denied."""
         result = evaluate_bash_command(
             "x=$(cat </etc/passwd)",
-            make_config(blocked=[r"^/etc/passwd$"], subshell="allow", variable_assignment="allow"),
+            make_config(blocked=[r"^/etc/passwd$"], command_substitution="allow", variable_assignment="allow"),
         )
         assert result["status"] == "deny"
 
@@ -1789,7 +1789,7 @@ class TestVariableAssignment:
         """Plain `x=$(cmd)` assignments stay allowed with allow policies."""
         result = evaluate_bash_command(
             "x=$(echo hi)",
-            make_config(allowed=[r"^echo(\s+.*)?$"], subshell="allow", variable_assignment="allow"),
+            make_config(allowed=[r"^echo(\s+.*)?$"], command_substitution="allow", variable_assignment="allow"),
         )
         assert result["status"] == "allow"
 
@@ -1861,7 +1861,7 @@ class TestBackgroundExecutionCompound:
                 "allowed_cmds_regex": ["^echo"],
                 "background_execution": "deny",
                 "variable_assignment": "allow",
-                "subshell": "allow",
+                "command_substitution": "allow",
             },
         )
         assert result["status"] == "deny"
@@ -1886,35 +1886,35 @@ class TestCompoundCommandRedirections:
     def test_time_blocked_path_denied(self) -> None:
         result = evaluate_bash_command(
             "time echo hi > /etc/passwd",
-            make_config(blocked=[r"^/etc/passwd$"], subshell="allow", variable_assignment="allow"),
+            make_config(blocked=[r"^/etc/passwd$"], command_substitution="allow", variable_assignment="allow"),
         )
         assert result["status"] == "deny"
 
     def test_time_output_redirection_asks(self) -> None:
         result = evaluate_bash_command(
             "time echo hi > /tmp/out",
-            make_config(allowed=[r"^echo(\s+.*)?$"], output="ask", subshell="allow", variable_assignment="allow"),
+            make_config(allowed=[r"^echo(\s+.*)?$"], output="ask", command_substitution="allow", variable_assignment="allow"),
         )
         assert result["status"] == "ask"
 
     def test_time_no_redirection_unaffected(self) -> None:
         result = evaluate_bash_command(
             "time echo hi",
-            make_config(allowed=[r"^echo(\s+.*)?$"], subshell="allow", variable_assignment="allow"),
+            make_config(allowed=[r"^echo(\s+.*)?$"], command_substitution="allow", variable_assignment="allow"),
         )
         assert result["status"] == "allow"
 
     def test_funcdef_blocked_path_denied(self) -> None:
         result = evaluate_bash_command(
             "f() { echo hi; } > /etc/passwd",
-            make_config(blocked=[r"^/etc/passwd$"], subshell="allow", variable_assignment="allow"),
+            make_config(blocked=[r"^/etc/passwd$"], command_substitution="allow", variable_assignment="allow"),
         )
         assert result["status"] == "deny"
 
     def test_coproc_blocked_path_denied(self) -> None:
         result = evaluate_bash_command(
             "coproc c { echo hi; } > /etc/passwd",
-            make_config(blocked=[r"^/etc/passwd$"], subshell="allow", variable_assignment="allow"),
+            make_config(blocked=[r"^/etc/passwd$"], command_substitution="allow", variable_assignment="allow"),
         )
         assert result["status"] == "deny"
 
@@ -2389,38 +2389,38 @@ class TestEmptySegmentSubshellPolicy:
     CMD = "(( x[$(rm -rf /etc/x)] ))"
 
     def test_allow_wildcard_deny_subshell(self) -> None:
-        assert evaluate_bash_command(self.CMD, {"*": "allow", "subshell": "deny"})["status"] == "deny"
+        assert evaluate_bash_command(self.CMD, {"*": "allow", "command_substitution": "deny"})["status"] == "deny"
 
     def test_allow_wildcard_default_subshell_asks(self) -> None:
         assert evaluate_bash_command(self.CMD, {"*": "allow"})["status"] == "ask"
 
     def test_allow_wildcard_explicit_ask(self) -> None:
-        assert evaluate_bash_command(self.CMD, {"*": "allow", "subshell": "ask"})["status"] == "ask"
+        assert evaluate_bash_command(self.CMD, {"*": "allow", "command_substitution": "ask"})["status"] == "ask"
 
     def test_allow_wildcard_explicit_subshell_allow(self) -> None:
-        assert evaluate_bash_command(self.CMD, {"*": "allow", "subshell": "allow"})["status"] == "allow"
+        assert evaluate_bash_command(self.CMD, {"*": "allow", "command_substitution": "allow"})["status"] == "allow"
 
     def test_ask_wildcard_deny_subshell(self) -> None:
-        assert evaluate_bash_command(self.CMD, {"*": "ask", "subshell": "deny"})["status"] == "deny"
+        assert evaluate_bash_command(self.CMD, {"*": "ask", "command_substitution": "deny"})["status"] == "deny"
 
     def test_deny_wildcard_allow_subshell(self) -> None:
-        assert evaluate_bash_command(self.CMD, {"*": "deny", "subshell": "allow"})["status"] == "deny"
+        assert evaluate_bash_command(self.CMD, {"*": "deny", "command_substitution": "allow"})["status"] == "deny"
 
     def test_deny_wildcard_unset_subshell(self) -> None:
         """No downgrade: an inherited deny (unset subshell) still denies."""
         assert evaluate_bash_command(self.CMD, {"*": "deny"})["status"] == "deny"
 
     def test_time_wrapped_arithmetic(self) -> None:
-        assert evaluate_bash_command("time (( x[$(rm z)] ))", {"*": "allow", "subshell": "deny"})["status"] == "deny"
+        assert evaluate_bash_command("time (( x[$(rm z)] ))", {"*": "allow", "command_substitution": "deny"})["status"] == "deny"
 
     def test_followed_by_real_command(self) -> None:
-        assert evaluate_bash_command("ls; (( x[$(rm)] ))", {"*": "allow", "subshell": "deny"})["status"] == "deny"
+        assert evaluate_bash_command("ls; (( x[$(rm)] ))", {"*": "allow", "command_substitution": "deny"})["status"] == "deny"
 
     def test_plus_equals_variant(self) -> None:
-        assert evaluate_bash_command("(( y += $(rm z) ))", {"*": "allow", "subshell": "deny"})["status"] == "deny"
+        assert evaluate_bash_command("(( y += $(rm z) ))", {"*": "allow", "command_substitution": "deny"})["status"] == "deny"
 
     def test_literal_arithmetic_unaffected(self) -> None:
-        assert evaluate_bash_command("(( x = 5 ))", {"*": "allow", "subshell": "deny"})["status"] == "allow"
+        assert evaluate_bash_command("(( x = 5 ))", {"*": "allow", "command_substitution": "deny"})["status"] == "allow"
 
 
 class TestDeepNestingRecursion:

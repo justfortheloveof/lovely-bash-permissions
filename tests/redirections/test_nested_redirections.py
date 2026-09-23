@@ -126,7 +126,7 @@ class TestNestedRedirectionsEvaluateBashCommand:
         config: dict[str, Any] = {
             "allowed_cmds_regex": ["^(ls|echo)(\\s+.*)?$"],
             "output_redirection": "ask",
-            "subshell": "allow",  # subshell policy = allow → no extra ask
+            "command_substitution": "allow",  # subshell policy = allow → no extra ask
         }
         result = evaluate_bash_command("echo $(ls -la)", config)
         assert result["status"] == "allow"
