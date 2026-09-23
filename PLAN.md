@@ -327,7 +327,7 @@ full pytest/ruff/mypy green. **Commit:** stage only the two files + `PLAN.md`.
 
 ## Step 3 — `evaluate.py`: executed-form matching for argv, guards, heredoc bodies (bug #1)
 
-**Status:** in progress — worker `step3_worker` (pi, herdr pane `w3Y:p1`, workspace `w3Y`) is implementing it; prompt was accepted and the agent is working. Next iteration: poll `herdr agent get step3_worker` until idle/done (any herdr `--wait`/`--timeout` takes **ms** — use 2700000), read its output (`herdr agent read step3_worker --source recent-unwrapped`), verify independently (diff evaluate.py + tests/config/test_evaluate.py; `uv run pytest -m 'not linting' -q`, `uv run ruff check .`, `uv run mypy --strict .`; Step 3 tests table + pre-existing whole-word quote tests), mark done, `git add src/lovely_bash_permissions/evaluate.py tests/config/test_evaluate.py PLAN.md` + commit, `herdr pane send-keys w3Y:p1 ctrl+d`, then start step4_worker for Step 4.
+**Status:** done — all 7 code changes in evaluate.py verified in diff (`_word_exec` import, `_match_allowed_patterns` executed-form matching, AST-walk + per-segment norm args, blocked raw+normalized, subshell-content exec forms, `_block_scan_variants` in both heredoc sites); `TestExecutedFormMatching` (13 table rows + heredoc + safe-find union guard) added; all 14 acceptance probes pass; suite 1105 passed; ruff/mypy clean. (Worker `step3_worker` died on an inference-server 503 after finishing — orchestrator verified and committed independently.)
 
 **Files:** `src/lovely_bash_permissions/evaluate.py`,
 `tests/config/test_evaluate.py`
@@ -526,7 +526,7 @@ suite/ruff/mypy green. **Commit:** the two files + `PLAN.md`.
 
 ## Step 4 — `rules.py`: full redirection targets (bug #4)
 
-**Status:** not started
+**Status:** in progress — worker `step4_worker` (pi, herdr pane `w3Y:p1`, workspace `w3Y`) is implementing it. Next iteration: `herdr agent wait step4_worker --timeout 2700000` (herdr timeout is **ms**; the *tool-call* timeout is **seconds** — max 2147483), read output, verify independently (`git diff src/lovely_bash_permissions/rules.py tests/config/test_rules.py tests/redirections/*`, run the 6 test cases as probes + full pytest/ruff/mypy gates), mark done, `git add src/lovely_bash_permissions/rules.py tests/config/test_rules.py PLAN.md` (plus `tests/redirections/test_output_redirection_validation.py` only if changed) + commit `Step 4: rules.py full redirection targets`, `herdr pane send-keys w3Y:p1 ctrl+d`, then start step5_worker for Step 5.
 
 **Files:** `src/lovely_bash_permissions/rules.py`,
 `tests/config/test_rules.py`, and (only if a test encodes the old truncated

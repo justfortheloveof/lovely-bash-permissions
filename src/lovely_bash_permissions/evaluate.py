@@ -14,7 +14,7 @@ from typing import Any
 
 from .ast import CallExpr, CmdSubst, Node, ProcSubst
 from .converter import node_from_json
-from .inspect import _traverse, _word_raw, _word_value, iter_children
+from .inspect import _traverse, _word_exec, _word_raw, _word_value, iter_children
 from .parser import parse
 from .rules import (
     _check_segments_input_redirs,
@@ -60,7 +60,12 @@ def _extract_subshell_contents(tree: dict[str, Any]) -> list[str]:
                     # Extract each argument separately so blocked paths inside
                     # arguments are found - e.g. "/etc/passwd" in "cat /etc/passwd"
                     for arg in stmt.cmd.args:
-                        contents.append(_word_value(arg))
+                        raw = _word_value(arg)
+                        execd = _word_exec(arg)
+                        if raw not in contents:
+                            contents.append(raw)
+                        if execd != raw and execd not in contents:
+                            contents.append(execd)
 
     _traverse(ast, visitor, recurse_call_expr_args=True)
     return contents
@@ -131,6 +136,17 @@ def _has_cmd_subst(tree: dict[str, Any]) -> bool:
     except _Found:
         return True
     return False
+
+
+def _block_scan_variants(text: str) -> list[str]:
+    """Raw text plus a conservative quote/backslash-stripped variant.
+
+    Stripping ``'``, ``"`` and backslashes turns split spellings like
+    ``/e"tc"/passwd`` into the executed path so blocked patterns catch
+    them; it is a superset (it can over-match, never under-match).
+    """
+    stripped = re.sub(r"['\"\\]", "", text)
+    return [text, stripped] if stripped != text else [text]
 
 
 def _strip_quotes(s: str) -> str:
@@ -205,18 +221,37 @@ def _opaque_match_unreliable(pattern: str) -> bool:
     return not _BARE_NAME_META.search(body) if body else False
 
 
-def _match_allowed_patterns(name: str, args: list[str], allowed_patterns: list[str]) -> list[str]:
+def _match_allowed_patterns(
+    name: str, args: list[str], allowed_patterns: list[str], normalized_args: list[str] | None = None
+) -> list[str]:
     """Return the allowed patterns matched by this command (name + args).
+
+    Executed-form matching: when *normalized_args* is given the pattern is
+    matched against the quote-normalized "executed" command string first, so
+    the negative lookaheads (``(?!...``) in guard patterns are evaluated on
+    the text bash actually runs - interior quote splits / backslash escapes
+    (``-e"x"ec``) therefore cannot dodge them. A raw-only match is honored
+    ONLY when the pattern contains no negative lookahead (the only shape a
+    split text can fake), preserving patterns written with explicit quotes.
 
     Matches are rejected when opaque ``$(...)`` arguments could change the
     pattern's verdict - see :func:`_opaque_match_unreliable`.  Such commands
     are treated as not allowed, requesting approval instead of auto-approving.
     """
     full = _command_string(name, args)
+    norm_full = _command_string(name, normalized_args) if normalized_args is not None else None
     has_opaque = any("$(...)" in a for a in args)
     matched: list[str] = []
     for pattern in allowed_patterns:
-        if not re.search(pattern, full):
+        if norm_full is not None:
+            hit = re.search(pattern, norm_full) is not None
+            if not hit and "(?!" not in pattern:
+                # Executed form missed but no guard could be faked - honor
+                # a raw-form match (quoted-pattern compatibility).
+                hit = re.search(pattern, full) is not None
+        else:
+            hit = re.search(pattern, full) is not None
+        if not hit:
             continue
         if has_opaque and _opaque_match_unreliable(pattern):
             continue
@@ -316,7 +351,9 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                     )
         if blocked_patterns:
             for body in _heredoc_body_texts(raw_tree):
-                candidates = [body] + [ln.strip() for ln in body.splitlines() if ln.strip()]
+                candidates = []
+                for ln in [body, *[ln.strip() for ln in body.splitlines() if ln.strip()]]:
+                    candidates.extend(_block_scan_variants(ln))
                 for candidate in candidates:
                     matched, pattern, _value = check_blocked_patterns("", [candidate], blocked_patterns)
                     if matched:
@@ -387,8 +424,9 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                 if isinstance(node, CallExpr) and node.args:
                     name = _word_value(node.args[0])
                     raw_args = [_word_raw(a) for a in node.args[1:]]
+                    exec_args = [_word_exec(a) for a in node.args[1:]]
                     visited_commands.add(_command_string(name, raw_args))
-                    matched = _match_allowed_patterns(name, raw_args, allowed_patterns)
+                    matched = _match_allowed_patterns(name, raw_args, allowed_patterns, exec_args)
                     if matched:
                         all_matched_patterns.extend(matched)
                     elif depth > 0:
@@ -432,7 +470,8 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
             # Check allowed patterns against command name.
             # If arguments contain real values (not "$(...)" placeholders),
             # check full command line so ^ls$ rejects "ls -la".
-            matched_patterns = _match_allowed_patterns(cmd_name, args, allowed_patterns)
+            norm_args = segment.get("normalized_arguments", args)
+            matched_patterns = _match_allowed_patterns(cmd_name, args, allowed_patterns, norm_args)
 
             if matched_patterns:
                 segment_result["allowed"] = True
@@ -457,6 +496,10 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         # Check blocked patterns
         if blocked_patterns:
             matched, pattern, value = check_blocked_patterns(cmd_name, args, blocked_patterns)
+            if not matched:
+                norm_args = segment.get("normalized_arguments")
+                if norm_args is not None and norm_args != args:
+                    matched, pattern, value = check_blocked_patterns(cmd_name, norm_args, blocked_patterns)
             if matched:
                 segment_result["blocked"] = True
                 overall_status = "deny"
@@ -480,7 +523,9 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         for body in _heredoc_body_texts(raw_tree):
             # Check the whole body and each non-empty line, so end-anchored
             # patterns (e.g. `\.env$`) match a path on its own line.
-            candidates = [body] + [ln.strip() for ln in body.splitlines() if ln.strip()]
+            candidates = []
+            for ln in [body, *[ln.strip() for ln in body.splitlines() if ln.strip()]]:
+                candidates.extend(_block_scan_variants(ln))
             for candidate in candidates:
                 matched, pattern, _value = check_blocked_patterns("", [candidate], blocked_patterns)
                 if matched:

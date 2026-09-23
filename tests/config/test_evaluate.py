@@ -2440,3 +2440,62 @@ class TestDeepNestingRecursion:
         deep = "echo " + "$(" * 400 + "true" + ")" * 400
         with pytest.raises(LovelyDevinPermissionsError):
             conv.parse_ast(deep)
+
+
+class TestExecutedFormMatching:
+    """Executed-form matching (NEW_BUGS #1): quote-split / backslash-escaped
+    spellings cannot dodge blocked-path checks or guard patterns.
+
+    Wildcard is ``ask`` (mirrors the user's real config): under
+    ``"*": "allow"`` a guard-tripped command would fall through to the allow
+    wildcard instead of asking, so ``*:ask`` makes the "guard-trip → not
+    auto-approved → ask" intent observable.
+    """
+
+    CONFIG: ClassVar[dict[str, list[str] | str]] = make_config(
+        allowed=[
+            r"^cat\s+.+$",
+            r"^find(?!.*\s-(exec|delete|ok)\b).*$",
+            r"^fd(?!.*\s+(-x|-X)).*$",
+            r"^sort(?!\s+(-o|--output)\b).*$",
+        ],
+        blocked=["\\/etc", r"\.env$"],
+        wildcard="ask",
+    )
+
+    @pytest.mark.parametrize(
+        ("command", "expected"),
+        [
+            # Quote-split / escaped paths caught by the blocked check on the
+            # *normalized* argument (the executed path).
+            ('cat /e"tc"/passwd', "deny"),
+            ('ls -la /e"tc"', "deny"),  # ls not allowlisted, but /etc blocked
+            ('grep x /e"tc"/passwd', "deny"),
+            ('cat .e"nv"', "deny"),
+            # Guard patterns evaluated on the executed form: the split or
+            # escaped dangerous flag trips the negative lookahead, so the
+            # command is not auto-approved and falls to the wildcard (ask).
+            ('find /tmp -e"x"ec rm', "ask"),
+            ('find /tmp -"exec" rm', "ask"),
+            ("find /tmp -ex\\ec rm", "ask"),
+            ('fd -"x" x', "ask"),
+            ('sort -"o" /tmp/out x', "ask"),
+            # Contrasts: plain blocked path / plain quoted arg.
+            ("cat /etc/passwd", "deny"),
+            ('cat "ok file"', "allow"),
+            ("cat .env", "deny"),
+        ],
+    )
+    def test_split_and_escaped_forms(self, command: str, expected: str) -> None:
+        result = evaluate_bash_command(command, self.CONFIG)
+        assert result["status"] == expected
+
+    def test_heredoc_body_split_path_denied(self) -> None:
+        """A quote-split path inside a heredoc body is caught by the stripped variant."""
+        result = evaluate_bash_command('cat f <<EOF\nsecret /e"tc"/passwd\nEOF', self.CONFIG)
+        assert result["status"] == "deny"
+
+    def test_safe_single_quoted_find_still_allowed(self) -> None:
+        """A safe single-quoted find stays auto-approved (union-regression guard)."""
+        result = evaluate_bash_command("find . -name '*.txt'", self.CONFIG)
+        assert result["status"] == "allow"
