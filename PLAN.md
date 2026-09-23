@@ -1148,5 +1148,22 @@ Then: full `uv run pytest -m 'not linting' -q`, `uv run ruff check .`,
 PLAN.md and set this step done. **Commit:** `git add PLAN.md` (plus any test
 file that needed a final tweak, listed individually — never `git add -A`).
 
+## Step 9 — stale-comment cleanup after the `subshell` key split
+
+**Status:** in progress — worker `step9_worker` fixes 11 stale comment/docstring/reason sites left by the Step 6 rename (audited by the orchestrator). Files: src/lovely_bash_permissions/{segments.py,converter.py,evaluate.py}, tests/config/test_evaluate.py, tests/redirections/test_nested_redirections.py. Comment-only changes + ONE user-facing reason string (no test asserts the old text). Gates: pytest/ruff/mypy green.
+
+Stale sites (Find → replace):
+- segments.py: `# Those are "capture output" operations, evaluated via subshell policy, not` → evaluated via the substitution policies (command_substitution / process_substitution)
+- converter.py: `# (subshell policy, blocked-path scan, segment extraction).` → `# (command_substitution policy, blocked-path scan, segment extraction).`
+- evaluate.py:41: `found inside subshells,` → `found inside command / process substitutions,`
+- evaluate.py:82: `by the subshell-content pass.` → `by the substitution-content pass.`
+- evaluate.py:622: `commands inside subshell do not match allowed patterns` → `commands inside substitution/subshell do not match allowed patterns`
+- test_evaluate.py:133: `(subshell policy, blocked-path` → `(command_substitution policy, blocked-path`
+- test_evaluate.py:2387: `gated by the subshell policy.` → `gated by the command_substitution policy.`
+- test_evaluate.py:634: `Dangerous commands inside subshells are blocked.` → `Dangerous commands inside $(...) command substitutions are blocked.`
+- test_evaluate.py:786: `Blocked paths inside subshell still deny...` → `Blocked paths inside $(...) still deny...`
+- test_nested_redirections.py:124: `With subshell policy 'allow',` → `With command_substitution policy 'allow',`
+- test_nested_redirections.py:129: `# subshell policy = allow` → `# command_substitution = allow`
+
 **Definition of done:** every step above is `done`, the acceptance matrix
 passes verbatim, gates green, and `.fuzz/` remains untracked & ignored.
