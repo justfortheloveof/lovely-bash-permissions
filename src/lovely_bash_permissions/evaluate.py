@@ -19,6 +19,7 @@ from .parser import parse
 from .rules import (
     _check_segments_input_redirs,
     _check_segments_output_redirs,
+    _compile_pattern,
     check_background_execution,
     check_blocked_patterns,
 )
@@ -266,6 +267,53 @@ def _match_allowed_patterns(
             continue
         matched.append(pattern)
     return matched
+
+
+def _match_blocked_patterns(
+    name: str, args: list[str], blocked_patterns: list[str], normalized_args: list[str] | None = None
+) -> tuple[bool, str | None, str | None]:
+    """Return whether a joined command line matches blocked patterns.
+
+    Uses the same joined-line logic as allowed patterns
+    (:func:`_command_string`): the segment is joined to a single
+    ``"name arg1 arg2"`` string (raw args and quote-normalized
+    ``normalized_args`` / executed form) and each pattern is run with
+    ``re.search``. Anchoring is honored literally.
+
+    Unlike allowed matching, both forms are always tried (OR semantics):
+    a hit on either the executed or the raw form denies. Invalid
+    patterns never hit (mirrors :func:`rules._match_pattern`).
+    No ``(?!``-conditional fallback and no ``_opaque_match_unreliable``
+    exclusion — unsafe denial needs no such guard.
+
+    Returns ``(True, pattern, value)`` on the first hit where ``value``
+    is the joined line that hit (``norm_full`` preferred), else
+    ``(False, None, None)``.
+    """
+    full = _command_string(name, args)
+    if not name and full.startswith(" "):
+        full = full[1:]
+    norm_full: str | None = None
+    if normalized_args is not None:
+        norm_full = _command_string(name, normalized_args)
+        if not name and norm_full.startswith(" "):
+            norm_full = norm_full[1:]
+    for pattern in blocked_patterns:
+        hit_on_norm = False
+        if norm_full is not None:
+            try:
+                hit_on_norm = bool(_compile_pattern(pattern).search(norm_full))
+            except ValueError:
+                hit_on_norm = False
+        if hit_on_norm:
+            return True, pattern, norm_full
+        try:
+            hit_on_full = bool(_compile_pattern(pattern).search(full))
+        except ValueError:
+            hit_on_full = False
+        if hit_on_full:
+            return True, pattern, full
+    return False, None, None
 
 
 def _resolve_level(config: dict[str, Any], key: str) -> Any:  # noqa: ANN401
