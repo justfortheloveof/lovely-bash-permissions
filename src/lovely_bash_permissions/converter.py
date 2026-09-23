@@ -552,7 +552,7 @@ def _convert_for_clause(data: dict[str, Any]) -> ForClause:
         if loop.get("Type") == "CStyleLoop":
             # for ((init; cond; post)): keep init/cond/post so their command
             # substitutions stay visible to every typed-AST pass
-            # (subshell policy, blocked-path scan, segment extraction).
+            # (command_substitution policy, blocked-path scan, segment extraction).
             converted = node_from_json(loop)
             if isinstance(converted, CStyleLoop):
                 cstyle = converted

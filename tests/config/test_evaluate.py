@@ -130,7 +130,7 @@ class TestAllowedPatterns:
         """C-style prelude substitutions in for ((...)) are no longer dropped.
 
         Before the ForClause.cstyle fix this returned allow - the rm ran in
-        the loop init and every typed-AST pass (subshell policy, blocked-path
+        the loop init and every typed-AST pass (command_substitution policy, blocked-path
         scan, segment extraction) missed it. The foreach form
         for i in $(rm ...) was already correctly denied.
         """
@@ -631,7 +631,7 @@ class TestSubshellHandling:
         assert result["reason"] == "command substitution requires approval"
 
     def test_subshell_blocked_path(self) -> None:
-        """Dangerous commands inside subshells are blocked."""
+        """Dangerous commands inside $(...) command substitutions are blocked."""
         result = evaluate_bash_command(
             "echo $(cat /etc/passwd)",
             make_config(blocked=["^/etc/passwd$"]),
@@ -783,7 +783,7 @@ class TestSubshellHandling:
         assert result["status"] == "deny"
 
     def test_subshell_blocked_path_overrides_allow(self) -> None:
-        """Blocked paths inside subshell still deny even with allow policy."""
+        """Blocked paths inside $(...) still deny even with allow policy."""
         result = evaluate_bash_command(
             'echo "$(cat /etc/passwd)"',
             make_config(command_substitution="allow", blocked=["^/etc/passwd$"]),
@@ -2384,7 +2384,7 @@ class TestAdvancedBashConstructs:
 
 
 class TestEmptySegmentSubshellPolicy:
-    """standalone (( ... $(...) )) is gated by the subshell policy."""
+    """standalone (( ... $(...) )) is gated by the command_substitution policy."""
 
     CMD = "(( x[$(rm -rf /etc/x)] ))"
 

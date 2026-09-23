@@ -121,12 +121,12 @@ class TestNestedRedirectionsEvaluateBashCommand:
     def test_nested_no_redirection_allows(self) -> None:
         """$(ls -la) has no redirect → allow (regression: don't over-block).
 
-        With subshell policy 'allow', nested commands without redirections are allowed.
+        With command_substitution policy 'allow', nested commands without redirections are allowed.
         """
         config: dict[str, Any] = {
             "allowed_cmds_regex": ["^(ls|echo)(\\s+.*)?$"],
             "output_redirection": "ask",
-            "command_substitution": "allow",  # subshell policy = allow → no extra ask
+            "command_substitution": "allow",  # command_substitution = allow → no extra ask
         }
         result = evaluate_bash_command("echo $(ls -la)", config)
         assert result["status"] == "allow"

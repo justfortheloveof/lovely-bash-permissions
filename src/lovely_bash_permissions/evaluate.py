@@ -38,7 +38,7 @@ def _extract_subshell_contents(tree: dict[str, Any]) -> list[str]:
     hidden inside DblQuoted/SglQuoted parts.
 
     Returns:
-        List of literal text strings found inside subshells,
+        List of literal text strings found inside command / process substitutions,
         extracted via :func:`~lovely_bash_permissions.inspect._word_value`.
     """
     ast = node_from_json(tree)
@@ -79,7 +79,7 @@ def _heredoc_body_texts(tree: dict[str, Any]) -> list[str]:
     arguments (``echo /etc/passwd`` is already denied).
 
     Command-substitution parts inside the body are excluded here - their
-    *inner commands* are scanned separately by the subshell-content pass.
+    *inner commands* are scanned separately by the substitution-content pass.
 
     Redir dicts in the raw JSON carry no "Type" field - heredoc redirections
     are identified by their ``Op`` (``<<`` / ``<<-``) and ``Hdoc`` keys.
@@ -619,7 +619,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
         # unconditional AST walk above (only depth>0 CallExprs contribute).
         if nested_non_match:
             names_str = ", ".join(f'"{n}"' for n in sorted(nested_non_match))
-            reasons.append(f"{names_str} commands inside subshell do not match allowed patterns")
+            reasons.append(f"{names_str} commands inside substitution/subshell do not match allowed patterns")
             _sub_policy = (
                 rules.get("command_substitution", "ask") if has_cmd_subst else rules.get("process_substitution", "ask")
             )

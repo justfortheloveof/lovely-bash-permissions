@@ -1150,7 +1150,7 @@ file that needed a final tweak, listed individually — never `git add -A`).
 
 ## Step 9 — stale-comment cleanup after the `subshell` key split
 
-**Status:** in progress — worker `step9_worker` fixes 11 stale comment/docstring/reason sites left by the Step 6 rename (audited by the orchestrator). Files: src/lovely_bash_permissions/{segments.py,converter.py,evaluate.py}, tests/config/test_evaluate.py, tests/redirections/test_nested_redirections.py. Comment-only changes + ONE user-facing reason string (no test asserts the old text). Gates: pytest/ruff/mypy green.
+**Status:** done — all 11 stale sites fixed (5 in src: segments/converter/evaluate comments + docstrings + the `commands inside ...` reason string now reads "inside substitution/subshell"; 6 in tests: 4 docstrings + 2 comments). `rg -n "subshell policy" src/ tests/` → no matches; the only remaining "subshell" mentions are about `( ... )` groups / the `subshell` key / the Subshell AST node. Suite 1130 passed; ruff/mypy clean.
 
 Stale sites (Find → replace):
 - segments.py: `# Those are "capture output" operations, evaluated via subshell policy, not` → evaluated via the substitution policies (command_substitution / process_substitution)

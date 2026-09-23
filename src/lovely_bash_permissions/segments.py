@@ -208,7 +208,8 @@ def _extract_segments(
         if node.args:
             # Check for variable assignments alongside the command (FOO=bar ls)
             # But NOT if the assignment value contains a command substitution (x=$(cmd)).
-            # Those are "capture output" operations, evaluated via subshell policy, not
+            # Those are "capture output" operations, evaluated via the
+            # substitution policies (command_substitution / process_substitution), not
             # variable_assignment. Only pure variable assignments (plain literal values)
             # should be extracted as separate variable assignment segments.
             if node.assigns:
