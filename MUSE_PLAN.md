@@ -1,5 +1,16 @@
 # MUSE_PLAN — Rename `blocked_paths_regex` → `blocked_cmds_regex` and unify matching logic with `allowed_cmds_regex`
 
+## 0. Progress
+
+- [x] 5.1 `config/schema.py`
+- [ ] 5.2 `config/effective_bash.py`
+- [ ] 5.3 New unified blocked matcher
+- [ ] 5.4 Call-site replacements in `evaluate.py`
+- [ ] 5.5 Reason-string and `rules.py` updates
+- [ ] 5.6 Docs and example configs
+- [ ] 5.7 Tests
+- [ ] 6. Verification
+
 ## 1. Background and goal
 
 The bash permission hook evaluates each shell command against two regex lists in

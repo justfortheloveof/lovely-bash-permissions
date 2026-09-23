@@ -44,7 +44,7 @@ class ToolConfig(BaseModel):
             if key in ("allow", "deny"):
                 raise ValueError(
                     f"config key '{key}' is not supported - "
-                    f"use {('allowed_cmds_regex' if key == 'allow' else 'blocked_paths_regex')} instead"
+                    f"use {('allowed_cmds_regex' if key == 'allow' else 'blocked_cmds_regex')} instead"
                 )
             log.warning("unknown config key '%s' - unrecognized tool field or typo?", key)
         return self
@@ -53,7 +53,7 @@ class ToolConfig(BaseModel):
     #: Policy applied when a command cannot be analysed (parse/shfmt/config
     #: failure).  Defaults to the wildcard (bash `*`) when unset.
     error: PermissionLevel | None = None
-    blocked_paths_regex: list[str] = []
+    blocked_cmds_regex: list[str] = []
     allowed_cmds_regex: list[str] = []
     output_redirection: OutputRedirectionPolicy | PermissionLevel | None = None
     input_redirection: PermissionLevel | None = None
@@ -66,7 +66,7 @@ class ToolConfig(BaseModel):
     subshell: PermissionLevel | None = None
     variable_assignment: PermissionLevel | None = None
 
-    @field_validator("blocked_paths_regex", "allowed_cmds_regex", mode="before")
+    @field_validator("blocked_cmds_regex", "allowed_cmds_regex", mode="before")
     @classmethod
     def validate_regexes(cls, v: list[str], info: ValidationInfo) -> list[str]:
         """Validate that each pattern compiles as a regex.
