@@ -327,7 +327,7 @@ full pytest/ruff/mypy green. **Commit:** stage only the two files + `PLAN.md`.
 
 ## Step 3 — `evaluate.py`: executed-form matching for argv, guards, heredoc bodies (bug #1)
 
-**Status:** not started
+**Status:** in progress — worker `step3_worker` (pi, herdr pane `w3Y:p1`, workspace `w3Y`) is implementing it; prompt was accepted and the agent is working. Next iteration: poll `herdr agent get step3_worker` until idle/done (any herdr `--wait`/`--timeout` takes **ms** — use 2700000), read its output (`herdr agent read step3_worker --source recent-unwrapped`), verify independently (diff evaluate.py + tests/config/test_evaluate.py; `uv run pytest -m 'not linting' -q`, `uv run ruff check .`, `uv run mypy --strict .`; Step 3 tests table + pre-existing whole-word quote tests), mark done, `git add src/lovely_bash_permissions/evaluate.py tests/config/test_evaluate.py PLAN.md` + commit, `herdr pane send-keys w3Y:p1 ctrl+d`, then start step4_worker for Step 4.
 
 **Files:** `src/lovely_bash_permissions/evaluate.py`,
 `tests/config/test_evaluate.py`
