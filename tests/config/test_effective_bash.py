@@ -132,6 +132,15 @@ class TestGetEffectiveBashConfig:
         assert result["background_execution"] == "deny"
         assert result["output_redirection"] == "deny"
 
+    def test_substitution_keys_all_resolved(self) -> None:
+        """All three substitution/subshell keys resolve: explicit wins, omitted inherit '*'."""
+        raw = {"*": "deny", "command_substitution": "allow"}
+        result = get_effective_bash_config(raw, "/project")
+
+        assert result["command_substitution"] == "allow"  # explicit
+        assert result["process_substitution"] == "deny"  # inherited from '*'
+        assert result["subshell"] == "deny"  # inherited from '*'
+
     def test_explicit_option_beats_star(self) -> None:
         """An explicitly set option keeps its value over an inherited '*'."""
         raw = {"*": "deny", "subshell": "ask", "output_redirection": {"stderr_to_dev_null": "allow"}}

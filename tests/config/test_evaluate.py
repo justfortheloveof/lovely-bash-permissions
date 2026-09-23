@@ -2540,3 +2540,82 @@ class TestRedirectionOnlyOperands:
         config = {"*": "allow", "blocked_paths_regex": ["\\/etc"], "output_redirection": "allow"}
         result = evaluate_bash_command("> /etc/x && > /etc/y", config)
         assert result["status"] == "deny"
+
+
+class TestSubstitutionKeySplit:
+    """Behavioral tests for the `subshell` key split into three keys.
+
+    `command_substitution` gates `$(...)` / backticks, `process_substitution`
+    gates `<(...)` / `>(...)`, and `subshell` gates `( ... )` paren groups.
+    A key that inherits "allow" from the wildcard is downgraded to "ask" (only
+    an explicit allow counts as allow) on the no-segment arithmetic path.
+    """
+
+    def test_paren_subshell_deny(self) -> None:
+        """`( rm x )` with subshell=deny is denied with the subshell reason."""
+        result = evaluate_bash_command(
+            "( rm x )",
+            {"*": "allow", "subshell": "deny"},
+        )
+        assert result["status"] == "deny"
+        assert "subshell (...) requires approval" in result["reason"]
+
+    def test_time_prefix_paren_subshell_deny(self) -> None:
+        """`time ( rm x )` is denied too - the `time` prefix doesn't mask the group."""
+        result = evaluate_bash_command(
+            "time ( rm x )",
+            {"*": "allow", "subshell": "deny"},
+        )
+        assert result["status"] == "deny"
+
+    def test_paren_group_inner_blocked_path_scanned(self) -> None:
+        """Blocked-path scan reaches inside the `( ... )` paren group."""
+        result = evaluate_bash_command(
+            "( cat /etc/passwd )",
+            {"*": "allow", "blocked_paths_regex": ["\\/etc"]},
+        )
+        assert result["status"] == "deny"
+
+    def test_paren_subshell_inherited_allow(self) -> None:
+        """`( rm x )` with only `*`: `allow` (subshell unset) inherits the
+        wildcard allow and is approved - not gated to ask."""
+        result = evaluate_bash_command("( rm x )", {"*": "allow"})
+        assert result["status"] == "allow"
+        assert "requires approval" not in result["reason"]
+
+    def test_cmdsubst_gated_independently_of_proc_subst(self) -> None:
+        """`echo $(true)`: process_substitution=deny is irrelevant; command_substitution=deny denies."""
+        allow_cfg = {"*": "allow", "process_substitution": "deny"}
+        assert evaluate_bash_command("echo $(true)", allow_cfg)["status"] == "allow"
+
+        deny_cfg = {"*": "allow", "command_substitution": "deny"}
+        result = evaluate_bash_command("echo $(true)", deny_cfg)
+        assert result["status"] == "deny"
+        assert "command substitution requires approval" in result["reason"]
+
+    def test_proc_subst_gated_independently_of_paren_subshell(self) -> None:
+        """`echo <(true)`: process_substitution=deny denies; subshell=deny alone is irrelevant."""
+        allow_list = [r"^echo(\s+.*)?$", r"^true$"]
+        deny_cfg = {"*": "allow", "process_substitution": "deny", "allowed_cmds_regex": allow_list}
+        result = evaluate_bash_command("echo <(true)", deny_cfg)
+        assert result["status"] == "deny"
+        assert "process substitution requires approval" in result["reason"]
+
+        allow_cfg = {"*": "allow", "subshell": "deny", "allowed_cmds_regex": allow_list}
+        assert evaluate_bash_command("echo <(true)", allow_cfg)["status"] == "allow"
+
+    def test_zero_segment_arithmetic_cmdsubst_inherited_allow_asks(self) -> None:
+        """Zero-segment `(( x[$(rm)] ))`: command_substitution=deny denies."""
+        result = evaluate_bash_command(
+            "(( x[$(rm)] ))",
+            {"*": "allow", "command_substitution": "deny"},
+        )
+        assert result["status"] == "deny"
+        assert "command substitution requires approval" in result["reason"]
+
+    def test_zero_segment_arithmetic_inherited_allow_downgrades_to_ask(self) -> None:
+        """Zero-segment arithmetic with only `*`: `allow`: the inherited (not
+        explicit) allow on command_substitution is downgraded to fail-closed ask."""
+        result = evaluate_bash_command("(( x[$(rm)] ))", {"*": "allow"})
+        assert result["status"] == "ask"
+        assert "command substitution requires approval" in result["reason"]

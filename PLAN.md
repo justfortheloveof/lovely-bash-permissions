@@ -1023,7 +1023,7 @@ files + `PLAN.md`.
 
 ## Step 7 — bug #2: new behavioral tests + docs
 
-**Status:** in progress — worker `step7_worker` (pi, herdr pane `w3Y:p1`, workspace `w3Y`) is implementing it. Next iteration: `herdr agent wait step7_worker --timeout 2700000` (herdr timeout **ms**; tool-call timeout **seconds**, max 2147483), read output, verify independently (new `TestSubstitutionKeySplit` tests, README diff, `rg -n '"subshell"' src/lovely_bash_permissions/config/*.py`, full pytest/ruff/mypy), mark done, `git add tests/config/test_evaluate.py tests/config/test_effective_bash.py README.lovely-devin-permissions.md PLAN.md` + commit `Step 7: bug #2 behavioral tests + docs`, `herdr pane send-keys w3Y:p1 ctrl+d`, then start step8_worker for Step 8 (final regression sweep — a verification-only step; the worker may just run the matrix).
+**Status:** done — `TestSubstitutionKeySplit` (8 tests: paren deny + reason, time prefix, inner blocked path, inherited-allow → allow w/o reason, independent cmd/proc gating, zero-segment arithmetic deny + inherited-allow → ask) and `test_substitution_keys_all_resolved` in test_effective_bash.py added; README updated (3-key table rows, inherited-options sentence, both example blocks, guard-authoring D5 bullet in Security notes); suite 1130 passed; ruff/mypy clean.
 
 **Files:** `tests/config/test_evaluate.py`,
 `tests/config/test_effective_bash.py`,
@@ -1103,7 +1103,7 @@ new-key context). **Commit:** listed files + `PLAN.md`.
 
 ## Step 8 — Final regression sweep (all four bugs)
 
-**Status:** not started
+**Status:** in progress — worker `step8_worker` (pi, herdr pane `w3Y:p1`) runs the acceptance matrix (verification only — no file edits). Next iteration: `herdr agent wait step8_worker --timeout 2700000` (herdr timeout **ms**; tool-call timeout **seconds**, max 2147483), read output, RE-RUN the full matrix myself, then mark ALL step Status fields done, `git add PLAN.md` + commit `plan: mark steps done — all four bugs fixed`.
 
 **Files:** none (verification; commit only if a step was left open).
 
