@@ -21,7 +21,6 @@ from .rules import (
     _check_segments_output_redirs,
     _compile_pattern,
     check_background_execution,
-    check_blocked_patterns,
 )
 from .segments import parse_segments
 

@@ -77,7 +77,7 @@ def _match_pattern(value: str, pattern: str) -> bool:
 
 
 def _find_blocked_path(value: str, blocked_patterns: list[str]) -> tuple[bool, str]:
-    """Check if a value matches any blocked path pattern.
+    """Check if a value matches any blocked pattern.
 
     Returns (True, matching_pattern) if found, (False, "") otherwise.
     """
@@ -209,35 +209,6 @@ def check_allowed_patterns(command_name: str, allowed_patterns: list[str]) -> bo
         return False
 
 
-def check_blocked_patterns(
-    command_name: str, args: list[str], blocked_patterns: list[str]
-) -> tuple[bool, str | None, str | None]:
-    """Test command name and arguments against blocked_paths_regex patterns.
-
-    Returns a tuple of (matched: bool, pattern: str | None, value: str | None)
-    where pattern is the matching regex and value is which arg/command matched.
-
-    Args:
-        command_name: The name of the command to check.
-        args: List of argument strings to check.
-        blocked_patterns: List of regex patterns to test against.
-
-    Returns:
-        (True, pattern, value) if any match,
-        (False, None, None) otherwise.
-    """
-    if not blocked_patterns:
-        return False, None, None
-    for pattern in blocked_patterns:
-        if _match_pattern(command_name, pattern):
-            return True, pattern, command_name
-    for arg in args:
-        for pat in blocked_patterns:
-            if _match_pattern(arg, pat):
-                return True, pat, arg
-    return False, None, None
-
-
 def classify_output_redirection(redir: dict[str, Any]) -> list[str]:
     """Classify a single write redirection into policy-kind keys.
 
@@ -329,14 +300,14 @@ def check_output_redirection(tree: dict[str, Any], rules: dict[str, Any]) -> dic
         kinds.extend(classify_output_redirection(redir))
 
     # Check redirect targets against blocked paths (security check, applies to all policies).
-    blocked_patterns = rules.get("blocked_paths_regex", [])
+    blocked_patterns = rules.get("blocked_cmds_regex", [])
     if blocked_patterns:
         for target in targets:
             matched, pattern = _find_blocked_path(target, blocked_patterns)
             if matched:
                 return {
                     "status": "deny",
-                    "reason": f'Redirect target "{target}" matches blocked path pattern {pattern}',
+                    "reason": f'Redirect target "{target}" matches blocked pattern {pattern}',
                 }
 
     level = _resolve_output_level(kinds, policy) if isinstance(policy, dict) else policy
@@ -398,14 +369,14 @@ def check_input_redirection(tree: dict[str, Any], rules: dict[str, Any] | None =
     When rules["input_redirection"] is a dict, uses wildcard "*" level.
 
     When input redirection policy is "ask", redirect targets are also checked
-    against blocked_paths_regex from rules. If any target matches a blocked
-    path pattern, the status is escalated to "deny" (overrides ask).
+    against blocked_cmds_regex from rules. If any target matches a blocked
+    pattern, the status is escalated to "deny" (overrides ask).
 
     Args:
         tree: The shfmt JSON AST representation of the bash command.
         rules: Policy dict with "input_redirection" key set to
             "allow", "ask", or "deny" (or object form with per-type policies).
-            May also contain "blocked_paths_regex" for target validation.
+            May also contain "blocked_cmds_regex" for target validation.
 
     Returns:
         dict with "status" ("allow"/"ask"/"deny") and
@@ -443,14 +414,14 @@ def check_input_redirection(tree: dict[str, Any], rules: dict[str, Any] | None =
     targets = [r["target"] for r in redirections]
 
     # Check redirect targets against blocked_paths (security check, applies to all policies).
-    blocked_patterns = rules.get("blocked_paths_regex", [])
+    blocked_patterns = rules.get("blocked_cmds_regex", [])
     if blocked_patterns:
         for target in targets:
             matched, pattern = _find_blocked_path(target, blocked_patterns)
             if matched:
                 return {
                     "status": "deny",
-                    "reason": f'Redirect target "{target}" matches blocked path pattern {pattern}',
+                    "reason": f'Redirect target "{target}" matches blocked pattern {pattern}',
                 }
 
     if level == "allow":
@@ -516,14 +487,14 @@ def _check_segments_output_redirs(segments: list[dict[str, Any]], rules: dict[st
         kinds.extend(classify_output_redirection(redir))
 
     # Check redirect targets against blocked paths (security check, applies to all policies).
-    blocked_patterns = rules.get("blocked_paths_regex", [])
+    blocked_patterns = rules.get("blocked_cmds_regex", [])
     if blocked_patterns:
         for target in targets:
             matched, pattern = _find_blocked_path(target, blocked_patterns)
             if matched:
                 return {
                     "status": "deny",
-                    "reason": f'Redirect target "{target}" matches blocked path pattern {pattern}',
+                    "reason": f'Redirect target "{target}" matches blocked pattern {pattern}',
                 }
 
     level = _resolve_output_level(kinds, policy) if isinstance(policy, dict) else policy
@@ -569,14 +540,14 @@ def _check_segments_input_redirs(segments: list[dict[str, Any]], rules: dict[str
         return {"status": "allow", "matched": False, "reason": "no input redirection"}
 
     targets = [r["target"] for r in input_redirs]
-    blocked_patterns = rules.get("blocked_paths_regex", [])
+    blocked_patterns = rules.get("blocked_cmds_regex", [])
     if blocked_patterns:
         for target in targets:
             matched, pattern = _find_blocked_path(target, blocked_patterns)
             if matched:
                 return {
                     "status": "deny",
-                    "reason": f'Redirect target "{target}" matches blocked path pattern {pattern}',
+                    "reason": f'Redirect target "{target}" matches blocked pattern {pattern}',
                 }
 
     if level == "allow":
