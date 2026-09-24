@@ -126,6 +126,39 @@ def test_blocked_end_anchor_honored_literally() -> None:
     assert value == "echo foo.env bar"
 
 
+def test_blocked_norm_hit_raw_miss_reports_norm() -> None:
+    """OR semantics: a hit on the executed form denies even when raw misses."""
+    matched, pattern, value = _match_blocked_patterns("cat", ['/e"tc"/passwd'], [r"\/etc"], ["/etc/passwd"])
+    assert (matched, pattern, value) == (True, r"\/etc", "cat /etc/passwd")
+
+
+def test_blocked_raw_hit_norm_miss_reports_raw() -> None:
+    """OR semantics (mirror): a raw-only hit denies with the raw joined line."""
+    matched, pattern, value = _match_blocked_patterns("cat", ['/e"tc"/passwd'], [r'/e"tc"'], ["/etc/passwd"])
+    assert (matched, pattern, value) == (True, r'/e"tc"', 'cat /e"tc"/passwd')
+
+
+def test_blocked_both_hit_prefers_norm() -> None:
+    """When both forms hit, the reported value is the normalized joined line."""
+    matched, pattern, value = _match_blocked_patterns("cat", ['/e"tc"/passwd'], ["cat"], ["/etc/passwd"])
+    assert (matched, pattern, value) == (True, "cat", "cat /etc/passwd")
+
+
+def test_blocked_no_norm_args_uses_raw() -> None:
+    """Without normalized args only the raw joined line is checked."""
+    matched, _, value = _match_blocked_patterns("cat", ["/etc/passwd"], [r"\/etc"], None)
+    assert matched is True
+    assert value == "cat /etc/passwd"
+    assert _match_blocked_patterns("cat", ["/tmp/x"], [r"\/etc"], None) == (False, None, None)
+
+
+def test_blocked_first_matching_pattern_wins() -> None:
+    """Patterns are tried in order; the first hit is reported."""
+    args, norm = ['/e"tc"/passwd'], ["/etc/passwd"]
+    assert _match_blocked_patterns("cat", args, ["cat", r"\/etc"], norm)[1] == "cat"
+    assert _match_blocked_patterns("cat", args, [r"\/etc", "cat"], norm)[1] == r"\/etc"
+
+
 # Tests for check_output_redirection
 
 
@@ -800,6 +833,6 @@ def test_multipart_input_target_blocked_path_denied() -> None:
 
 def test_multipart_target_cmdsubst_in_reason() -> None:
     """Command-substitution prefix target is reported as $(...)/file, not truncated."""
-    result = evaluate_bash_command('echo hi > $(pwd)/out.txt', {"*": "allow", "output_redirection": "allow"})
+    result = evaluate_bash_command("echo hi > $(pwd)/out.txt", {"*": "allow", "output_redirection": "allow"})
     assert result["status"] == "allow"
     assert "$(...)/out.txt" in result["reason"]

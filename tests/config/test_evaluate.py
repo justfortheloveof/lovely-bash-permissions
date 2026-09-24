@@ -264,12 +264,30 @@ class TestBlockedJoinedLineSemantics:
         assert result["status"] == "deny"
 
     def test_normalized_form_quote_split_denied(self) -> None:
-        """Quote-split `/e\"tc\"/passwd` is denied via the executed form."""
+        """Quote-split `/e"tc"/passwd` is denied via the executed form."""
         result = evaluate_bash_command(
             'cat /e"tc"/passwd',
             {"*": "allow", "blocked_cmds_regex": [r"\/etc"]},
         )
         assert result["status"] == "deny"
+
+    def test_quote_split_reason_reports_normalized_line(self) -> None:
+        """The deny reason carries the normalized joined line, not the raw split spelling."""
+        result = evaluate_bash_command(
+            'cat /e"tc"/passwd',
+            {"*": "allow", "blocked_cmds_regex": [r"\/etc"]},
+        )
+        assert result["status"] == "deny"
+        assert '"cat /etc/passwd"' in result["reason"]
+
+    def test_raw_only_reason_reports_raw_line(self) -> None:
+        """A pattern matching only the raw form denies with the raw joined line."""
+        result = evaluate_bash_command(
+            'cat /e"tc"/passwd',
+            {"*": "allow", "blocked_cmds_regex": [r'/e"tc"']},
+        )
+        assert result["status"] == "deny"
+        assert '"cat /e"tc"/passwd"' in result["reason"]
 
     def test_old_key_ignored(self) -> None:
         """A stale `blocked_paths_regex` key alone does not block."""
@@ -970,7 +988,8 @@ class TestOpaqueSubstitutionPatternGuard:
 
     def test_git_output_guard_bypass_not_allowed(self) -> None:
         cfg = make_config(
-            allowed=[r"^git\s+(?!.*--output\b)(-C\s+[\w./\\\\-]+\s+)?(log|diff|show)(\s+.*)?$"], command_substitution="allow"
+            allowed=[r"^git\s+(?!.*--output\b)(-C\s+[\w./\\\\-]+\s+)?(log|diff|show)(\s+.*)?$"],
+            command_substitution="allow",
         )
         assert evaluate_bash_command("git diff --output=/tmp/x", cfg)["status"] == "ask"
         assert evaluate_bash_command("git diff $(echo --output=/tmp/x)", cfg)["status"] == "ask"
@@ -1861,7 +1880,9 @@ class TestVariableAssignment:
         """
         result = evaluate_bash_command(
             "x=$(echo hi > /tmp/out)",
-            make_config(allowed=[r"^echo(\s+.*)?$"], output="ask", command_substitution="allow", variable_assignment="allow"),
+            make_config(
+                allowed=[r"^echo(\s+.*)?$"], output="ask", command_substitution="allow", variable_assignment="allow"
+            ),
         )
         assert result["status"] == "ask"
         assert "output redirection requires approval" in result["reason"]
@@ -1982,7 +2003,9 @@ class TestCompoundCommandRedirections:
     def test_time_output_redirection_asks(self) -> None:
         result = evaluate_bash_command(
             "time echo hi > /tmp/out",
-            make_config(allowed=[r"^echo(\s+.*)?$"], output="ask", command_substitution="allow", variable_assignment="allow"),
+            make_config(
+                allowed=[r"^echo(\s+.*)?$"], output="ask", command_substitution="allow", variable_assignment="allow"
+            ),
         )
         assert result["status"] == "ask"
 
@@ -2500,13 +2523,22 @@ class TestEmptySegmentSubshellPolicy:
         assert evaluate_bash_command(self.CMD, {"*": "deny"})["status"] == "deny"
 
     def test_time_wrapped_arithmetic(self) -> None:
-        assert evaluate_bash_command("time (( x[$(rm z)] ))", {"*": "allow", "command_substitution": "deny"})["status"] == "deny"
+        assert (
+            evaluate_bash_command("time (( x[$(rm z)] ))", {"*": "allow", "command_substitution": "deny"})["status"]
+            == "deny"
+        )
 
     def test_followed_by_real_command(self) -> None:
-        assert evaluate_bash_command("ls; (( x[$(rm)] ))", {"*": "allow", "command_substitution": "deny"})["status"] == "deny"
+        assert (
+            evaluate_bash_command("ls; (( x[$(rm)] ))", {"*": "allow", "command_substitution": "deny"})["status"]
+            == "deny"
+        )
 
     def test_plus_equals_variant(self) -> None:
-        assert evaluate_bash_command("(( y += $(rm z) ))", {"*": "allow", "command_substitution": "deny"})["status"] == "deny"
+        assert (
+            evaluate_bash_command("(( y += $(rm z) ))", {"*": "allow", "command_substitution": "deny"})["status"]
+            == "deny"
+        )
 
     def test_literal_arithmetic_unaffected(self) -> None:
         assert evaluate_bash_command("(( x = 5 ))", {"*": "allow", "command_substitution": "deny"})["status"] == "allow"
