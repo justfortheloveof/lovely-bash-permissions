@@ -87,10 +87,10 @@ current `subshell` key is really a **command-substitution** (plus process-
 substitution) gate, named after the wrong construct.
 
 ```python
-evaluate_bash_command("( rm x )",      {"*": "allow", "subshell": "deny"})  # → allow  (BUG)
-evaluate_bash_command("( echo hi )",   {"*": "allow", "subshell": "deny"})  # → allow
+evaluate_bash_command("( rm x )", {"*": "allow", "subshell": "deny"})  # → allow  (BUG)
+evaluate_bash_command("( echo hi )", {"*": "allow", "subshell": "deny"})  # → allow
 evaluate_bash_command("time ( rm x )", {"*": "allow", "subshell": "deny"})  # → allow
-evaluate_bash_command("echo $(echo hi)", {"*": "allow", "subshell": "deny"}) # → deny  (CmdSubst caught)
+evaluate_bash_command("echo $(echo hi)", {"*": "allow", "subshell": "deny"})  # → deny  (CmdSubst caught)
 ```
 
 Paren groups are the same "run in a child shell" semantic the policy name

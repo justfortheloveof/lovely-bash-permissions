@@ -718,11 +718,10 @@ may change); full suite green. **Commit:** listed files + `PLAN.md`.
    insert before the `# CallExpr...` comment:
 
    ```python
-     # Redirection-only compound operand (no Type/Cmd, just Redirs) - see
-     # converter.node_from_json handling for `> f && cmd` (NEW_BUGS #3).
-     if not node.get("Type") and node.get("Redirs"):
-         redirs.extend(node["Redirs"])
-
+   # Redirection-only compound operand (no Type/Cmd, just Redirs) - see
+   # converter.node_from_json handling for `> f && cmd` (NEW_BUGS #3).
+   if not node.get("Type") and node.get("Redirs"):
+       redirs.extend(node["Redirs"])
    ```
 
    Note: this branch is belt-and-braces for the raw-JSON walk; `_find_redirs`
@@ -887,22 +886,18 @@ existing tests). **Commit:** listed files + `PLAN.md`.
      `has_cmd_subst`, else `process_substitution` (the only constructs that can
      produce zero-segment trees). With the "inherited allow → ask" rule:
      ```python
-             _cs_policy = rules["command_substitution"] if has_cmd_subst else rules["process_substitution"]
-             _cs_key = "command_substitution" if has_cmd_subst else "process_substitution"
-             if _cs_policy == "allow" and _cs_key not in config:
-                 _cs_policy = "ask"
-             if _cs_policy == "allow":
-                 _empty_status = _wildcard
-                 _empty_reason = (
-                     f"<empty command> produced no parseable segments - defaulting to wildcard policy ({_wildcard})"
-                 )
-             else:
-                 _empty_status = _cs_policy
-                 _empty_reason = (
-                     "command substitution requires approval"
-                     if has_cmd_subst
-                     else "process substitution requires approval"
-                 )
+     _cs_policy = rules["command_substitution"] if has_cmd_subst else rules["process_substitution"]
+     _cs_key = "command_substitution" if has_cmd_subst else "process_substitution"
+     if _cs_policy == "allow" and _cs_key not in config:
+         _cs_policy = "ask"
+     if _cs_policy == "allow":
+         _empty_status = _wildcard
+         _empty_reason = f"<empty command> produced no parseable segments - defaulting to wildcard policy ({_wildcard})"
+     else:
+         _empty_status = _cs_policy
+         _empty_reason = (
+             "command substitution requires approval" if has_cmd_subst else "process substitution requires approval"
+         )
      ```
    - Main subshell-policy block (Find: `subshell_policy = rules.get("subshell", "ask")`
      followed by `if has_subshell:`). Rewrite as three independent gates:
@@ -926,7 +921,9 @@ existing tests). **Commit:** listed files + `PLAN.md`.
          if nested_non_match:
              names_str = ", ".join(f'"{n}"' for n in sorted(nested_non_match))
              reasons.append(f"{names_str} commands inside subshell do not match allowed patterns")
-             _sub_policy = rules.get("command_substitution", "ask") if has_cmd_subst else rules.get("process_substitution", "ask")
+             _sub_policy = (
+                 rules.get("command_substitution", "ask") if has_cmd_subst else rules.get("process_substitution", "ask")
+             )
              if overall_status == "deny":
                  pass  # already denied by blocked paths
              elif _sub_policy == "allow":

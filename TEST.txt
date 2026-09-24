@@ -1,0 +1,1 @@
+pgrep -af -i "quickshell|shell" | rg -vi "grep" | head; echo ---; p=$(pgrep -f quickshell | head -1); [ -n "$p" ] && tr '\0' '\n' < /proc/$p/environ | rg -i "QML|QT_"; echo "---cmdline:"; [ -n "$p" ] && tr '\0' ' ' < /proc/$p/cmdline
