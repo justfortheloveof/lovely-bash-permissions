@@ -187,6 +187,38 @@ Two things this does **not** weaken. Blocked patterns are checked independently 
 
 For contrast, `[[ ... ]]` and `(( ... ))` are parsed as bash *expressions* rather than commands, so they produce no command segment and never need allow-listing. Only the single-bracket `[ ... ]` form — which really is a command — appears in an allow-list. If a command using `[ ... ]` or `if true; ...` prompts unexpectedly, that is this policy working as intended, not a misparse.
 
+### Wrapper and interpreter commands
+
+Many commands take *another command* as an argument. The evaluator reports the wrapper, and the wrapped command is an argument rather than a command segment, so it is **not** checked by `allowed_cmds_regex` on its own:
+
+| Form | Reported as | The real command is |
+| --- | --- | --- |
+| `sudo rm -rf /`, `env FOO=1 rm -rf /` | `sudo`, `env` | an argument |
+| `nice`, `nohup`, `command`, `timeout`, `stdbuf`, `ionice`, `chroot`, `setsid` | the wrapper | an argument |
+| `xargs rm -rf /` | `xargs` | an argument |
+| `sh -c "rm -rf /"`, `bash -c`, `eval "rm -rf /"` | `sh`, `bash`, `eval` | a string of shell source |
+| `python3 -c "..."`, `node -e`, `perl -e`, `awk 'BEGIN{system("...")}'` | the interpreter | a string of that language |
+| `find . -exec rm {} +`, `find . -execdir rm {} +` | `find` | an argument |
+| `sh <<EOF` … `rm -rf /` … `EOF` | `sh` | a heredoc body |
+
+So an allow-list entry for a wrapper approves the whole line:
+
+```bash
+# with "^sh" allow-listed, both of these are approved
+sh -c "rm -rf /"
+sh -c "cat /etc/passwd"
+```
+
+**`blocked_cmds_regex` is unaffected.** It is matched against the whole raw command string, so any pattern in the wrapper's arguments still denies the command — `sh -c "cat /etc/passwd"` is denied by `\/etc`, and a heredoc body is scanned as text. The exposure is specific to the allow side.
+
+Prefer calling the target command directly over wrapping it. If you do need a wrapper, either anchor it tightly (`^sudo\s+-\w+\s+\w+\s+rm$` is still loose, but `^sudo$` approves nothing useful) or use a guard pattern that refuses the wrapper when a dangerous argument is present, the way the `find` examples in the test suite do:
+
+```jsonc
+"^find(?!.*\s-(exec|execdir|delete|ok)\b).*$"
+```
+
+Interpreter code strings (`python3 -c`, `node -e`, `perl -e`) are not shell and cannot be parsed as such; treat an allow-list entry for an interpreter as approving whatever that language can do.
+
 ### Devin config
 
 Devin config is read from the same places Devin uses:
