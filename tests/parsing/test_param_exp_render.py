@@ -17,13 +17,20 @@ rendering code and the same matcher:
   user never wrote).  ``"..."`` regions now render from their parts.
 * ``ParamExp.length`` (``${#x}``) was never rendered, so ``${#x}`` reached the
   matcher as ``$x`` - a *different* expression with a different meaning.
+
+The third sigil gap is ``ParamExp.excl``: ``${!x}`` (indirect expansion - read
+the variable *named* by ``$x``) and the prefix form ``${!prefix*}`` also
+rendered as ``$x`` / ``$prefix``.  Every other operator was already faithful, so
+:class:`TestUnchangedOperatorForms` pins the rest byte-for-byte: a sigil fix must
+not disturb the spellings that were already right.
 """
 
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 
 from lovely_bash_permissions.ast import DblQuoted, Lit, ParamExp, ParamExpExp, ParamExpSlice, Word
+from lovely_bash_permissions.converter import parse_ast
 from lovely_bash_permissions.evaluate import evaluate_bash_command
-from lovely_bash_permissions.inspect import _word_exec, _word_raw, _word_value
+from lovely_bash_permissions.inspect import _word_exec, _word_raw, _word_value, find_arguments
 from lovely_bash_permissions.segments import parse_segments
 
 
@@ -48,6 +55,20 @@ def _args(command: str) -> list[str]:
 def _normalized(command: str) -> list[str]:
     """Return the executed (quote/backslash-normalized) arguments."""
     return cast(list[str], _first(command)["normalized_arguments"])
+
+
+def _value(command: str) -> list[str]:
+    """Return the arguments of the first call expression in *value* form.
+
+    The third renderer: ``_word_value`` strips quotes and backslashes but keeps
+    expansion text, so it is the last of the three shapes an argument can reach
+    the matcher in.  Unlike the hand-built node tests below this walks the real
+    shfmt parse, so it also proves ``converter._convert_param_exp`` carried the
+    flag across the boundary.
+    """
+    calls = find_arguments(parse_ast(command))
+    assert calls, f"no call arguments parsed for {command!r}"
+    return [_word_value(arg) for arg in calls[0]]
 
 
 class TestDefaultOperators:
@@ -216,6 +237,170 @@ class TestLengthExpansion:
         assert _word_value(Word(parts=[node])) == "${#x:-d}"
 
 
+class TestIndirectExpansion:
+    """``${!x}`` keeps its ``!``: it reads the variable *named* by ``$x``.
+
+    ``ParamExp.excl`` is populated by shfmt (``"Excl": true``) but used to go
+    unrendered, so ``echo ${!x}`` reached the matcher as ``echo $x`` - the
+    indirection silently dropped, which is a different expansion entirely.
+    """
+
+    def test_simple_indirect_expansion(self) -> None:
+        assert _args("echo ${!x}") == ["${!x}"]
+
+    def test_indirect_expansion_is_not_the_bare_param(self) -> None:
+        arg = _args("echo ${!x}")[0]
+        assert arg != "$x"
+        assert arg.startswith("${!")
+
+    def test_indirect_expansion_normalized_form(self) -> None:
+        assert _normalized("echo ${!x}") == ["${!x}"]
+
+    def test_indirect_expansion_value_form(self) -> None:
+        # Walks the real shfmt parse, so this also pins converter behaviour.
+        assert _value("echo ${!x}") == ["${!x}"]
+
+    def test_indirect_array_expansion(self) -> None:
+        assert _args("echo ${!x[@]}") == ["${!x[@]}"]
+
+    def test_indirect_array_expansion_normalized_form(self) -> None:
+        assert _normalized("echo ${!x[@]}") == ["${!x[@]}"]
+
+    def test_indirect_array_expansion_value_form(self) -> None:
+        assert _value("echo ${!x[@]}") == ["${!x[@]}"]
+
+    def test_indirect_star_subscript_is_preserved(self) -> None:
+        # `${!arr[*]}` is not the prefix form: here the `*` really is an array
+        # subscript and reaches the renderer through `Index`, so it survives
+        # whole.  Contrast with ${!prefix*}, which shfmt does not preserve.
+        assert _args("echo ${!arr[*]}") == ["${!arr[*]}"]
+
+    def test_indirect_expansion_keeps_operator_text(self) -> None:
+        assert _args("echo ${!x:-cmd}") == ["${!x:-cmd}"]
+
+    def test_indirect_expansion_keeps_case_modifier(self) -> None:
+        assert _args("echo ${!x@Q}") == ["${!x@Q}"]
+        assert _args("echo ${!x^^}") == ["${!x^^}"]
+
+    def test_indirect_expansion_keeps_slice_and_substitution(self) -> None:
+        assert _args("echo ${!x:1:2}") == ["${!x:1:2}"]
+        assert _args("echo ${!x/a/b}") == ["${!x/a/b}"]
+
+    def test_indirect_expansion_hand_built_node(self) -> None:
+        node = ParamExp(param="x", excl=True)
+        assert _word_value(Word(parts=[node])) == "${!x}"
+
+    def test_indirect_expansion_keeps_operator_text_hand_built_node(self) -> None:
+        node = ParamExp(param="x", excl=True, exp=ParamExpExp(op=":-", word=Word(parts=[Lit(value="d")])))
+        assert _word_value(Word(parts=[node])) == "${!x:-d}"
+
+    def test_non_indirect_expansion_has_no_sigil(self) -> None:
+        # `${!x}` and `${x}` differ only in the sigil; the `excl` default of
+        # False must keep the historical short spelling.
+        node = ParamExp(param="x")
+        assert _word_value(Word(parts=[node])) == "$x"
+
+    def test_length_and_excl_are_mutually_exclusive(self) -> None:
+        # bash rejects `${#!x}` as a bad substitution, so shfmt never emits
+        # both; if it somehow did, `length` wins (the pre-existing sigil).
+        node = ParamExp(param="x", length=True, excl=True)
+        assert _word_value(Word(parts=[node])) == "${#x}"
+
+    def test_indirect_expansion_keeps_literal_affixes(self) -> None:
+        assert _args("echo a${!x}b") == ["a${!x}b"]
+        assert _args('echo "pre${!x}post"') == ['"pre${!x}post"']
+
+    def test_indirect_expansion_in_quotes(self) -> None:
+        assert _args('echo "${!x}"') == ['"${!x}"']
+        assert _normalized('echo "${!x}"') == ["${!x}"]
+
+
+class TestIndirectPrefixExpansionLimitation:
+    """``${!prefix*}`` renders as ``${!prefix}`` - a known truncation.
+
+    The prefix/indirect *name-list* form is the one shape shfmt does not hand
+    back whole.  Its JSON keeps ``Param.Value == "prefix"`` and parks the ``*``
+    in a sibling ``Names`` key on the same ParamExp node; ``_convert_param_exp``
+    reads neither ``Names`` nor the original source text, so the ``*`` is
+    already lost by the time the renderer sees the node.  Only ``Excl``
+    survives the converter boundary, so the rendered argument is
+    ``${!prefix}`` - still a distinct expansion from ``$prefix``, but not the
+    one the user wrote.
+
+    This test pins the *current* behaviour so the truncation stays visible.  It
+    is a fidelity gap in the safe direction only in the sense that the argument
+    is still opaque to the matcher; it is NOT reconstructed, and if shfmt ever
+    stops dropping the information this test is the one that should change.
+    """
+
+    def test_prefix_expansion_renders_without_the_star(self) -> None:
+        assert _args("echo ${!prefix*}") == ["${!prefix}"]
+
+    def test_prefix_expansion_normalized_form(self) -> None:
+        assert _normalized("echo ${!prefix*}") == ["${!prefix}"]
+
+    def test_prefix_expansion_value_form(self) -> None:
+        assert _value("echo ${!prefix*}") == ["${!prefix}"]
+
+    def test_prefix_expansion_is_distinguishable_from_the_plain_param(self) -> None:
+        # Even truncated, `${!prefix}` is not `$prefix`: the indirection is
+        # still visible, so the expansion is not silently collapsed.
+        arg = _args("echo ${!prefix*}")[0]
+        assert arg != "$prefix"
+        assert arg == _args("echo ${!prefix}")[0]
+
+    def test_star_is_not_reconstructed_from_the_surrounding_word(self) -> None:
+        # A `*` written as a *separate* word part is untouched, which shows the
+        # loss above is specific to the `${!...*}` subscript spelling rather
+        # than a general dropping of `*`.
+        assert _args("echo ${!prefix*} *") == ["${!prefix}", "*"]
+
+
+class TestUnchangedOperatorForms:
+    """Byte-for-byte regression pins for the operators that were already right.
+
+    Every expectation here is the rendering from *before* the ``excl`` work.
+    ``_param_exp_text`` is shared by all three renderers, so a change to the
+    sigil handling could plausibly have disturbed the branches below it; these
+    cases are the canary.
+    """
+
+    CASES: ClassVar[dict[str, list[str]]] = {
+        "echo ${x@Q}": ["${x@Q}"],
+        "echo ${x^^}": ["${x^^}"],
+        "echo ${x,,}": ["${x,,}"],
+        "echo ${#x}": ["${#x}"],
+        "echo ${#arr[@]}": ["${#arr[@]}"],
+        "echo ${x:1:2}": ["${x:1:2}"],
+        "echo ${x:1}": ["${x:1}"],
+        "echo ${x/a/b}": ["${x/a/b}"],
+        "echo ${x//a/b}": ["${x//a/b}"],
+        "echo ${x:-def}": ["${x:-def}"],
+        "echo ${x%/p}": ["${x%/p}"],
+        "echo ${x%%/p}": ["${x%%/p}"],
+        "echo ${x#p}": ["${x#p}"],
+        "echo ${x:+set}": ["${x:+set}"],
+        "echo ${x:?msg}": ["${x:?msg}"],
+        "echo ${arr[i]}": ["${arr[i]}"],
+        "echo ${x^}": ["${x^}"],
+        "echo ${x:-}": ["${x:-}"],
+        "echo $HOME": ["$HOME"],
+        "echo ${x}": ["$x"],
+    }
+
+    def test_raw_forms_unchanged(self) -> None:
+        for command, expected in self.CASES.items():
+            assert _args(command) == expected, command
+
+    def test_executed_forms_unchanged(self) -> None:
+        for command, expected in self.CASES.items():
+            assert _normalized(command) == expected, command
+
+    def test_value_forms_unchanged(self) -> None:
+        for command, expected in self.CASES.items():
+            assert _value(command) == expected, command
+
+
 class TestNesting:
     """Nested parameter expansions render fully and terminate."""
 
@@ -257,6 +442,20 @@ class TestOpaquePlaceholders:
 
     def test_cmd_subst_in_substitution(self) -> None:
         assert _args("echo ${x//a/$(cmd)}")[0] == "${x//a/$(...)}"
+
+    def test_cmd_subst_operand_of_indirect_expansion_keeps_placeholder(self) -> None:
+        # The `excl` sigil must not disturb the operand renderer: the `!` is
+        # added around the expansion, the `$(...)` inside it stays the exact
+        # opaque placeholder `evaluate` keys off.
+        arg = _args("echo ${!x:-$(cmd)}")[0]
+        assert arg == "${!x:-$(...)}"
+        assert "$(...)" in arg
+
+    def test_cmd_subst_operand_of_indirect_expansion_normalized_form(self) -> None:
+        assert "$(...)" in _normalized("echo ${!x:-$(cmd)}")[0]
+
+    def test_cmd_subst_operand_of_indirect_expansion_value_form(self) -> None:
+        assert _value("echo ${!x:-$(cmd)}") == ["${!x:-$(...)}"]
 
 
 class TestQuotedVariants:
@@ -468,4 +667,19 @@ class TestAllowSideQuotedFidelity:
 
     def test_blocked_pattern_sees_the_length_sigil(self) -> None:
         result = evaluate_bash_command("echo ${#x}", {"*": "allow", "blocked_cmds_regex": [r"^echo\s+\$\{#x\}$"]})
+        assert result["status"] == "deny"
+
+    def test_indirect_expansion_matches_its_own_pattern(self) -> None:
+        result = evaluate_bash_command("echo ${!x}", {"*": "ask", "allowed_cmds_regex": [r"^echo\s+\$\{!x\}$"]})
+        assert result["status"] == "allow"
+
+    def test_indirect_expansion_does_not_match_the_bare_param_pattern(self) -> None:
+        # `${!x}` is a different expansion from `$x`.  This is the direction the
+        # fix moves: before it, the rendered text was `$x`, so this pattern
+        # *did* auto-approve the indirect expansion (fail-open).  Now it asks.
+        result = evaluate_bash_command("echo ${!x}", {"*": "ask", "allowed_cmds_regex": [r"^echo\s+\$x$"]})
+        assert result["status"] == "ask"
+
+    def test_blocked_pattern_sees_the_indirect_sigil(self) -> None:
+        result = evaluate_bash_command("echo ${!x}", {"*": "allow", "blocked_cmds_regex": [r"^echo\s+\$\{!\w*\}$"]})
         assert result["status"] == "deny"

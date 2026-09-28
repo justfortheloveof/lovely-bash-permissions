@@ -186,15 +186,33 @@ def _param_exp_text(part: ParamExp, render_word: Callable[[Word], str]) -> str:
     sees the whole expansion (e.g. ``${BAR:-/etc/passwd}`` rather than
     ``$BAR``, which would hide the literal path from the matcher).
 
-    ``${#VAR}`` keeps its ``#`` sigil, which makes it a braced form even
-    though it has no operator - the length of ``$x`` is a different
-    expression from ``$x`` itself, and rendering it as ``$x`` would hand the
-    matcher the wrong one.
+    ``${#VAR}`` and ``${!VAR}`` keep their leading sigil, which makes them braced
+    forms even though they have no operator: the length of ``$x`` is a different
+    expression from ``$x`` itself, and ``${!x}`` (indirect expansion - read the
+    variable *named* by ``$x``) is a third, as is the prefix form ``${!prefix*}``.
+    Rendering any of them as ``$x`` would hand the matcher the wrong expression.
+    The sigils are mutually exclusive, so ``length`` takes precedence over
+    ``excl``.
     """
-    # `${#x}` (string length) and `${#arr[@]}` (element count) are a *different*
-    # expression from `${x}`: dropping the `#` hands the matcher a different
-    # expansion than the user wrote, so the sigil must survive rendering.
-    sigil = "#" if part.length else ""
+    # `${#x}` (string length) and `${!x}` (indirect expansion) are both a
+    # *different* expression from `${x}`: dropping the sigil hands the matcher a
+    # different expansion than the user wrote, so the sigil must survive
+    # rendering.  The two are mutually exclusive in bash (``${#!x}`` is a bad
+    # substitution), so ``length`` wins and ``excl`` is only consulted without
+    # it - and a sigil of either kind forces the braced spelling, because a bare
+    # ``$x`` can carry neither.
+    #
+    # Known limitation: for the prefix-expansion form ``${!prefix*}`` shfmt puts
+    # the ``*`` in a sibling ``Names`` key that ``converter._convert_param_exp``
+    # does not read (only ``Excl`` survives the boundary), so this renders the
+    # input as ``${!prefix}``.  The ``*`` is not reconstructed - it is pinned by a
+    # test so the truncation stays visible rather than surprising.
+    if part.length:
+        sigil = "#"
+    elif part.excl:
+        sigil = "!"
+    else:
+        sigil = ""
     op_text = ""
     exp = part.exp
     if exp is not None and exp.op:

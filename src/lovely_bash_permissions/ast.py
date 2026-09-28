@@ -134,6 +134,11 @@ class ParamExp(Node):
         exp: Expansion expression (${var:-word}, ${var%word}, ...) or None
         index: Array index Word node (for ${arr[0]})
         length: True for ${#VAR} length expansion
+        excl: True for the ${!VAR} indirect / prefix-expansion sigil (shfmt's
+            ``Excl`` flag).  ``${!x}`` reads the variable *named* by ``$x``
+            and ``${!prefix*}`` reads every variable starting with ``prefix``,
+            so both are different expressions from the ``${x}`` / ``${prefix}``
+            they would render as if this flag were dropped.
         all: True for ${var//pat/rep} (replace all matches), False for ${var/pat}
         orig: The pattern part of ${var/pat/rep} (Repl.Orig), or None
         replacement: The replacement part of ${var/pat/rep} (Repl.With), or None
@@ -146,6 +151,7 @@ class ParamExp(Node):
     exp: ParamExpExp | None = None
     index: Word | None = None
     length: bool = False
+    excl: bool = False
     all: bool = False
     orig: Word | None = None
     replacement: Word | None = None
