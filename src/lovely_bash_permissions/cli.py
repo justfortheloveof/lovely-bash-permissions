@@ -349,6 +349,22 @@ def _render_declared(decl: DeclClause, indent: int, report: _Report) -> None:
     keyword, so ``declare -a A=(a b)`` reads as ``declare -a`` plus
     ``declare A=(a b)`` - the operands ``segments`` reports as the
     declaration's arguments.
+
+    This one-line form is deliberately *not* 1:1 with the segment list. The
+    permission path splits a declaration into a variable-assignment segment for
+    the operands plus a separate segment for the variant keyword
+    (``export FOO=bar`` -> ``[('', ['FOO=bar']), ('export', [])]``), because
+    ``variable_assignment`` only applies to segments whose ``command`` is
+    ``""``; leaving the operands as the variant segment's arguments meant
+    ``export FOO=bar`` was approved even under ``"variable_assignment": "deny"``.
+    The split exists so a policy key can reach the operands, not to shape the
+    display. Emitting both would print ``assign: export FOO=bar`` *and*
+    ``assign: export``, duplicating the variant keyword and losing the
+    association between the keyword and its operand, so do not "fix" the
+    rendering to match the segment list. ``TestAgreesWithSegments`` in
+    ``tests/cli/lovely-bash-inspection/test_words_output.py`` cross-checks this
+    output against the ``command == ""`` segment, which is why it already
+    tolerates the difference.
     """
     for assign in decl.assigns or []:
         text = _assign_text(assign)

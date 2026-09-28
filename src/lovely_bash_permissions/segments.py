@@ -655,7 +655,19 @@ def parse_segments(command: str, dialect: str = DEFAULT_DIALECT) -> list[dict[st
             - 'arguments': list[str] - the command's arguments
             - 'redirections': list[dict] - redirection info
 
-        If parsing fails, returns an empty list.
+    Note:
+        An empty list is ambiguous: it means either "the command genuinely
+        contains no commands" or "the command could not be parsed", because a
+        parse failure is swallowed and reported as zero segments. A caller that
+        must tell those apart should call :func:`parse` (or :func:`parse_ast`)
+        first and handle the exception it raises.
+
+        No in-tree caller is exposed to the ambiguity, so ``[]`` is only
+        observable to direct callers of this function: ``evaluate`` parses with
+        :func:`parse` (which raises) at the top of its checks and so never
+        reaches here with a command it could not parse, and the inspection CLI
+        parses with :func:`parse_ast` and reports the failure loudly on stderr
+        with a non-zero exit.
     """
     if not command or not command.strip():
         return []
