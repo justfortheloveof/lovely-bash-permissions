@@ -219,6 +219,21 @@ Prefer calling the target command directly over wrapping it. If you do need a wr
 
 Interpreter code strings (`python3 -c`, `node -e`, `perl -e`) are not shell and cannot be parsed as such; treat an allow-list entry for an interpreter as approving whatever that language can do.
 
+### How policy levels combine
+
+Every bash option takes `"allow"`, `"ask"` or `"deny"`, and they do not all mean the same thing:
+
+- **`deny` is absolute.** It wins over the wildcard, over `allowed_cmds_regex`, and over any other policy that matched, and **it cannot be overridden at runtime** — the hook returns `block` and the user must change the config. This holds for *every* level-bearing key: `command_substitution`, `process_substitution`, `subshell`, `variable_assignment`, the redirection and background policies, and `error`.
+- **`ask` only prevents auto-approval.** It downgrades a verdict that would otherwise have been `allow`. If the command is already prompting — because the wildcard is `ask`, or because an allow pattern missed — an `ask` on another key changes nothing, and an `ask` can never soften a `deny` into a prompt.
+- **`allow`** only matters where something would otherwise have prompted; it does not override a `blocked_cmds_regex` hit.
+
+So a `deny` is inert only when the command never reaches the evaluation that would apply it (for example a policy on a construct the command does not contain).
+
+> [!IMPORTANT]
+> Setting `"deny"` on a construct key while leaving the wildcard at `"ask"` now **hard-blocks** the command rather than prompting. That is the point — previously a `deny` there was only consulted when the verdict was still `allow`, so under the default wildcard it did nothing at all. If you want a prompt instead, use `"ask"`.
+
+When a construct policy blocks, the reason says so explicitly — `command substitution denied in config`, `subshell (...) denied in config` — so a blocked command is never reported as merely "requires approval". The same wording appears when a nested command inside a substitution fails the allow-list and the policy is `deny`.
+
 ### Devin config
 
 Devin config is read from the same places Devin uses:
