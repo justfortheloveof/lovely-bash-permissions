@@ -657,8 +657,12 @@ class TestNoPhantomTestCommands:
         commands = [s["command"] for s in parse_segments("[[ -d /tmp && ls ]]")]
         assert "ls" in commands
 
-    def test_bare_literal_operand_still_extracted(self) -> None:
-        assert [s["command"] for s in parse_segments("[[ foo ]]")] == ["foo"]
+    def test_bare_literal_operand_not_a_command(self) -> None:
+        # A bare literal in a test body is the value under test, not a
+        # command - `[[ /etc/passwd ]]` must not report a `/etc/passwd`
+        # command (its blocked-path text is covered by the whole-command
+        # scan instead).
+        assert [s["command"] for s in parse_segments("[[ foo ]]")] == []
 
 
 class TestCaseCommandSubstitution:

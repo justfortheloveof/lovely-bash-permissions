@@ -22,9 +22,12 @@ from .ast import (
     Assign,
     BinaryCmd,
     CallExpr,
+    CaseBranch,
+    CaseClause,
     CmdSubst,
     DeclClause,
     File,
+    ForClause,
     Lit,
     Node,
     ProcSubst,
@@ -143,6 +146,14 @@ def _iter_items(node: Node) -> Iterator[tuple[str, Node, list[Redir]]]:
       pipeline/``&&``/``||`` segment).
     * ``("stmt", node, redirs)`` for a nested ``Stmt``, where *redirs* are
       the incoming segment redirections to thread into that deeper group.
+    * ``("words", node, redirs)`` for value words that are not commands:
+      a ``ForClause`` loop list (``for i in a b c``) or a ``CaseClause``
+      subject (``case $x in``).  These carry no redirection of their own.
+    * ``("pattern", node, redirs)`` for a ``CaseBranch``'s match patterns.
+
+    Only ``("cmd", ...)`` items own redirections; the value-word kinds
+    never disturb the command/redirection pairing computed by
+    :func:`_render_statement`.
     """
     # Stack entries carry the redirections that trail the subtree rooted at
     # the node.  For a BinaryCmd these come from the per-operand redirection
@@ -166,6 +177,19 @@ def _iter_items(node: Node) -> Iterator[tuple[str, Node, list[Redir]]]:
             if current.left is not None:
                 stack.append((current.left, list(current.left_redirs)))
             continue
+        # Value words: surfaced so a statement is not opaque when its only
+        # content is data (`for i in /etc/passwd; do :; done`, `case $x in`).
+        # Yielded here, at the point the node pops, so they render before
+        # the commands nested in them.  The generic child descent below
+        # still walks those words, which is what renders the commands
+        # embedded in substitutions such as `for i in $(cmd)`.
+        if isinstance(current, ForClause):
+            if current.words:
+                yield "words", current, seg
+        elif isinstance(current, CaseClause) and current.expr is not None:
+            yield "words", current, seg
+        elif isinstance(current, CaseBranch) and current.patterns:
+            yield "pattern", current, seg
         # Compound node (subshell, block, control flow, ...): descend into
         # its children, threading the segment redirections to the last one.
         children = list(iter_children(current, include_call_args=True))
@@ -212,12 +236,16 @@ def _render_statement(command: Node, redirs: list[Redir], report: _Report, inden
     so each redirection renders immediately after its own command instead of
     being collected at the end of the pipeline.  Nested ``Stmt`` nodes
     (inside functions, loops, cases, subshells, ...) carry their own
-    redirections and are rendered as deeper groups.
+    redirections and are rendered as deeper groups.  Value words that are
+    not commands (a ``for`` loop list, a ``case`` subject and its patterns)
+    are rendered in place, in source order.
     """
     items = list(_iter_items(command))
     if not items:
         return False
 
+    # Only "cmd" items own the group's trailing redirections, so the
+    # value-word items never shift where those redirections land.
     last_cmd = max((i for i, (kind, _, _) in enumerate(items) if kind == "cmd"), default=-1)
 
     for i, (kind, node, seg_redirs) in enumerate(items):
@@ -227,6 +255,12 @@ def _render_statement(command: Node, redirs: list[Redir], report: _Report, inden
                 _render_redirs(seg_redirs, indent, report)
             if i == last_cmd and redirs:
                 _render_redirs(redirs, indent, report)
+            continue
+        if kind == "words":
+            _render_value_words(node, indent, report)
+            continue
+        if kind == "pattern":
+            _render_patterns(node, indent, report)
             continue
 
         # Nested statement: when this group has no direct commands of its
@@ -240,6 +274,35 @@ def _render_statement(command: Node, redirs: list[Redir], report: _Report, inden
             if node.cmd is not None:
                 _render_statement(node.cmd, nested_redirs, report, indent)
     return True
+
+
+def _render_value_words(node: Node, indent: int, report: _Report) -> None:
+    """Render the value words of a ``for`` loop or a ``case`` subject.
+
+    These words are plain data, not commands, so they get their own lines
+    (``words: a, b, c`` / ``case: $x``).  Commands nested inside them (e.g.
+    ``for i in $(cmd)``) are rendered separately by the traversal that
+    descends into the same words - do not render them again here.
+    """
+    if isinstance(node, ForClause):
+        rendered = [_word_value(w) for w in node.words]
+        rendered = [w for w in rendered if w]
+        if rendered:
+            report.add(indent, f"words: {', '.join(rendered)}")
+    elif isinstance(node, CaseClause) and node.expr is not None:
+        subject = _word_value(node.expr)
+        if subject:
+            report.add(indent, f"case: {subject}")
+
+
+def _render_patterns(node: Node, indent: int, report: _Report) -> None:
+    """Render a ``case`` branch's match patterns (one line per pattern)."""
+    if not isinstance(node, CaseBranch):
+        return
+    for pattern in node.patterns:
+        text = _word_value(pattern)
+        if text:
+            report.add(indent, f"pattern: {text}")
 
 
 def _render_command_or_decl(node: Node, indent: int, report: _Report) -> None:

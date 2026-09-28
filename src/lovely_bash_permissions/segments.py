@@ -157,7 +157,11 @@ def _extract_redirs(node: object) -> list[Redir]:
 
 
 def _extract_segments(
-    node: object, redirs: list[Redir] | None = None, *, _in_test_expr: bool = False
+    node: object,
+    redirs: list[Redir] | None = None,
+    *,
+    _in_test_body: bool = False,
+    _emit_cmd: bool = False,
 ) -> list[dict[str, Any]]:
     """
     Recursively extract command segments from an AST node.
@@ -165,6 +169,13 @@ def _extract_segments(
     Args:
         node: An AST node (raw shfmt JSON dict or Python node).
         redirs: Redirections inherited from a parent statement/pipe.
+        _in_test_body: We are inside a ``[[ ]]`` test (or a parenthesized
+            test). Suppresses the pseudo-command emission for expansions
+            (``$var``, ``$(( ))``, ``{a,b}``, ...) reachable there, since
+            they are operands of the test rather than commands.
+        _emit_cmd: This node *is* a command: only the right operand of a
+            ``&&``/``||`` inside a test body carries it, so a bare literal
+            in any other test position stays a value.
 
     Returns:
         List of segment dicts, each with:
@@ -435,41 +446,46 @@ def _extract_segments(
 
     elif isinstance(node, TestClause):
         # Recurse into test expression - UnaryTest/BinaryTest may contain commands in args.
+        # The body is a test *body*: bare literals there are values being
+        # tested, not commands, so no `_emit_cmd` is handed down - only
+        # BinaryTest's logical right operand re-arms it.
         # Note: statement-level redirections (e.g. `[[ -f x ]] > file`) are NOT
         # propagated here - they are surfaced by the Stmt handler's synthetic
         # segment, since test-expression nodes are pseudo-commands, not real
         # command leaves.
         if hasattr(node, "body") and node.body:
-            segments.extend(_extract_segments(node.body, _in_test_expr=True))
+            segments.extend(_extract_segments(node.body, _in_test_body=True))
 
     elif isinstance(node, BinaryTest):
         # Test expression: only the right operand of a logical && / || is a
         # "command" to check. Every other operator's right operand is a value
         # (regex for =~, literal/glob for ==/!=, number for -eq, ...), never a
-        # command name - recurse WITHOUT test-expr context so only nested
+        # command name - recurse WITHOUT test-body context so only nested
         # command substitutions inside it are extracted.
         # The left operand is likewise the comparison subject (value/glob/
-        # regex/number) - recurse it WITHOUT test-expr context too, so nested
+        # regex/number) - recurse it WITHOUT test-body context too, so nested
         # command substitutions (e.g. [[ $(pwd) == /root* ]]) surface but the
-        # operand itself is not emitted as a command.
+        # operand itself is not emitted as a command. A left operand is never
+        # a command, even when this node is itself the right operand of an
+        # enclosing `&&` (chained tests: `[[ a && b && c ]]` emits only `c`).
         if hasattr(node, "left") and node.left:
-            segments.extend(_extract_segments(node.left, _in_test_expr=False))
+            segments.extend(_extract_segments(node.left, _in_test_body=False, _emit_cmd=False))
         if hasattr(node, "right") and node.right:
-            in_test_expr = node.op in ("&&", "||")
-            segments.extend(_extract_segments(node.right, _in_test_expr=in_test_expr))
+            right_is_cmd = node.op in ("&&", "||") and _in_test_body
+            segments.extend(_extract_segments(node.right, _in_test_body=right_is_cmd, _emit_cmd=right_is_cmd))
 
     elif isinstance(node, UnaryTest):
         # Unary test op (-d/-n/-z ...): the operand is a path/variable, not a
-        # command. Recurse WITHOUT test-expr context so nested command
+        # command. Recurse WITHOUT test-body context so nested command
         # substitutions are still extracted (e.g. [[ -d $(pwd) ]]) but the
         # operand itself is not emitted as a segment.
         if node.x is not None:
-            segments.extend(_extract_segments(node.x, _in_test_expr=False))
+            segments.extend(_extract_segments(node.x, _in_test_body=False, _emit_cmd=False))
 
     elif isinstance(node, ParenTest):
-        # Parenthesized test: recurse into body with test context
+        # Parenthesized test: recurse into body with test-body context
         if hasattr(node, "body") and node.body:
-            segments.extend(_extract_segments(node.body, _in_test_expr=True))
+            segments.extend(_extract_segments(node.body, _in_test_body=True))
 
     elif isinstance(node, TimeClause):
         # time <cmd> - extract the command from inside
@@ -547,30 +563,34 @@ def _extract_segments(
 
     elif isinstance(node, Word):
         # Word nodes (arguments) may contain CmdSubst/ProcSubst in their parts.
-        # Always recurse, passing the test-expr context down: inside test
-        # expressions bare Lit/SglQuoted fragments still surface as
-        # pseudo-commands while embedded substitutions are extracted as the
-        # real commands they run (bug #6: no more "$(...)" / "$var" phantom
-        # command names).
+        # Always recurse, passing the test context down: a word reached in
+        # command position inside a test body (`[[ x && ls ]]`) still surfaces
+        # its bare Lit/SglQuoted fragments, while embedded substitutions are
+        # extracted as the real commands they run (bug #6: no more "$(...)" /
+        # "$var" phantom command names).  A word in any other test position is
+        # a value: no `_emit_cmd` reaches it, so nothing is emitted for it.
         for part in node.parts:
-            segments.extend(_extract_segments(part, _in_test_expr=_in_test_expr))
+            segments.extend(_extract_segments(part, _in_test_body=_in_test_body, _emit_cmd=_emit_cmd))
 
     elif isinstance(node, Lit):
-        # Literals are command names only inside test expressions
-        if _in_test_expr:
+        # Literals are command names only in command position: the right
+        # operand of `&&`/`||` inside a test body (_emit_cmd).  Everywhere
+        # else in a test body (e.g. `[[ /etc/passwd ]]`, `[[ ( x ) ]]`) the
+        # literal is the value under test, not a command.
+        if _emit_cmd:
             segments.append({"command": node.value, "arguments": [], "redirections": []})
 
     elif isinstance(node, SglQuoted):
         # Single-quoted literal: no substitutions possible inside. It is a
-        # command name only inside test expressions (like a bare literal).
-        if _in_test_expr and node.value:
+        # command name only in command position (like a bare literal).
+        if _emit_cmd and node.value:
             segments.append({"command": node.value, "arguments": [], "redirections": []})
 
     elif isinstance(node, DblQuoted):
         # Double-quoted text may embed CmdSubst/ProcSubst/ParamExp parts -
         # always recurse so embedded substitutions surface as real commands.
         for part in node.parts:
-            segments.extend(_extract_segments(part, _in_test_expr=_in_test_expr))
+            segments.extend(_extract_segments(part, _in_test_body=_in_test_body, _emit_cmd=_emit_cmd))
 
     elif isinstance(node, ParamExp):
         # Parameter expansion (${x:-default}, ${x/pat/rep}, ${arr[i]}, ${x:0:3},
@@ -578,7 +598,7 @@ def _extract_segments(
         # replacement, index, or slice expressions. Recurse into each so the
         # inner commands surface as segments for allowed-pattern and
         # blocked-path checks.
-        if not _in_test_expr:
+        if not _in_test_body:
             for exp_child in (node.index, node.orig, node.replacement, node.slice):
                 if exp_child is not None:
                     segments.extend(_extract_segments(exp_child))
@@ -590,7 +610,7 @@ def _extract_segments(
         # Parameter-expansion slice (${x:offset:length}) - recurse into the
         # operands so command substitutions such as ${x:$(cmd):3} are still
         # extracted (bash runs the substitution at expansion time).
-        if not _in_test_expr:
+        if not _in_test_body:
             for slice_child in (node.offset, node.length):
                 if slice_child is not None:
                     segments.extend(_extract_segments(slice_child))
@@ -604,7 +624,7 @@ def _extract_segments(
     elif isinstance(node, (BinaryArithm, UnaryArithm, ParenArithm, FlagsArithm)):
         # Arithmetic sub-expressions: recurse into operands so command
         # substitutions such as `$(( N + $(cmd) ))` are still extracted.
-        if not _in_test_expr:
+        if not _in_test_body:
             for child in (
                 getattr(node, "left", None),
                 getattr(node, "right", None),
@@ -616,7 +636,7 @@ def _extract_segments(
 
     elif isinstance(node, BraceExp):
         # Brace expansion elements may contain substitutions ({a,$(cmd)}).
-        if not _in_test_expr:
+        if not _in_test_body:
             for elem in node.elems:
                 segments.extend(_extract_segments(elem))
 
