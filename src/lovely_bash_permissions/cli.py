@@ -426,14 +426,24 @@ def _render_word_subs(words: list[Word], indent: int, report: _Report) -> bool:
 
 
 def _stmt_snippet(stmt: Stmt, source: str) -> str:
-    """Extract the raw source text for a statement."""
+    """Extract the raw source text for a statement.
+
+    shfmt reports positions as **byte** offsets into the UTF-8 source, while
+    *source* is a ``str`` indexed by code point.  Slicing the ``str`` with a
+    byte offset is wrong as soon as the command contains a non-ASCII
+    character anywhere before the statement, so the slice is taken on the
+    encoded form and decoded afterwards.  The bounds check has to compare
+    against the encoded length for the same reason - a byte offset can exceed
+    ``len(source)`` on multibyte input without being out of range.
+    """
     if stmt.pos is None or stmt.end is None:
         return ""
     start = stmt.pos.offset
     end = stmt.end.offset
-    if start < 0 or end < 0 or start > len(source) or end > len(source):
+    encoded = source.encode("utf-8", errors="replace")
+    if start < 0 or end < 0 or start > len(encoded) or end > len(encoded):
         return ""
-    return source[start:end].strip()
+    return encoded[start:end].decode("utf-8", errors="replace").strip()
 
 
 def _redirs_of(stmt: Stmt) -> list[Redir]:
