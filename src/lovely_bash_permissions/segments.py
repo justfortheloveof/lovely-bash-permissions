@@ -111,6 +111,59 @@ def _array_text(assign: Assign) -> str:
     return f"({' '.join(elems)})"
 
 
+def _assign_operand_text(assign: Assign) -> str:
+    """Render a variable assignment's operand, e.g. ``bar``, ``a[0]=bar``, ``=(a b)``.
+
+    Covers every shape shfmt can produce: scalar, subscripted, array, and
+    append (``+=``) in combination with a subscript or an array.  Returns
+    ``""`` only when there is genuinely nothing to render.
+
+    Two orderings matter here.  The *array* case has to be resolved before
+    ``append`` is consulted, because shfmt reports ``A+=(a b)`` with
+    ``append=True`` and the value in ``array`` (not ``value``) - reading
+    ``value`` first rendered a bare ``A+=`` and dropped the elements.  And the
+    subscript belongs to the whole assignment rather than to the value, so it
+    goes between the name and the operator: ``A[i]+=(x y)``.
+
+    Args:
+        assign: The ``Assign`` node to render.
+
+    Returns:
+        The assignment as written, or ``""`` if there is nothing to render.
+    """
+    name = assign.name.value if assign.name is not None and assign.name.value else ""
+    if assign.naked:
+        # A declaration operand with no operator: either a bare name
+        # (`export FOO`) or a flag, which shfmt carries as a name-less assign
+        # whose value is the flag text (`declare -a`).
+        if name:
+            return name
+        return _word_raw(assign.value) if assign.value is not None else ""
+
+    # shfmt types Assign.index as the general Node; every subscript it actually
+    # emits is a Word, and anything else has no renderable text.
+    index = f"[{_word_raw(assign.index)}]" if isinstance(assign.index, Word) else ""
+    operator = "+=" if assign.append else "="
+
+    if assign.array is not None:
+        operand = _array_text(assign)
+    elif assign.value is not None:
+        operand = _word_raw(assign.value)
+    else:
+        operand = ""
+
+    if not operand:
+        # `A=` / `A+=` with nothing on the right: the operator is all there
+        # is. Render it (when there is a name to hang it on) so the assignment
+        # still reaches the variable_assignment policy as a segment.
+        return f"{name}{index}{operator}" if name else ""
+    if not name:
+        # No name to hang the operator on - emit the operand on its own rather
+        # than dropping the assignment and, with it, the whole segment.
+        return operand
+    return f"{name}{index}{operator}{operand}"
+
+
 def _redir_dicts(redirs: list[Redir]) -> list[dict[str, Any]]:
     """Serialize Redir nodes into the segment dict format.
 
@@ -260,28 +313,8 @@ def _extract_segments(
                     if has_cmdsubst:
                         break
                 if not has_cmdsubst:
-                    var_assign_args = []
-
-                    for a in node.assigns:
-                        name = a.name.value if a.name is not None and a.name.value else ""
-                        if a.naked:
-                            if name:
-                                var_assign_args.append(name)
-                            elif a.value is not None:
-                                var_assign_args.append(_word_raw(a.value))
-                        elif name:
-                            if a.append:
-                                var_assign_args.append(
-                                    f"{name}+={_word_raw(a.value)}" if a.value is not None else f"{name}+="
-                                )
-                            elif a.value is not None:
-                                var_assign_args.append(f"{name}={_word_raw(a.value)}")
-                            elif a.array is not None:
-                                var_assign_args.append(f"{name}={_array_text(a)}")
-                            else:
-                                var_assign_args.append(name)
-                        elif a.value is not None:
-                            var_assign_args.append(_word_raw(a.value))
+                    var_assign_args = [_assign_operand_text(a) for a in node.assigns]
+                    var_assign_args = [arg for arg in var_assign_args if arg]
                     if var_assign_args:
                         # Add variable assignment segment before the command segment
                         segments.append({"command": "", "arguments": var_assign_args, "redirections": []})
@@ -312,25 +345,7 @@ def _extract_segments(
             # Standalone variable assignment (no Args, only Assigns)
             # Create a segment so it can be evaluated against allowed patterns.
             redir_dicts = _redir_dicts(redirs or [])
-            args = []
-            for a in node.assigns:
-                name = a.name.value if a.name is not None and a.name.value else ""
-                if a.naked:
-                    if name:
-                        args.append(name)
-                    elif a.value is not None:
-                        args.append(_word_raw(a.value))
-                elif name:
-                    if a.append:
-                        args.append(f"{name}+={_word_raw(a.value)}" if a.value is not None else f"{name}+=")
-                    elif a.value is not None:
-                        args.append(f"{name}={_word_raw(a.value)}")
-                    elif a.array is not None:
-                        args.append(f"{name}={_array_text(a)}")
-                    else:
-                        args.append(name)
-                elif a.value is not None:
-                    args.append(_word_raw(a.value))
+            args = [operand for operand in (_assign_operand_text(a) for a in node.assigns) if operand]
             segments.append({"command": "", "arguments": args, "redirections": redir_dicts})
             # Recurse into assignment sub-expressions (values, indexes, arrays) so
             # command substitutions inside them are extracted - e.g. the redirection
@@ -358,25 +373,9 @@ def _extract_segments(
         # way CallExpr does.
         redir_dicts = _redir_dicts(redirs or [])
 
-        operands: list[str] = []
-        for assign in node.assigns or []:
-            name = assign.name.value if assign.name is not None and assign.name.value else ""
-            if assign.naked:
-                if name:
-                    operands.append(name)
-                elif assign.value is not None:
-                    operands.append(_word_raw(assign.value))
-            elif name:
-                if assign.append:
-                    operands.append(f"{name}+={_word_raw(assign.value)}" if assign.value is not None else f"{name}+=")
-                elif assign.value is not None:
-                    operands.append(f"{name}={_word_raw(assign.value)}")
-                elif assign.array is not None:
-                    operands.append(f"{name}={_array_text(assign)}")
-                else:
-                    operands.append(name)
-            elif assign.value is not None:
-                operands.append(_word_raw(assign.value))
+        operands: list[str] = [
+            operand for operand in (_assign_operand_text(assign) for assign in node.assigns or []) if operand
+        ]
         if operands:
             segments.append({"command": node.variant, "arguments": operands, "redirections": redir_dicts})
         # Recurse into redirection target words so nested command/process

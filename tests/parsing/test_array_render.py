@@ -1,5 +1,5 @@
 """
-Tests for faithful rendering of bash array assignment literals.
+Tests for faithful rendering of bash variable-assignment operands.
 
 Bash array assignments used to be collapsed to a ``(...)`` placeholder, so
 the element text never reached any pattern matcher::
@@ -7,17 +7,36 @@ the element text never reached any pattern matcher::
     A=(/etc/passwd foo)   ->  {"command": "", "arguments": ["A=(...)"]}
 
 That hid the elements from allowed-pattern / blocked-path checks entirely.
-These tests pin the rendered element list, keep the placeholder only for the
-genuinely empty array, and confirm command substitutions inside elements are
-still extracted as the real commands they run.
+The rest of the assignment shapes were lossy in the same way: the ``+=`` test
+ran before the array test, so ``A+=(a b)`` rendered as a bare ``A+=`` with the
+elements dropped, and a subscript was never rendered at all, so ``A[i]=value``
+reported ``A=value``.
+
+These tests pin the rendered operand for every shape - scalar, subscripted,
+array, and append combined with either - keep the ``(...)`` placeholder only for
+the genuinely empty array, and confirm command substitutions inside elements
+are still extracted as the real commands they run.
 """
 
+from typing import ClassVar, cast
+
+import pytest
+
+from lovely_bash_permissions.errors import LovelyDevinPermissionsError
+from lovely_bash_permissions.evaluate import evaluate_bash_command
 from lovely_bash_permissions.segments import parse_segments
 
 
 def _commands(command: str) -> list[str]:
     """Return the command names extracted from *command*."""
     return [s["command"] for s in parse_segments(command)]
+
+
+def _args(command: str) -> list[str]:
+    """Return the arguments of the single segment *command* produces."""
+    segs = parse_segments(command)
+    assert len(segs) == 1, f"{command!r} -> {[(s['command'], s['arguments']) for s in segs]}"
+    return cast("list[str]", segs[0]["arguments"])
 
 
 class TestStandaloneArrayAssignment:
@@ -102,7 +121,7 @@ class TestArrayElementSubstitutions:
 
 
 class TestNonArrayAssignmentShapes:
-    """Scalar assignment rendering is unchanged by the array helper."""
+    """Scalar and naked assignment rendering is unchanged by the helper."""
 
     def test_plain_export(self) -> None:
         segs = parse_segments("export FOO=bar")
@@ -126,8 +145,123 @@ class TestNonArrayAssignmentShapes:
         segs = parse_segments("FOO+=bar")
         assert segs[0]["arguments"] == ["FOO+=bar"]
 
-    def test_indexed_scalar_assignment_keeps_name_and_value(self) -> None:
-        # Pre-existing shape: the subscript of a *scalar* assignment is not
-        # rendered (only the array-element case carries an index).
-        segs = parse_segments("A[i]=value")
-        assert segs[0]["arguments"] == ["A=value"]
+    def test_indexed_scalar_assignment_keeps_the_subscript(self) -> None:
+        # The subscript belongs to the assignment, not just the value, so it
+        # used to be dropped, turning `A[i]=value` into `A=value`.
+        assert _args("A[i]=value") == ["A[i]=value"]
+
+    def test_indexed_append_scalar_keeps_the_subscript(self) -> None:
+        assert _args("A[i]+=v") == ["A[i]+=v"]
+
+    def test_append_with_no_value_renders_the_operator(self) -> None:
+        # `A+=` is all bash records; the segment must still name the variable.
+        assert _args("A+=") == ["A+="]
+
+    def test_indexed_arithmetic_value(self) -> None:
+        assert _args("A[i]=$((1))") == ["A[i]=$(( ... ))"]
+
+
+class TestAssignmentShapesBare:
+    """Every assign shape renders, in the bare (non-declaration) form.
+
+    The five shapes below are the ones the duplicated rendering logic used to
+    get wrong or drop.  They now go through one shared helper, so a bare form
+    and its declaration-builtin form cannot drift apart.
+    """
+
+    def test_scalar(self) -> None:
+        assert _args("FOO=bar") == ["FOO=bar"]
+
+    def test_subscripted_scalar(self) -> None:
+        assert _args("A[i]=value") == ["A[i]=value"]
+
+    def test_array(self) -> None:
+        assert _args("A=(a b)") == ["A=(a b)"]
+
+    def test_append_array(self) -> None:
+        # Regression: `append` was tested before `array`, and shfmt puts an
+        # append's value in `array`, so the elements were dropped entirely.
+        assert _args("A+=(a b)") == ["A+=(a b)"]
+
+    def test_subscripted_append_array(self) -> None:
+        assert _args("A[i]+=(x y)") == ["A[i]+=(x y)"]
+
+    def test_append_array_with_one_element(self) -> None:
+        assert _args("A+=(x)") == ["A+=(x)"]
+
+
+class TestAssignmentShapesInDeclarations:
+    """The same five shapes render identically under a declaration builtin."""
+
+    _VARIANTS = ("export", "declare", "local", "readonly", "typeset")
+
+    def test_all_shapes_match_the_bare_rendering(self) -> None:
+        for variant in self._VARIANTS:
+            for shape, expected in (
+                ("FOO=bar", "FOO=bar"),
+                ("A[i]=value", "A[i]=value"),
+                ("A=(a b)", "A=(a b)"),
+                ("A+=(a b)", "A+=(a b)"),
+                ("A[i]+=(x y)", "A[i]+=(x y)"),
+            ):
+                segs = parse_segments(f"{variant} {shape}")
+                assert len(segs) == 1, f"{variant} {shape} -> {segs}"
+                assert segs[0]["command"] == variant, f"{variant} {shape}"
+                assert segs[0]["arguments"] == [expected], f"{variant} {shape}"
+
+    def test_declaration_flag_precedes_the_operand(self) -> None:
+        # shfmt reports a leading flag as a name-less naked assign; it must
+        # still render ahead of the assignment operand.
+        assert _commands("declare -a A+=(a b)") == ["declare"]
+        assert parse_segments("declare -a A+=(a b)")[0]["arguments"] == ["-a", "A+=(a b)"]
+
+    def test_empty_array_under_declaration_still_placeholder(self) -> None:
+        for variant in self._VARIANTS:
+            assert _args(f"{variant} A=()") == ["A=(...)"], variant
+
+
+class TestSubscriptPlusArrayIsAParseError:
+    """``A[i]=(x y)`` is not valid bash - shfmt rejects it outright.
+
+    It cannot be a rendering gap: the syntax never reaches the assign
+    renderer.  shfmt reports "arrays cannot be nested", bash itself says
+    "cannot assign list to array member", so the only subscripted-array shape
+    that can be parsed is the append form (``A[i]+=(x y)``) pinned above.
+    ``parse_segments`` reports the failure as "no segments" and
+    ``evaluate_bash_command`` raises, which the hook maps to the ``error``
+    policy - never a silent approval.
+    """
+
+    def test_parse_segments_yields_no_segments(self) -> None:
+        assert parse_segments("A[i]=(x y)") == []
+
+    def test_evaluation_raises_rather_than_approving(self) -> None:
+        with pytest.raises(LovelyDevinPermissionsError):
+            evaluate_bash_command("A[i]=(x y)", {"*": "allow", "variable_assignment": "deny"})
+
+
+class TestVariableAssignmentPolicyApplies:
+    """Rendered operands reach the variable_assignment policy.
+
+    With every element dropped (``A+=``) a blocked assignment still tripped
+    the policy, but an allowed-pattern rule could not have matched the array
+    contents, and a zero-segment assignment would have skipped the policy
+    entirely.
+    """
+
+    _CONFIG: ClassVar[dict[str, str]] = {"*": "allow", "variable_assignment": "deny"}
+
+    def test_append_array_is_denied(self) -> None:
+        assert evaluate_bash_command("A+=(a b)", self._CONFIG)["status"] == "deny"
+
+    def test_subscripted_append_array_is_denied(self) -> None:
+        assert evaluate_bash_command("A[i]+=(x y)", self._CONFIG)["status"] == "deny"
+
+    def test_array_is_denied(self) -> None:
+        assert evaluate_bash_command("A=(a b)", self._CONFIG)["status"] == "deny"
+
+    def test_denied_reason_carries_the_rendered_operand(self) -> None:
+        # The point of rendering: the operand the policy reports is the whole
+        # assignment, not a bare `A+=`.
+        reason = evaluate_bash_command("A+=(a b)", self._CONFIG)["reason"]
+        assert "A+=(a b)" in reason
