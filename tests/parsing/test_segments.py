@@ -276,60 +276,99 @@ class TestDialect:
 
 
 class TestDeclClause:
-    """DeclClause (export/readonly/local/declare/typeset) segment extraction."""
+    """DeclClause (export/readonly/local/declare/typeset) segment extraction.
+
+    A declaration builtin's operands *are* variable assignments - `export
+    FOO=bar` assigns exactly as `FOO=bar` does, and `local x=1` likewise - so
+    they are split into their own variable-assignment segment (the one whose
+    ``command`` is ``""``), the same way the CallExpr handler splits
+    `FOO=bar ls`.  The variant keyword stays a command segment in its own
+    right, because it really does run.
+
+    Why the split matters: ``variable_assignment`` is only consulted for
+    segments with an empty command, so hanging the operands off the variant
+    segment meant the policy never reached them.  With
+    ``{"*": "allow", "variable_assignment": "deny"}`` the bare ``FOO=bar``
+    denied while ``export FOO=bar`` was approved - the policy was bypassed by
+    typing one extra word.
+    """
 
     def test_export_is_a_command_segment(self) -> None:
+        # `export` still runs, so it is still a command segment - but its
+        # operands now live on the variable-assignment segment ahead of it.
         segs = parse_segments("export BOGUS=true bogus")
-        assert [s["command"] for s in segs] == ["export"]
+        assert [s["command"] for s in segs] == ["", "export"]
         assert segs[0]["arguments"] == ["BOGUS=true", "bogus"]
+        assert segs[1]["arguments"] == []
 
-    def test_export_assignment_is_an_operand(self) -> None:
+    def test_export_operand_is_its_own_variable_assignment_segment(self) -> None:
         segs = parse_segments("export FOO=bar")
-        assert len(segs) == 1
-        assert segs[0]["command"] == "export"
-        assert segs[0]["arguments"] == ["FOO=bar"]
+        assert [(s["command"], s["arguments"]) for s in segs] == [("", ["FOO=bar"]), ("export", [])]
 
     def test_export_no_duplicate_segments(self) -> None:
+        # Exactly one variable-assignment segment plus one keyword segment: the
+        # operand is reported once, not once as an assignment and again as an
+        # argument of `export`.
         segs = parse_segments("export FOO=bar")
-        assert len(segs) == 1
+        assert [(s["command"], s["arguments"]) for s in segs] == [("", ["FOO=bar"]), ("export", [])]
         segs = parse_segments("export BOGUS=true bogus")
-        assert [s["command"] for s in segs] == ["export"]
+        assert [(s["command"], s["arguments"]) for s in segs] == [("", ["BOGUS=true", "bogus"]), ("export", [])]
 
     def test_export_multiple_naked_names(self) -> None:
         segs = parse_segments("export FOO bar")
-        assert [s["command"] for s in segs] == ["export"]
-        assert segs[0]["arguments"] == ["FOO", "bar"]
+        assert [(s["command"], s["arguments"]) for s in segs] == [("", ["FOO", "bar"]), ("export", [])]
 
     def test_export_value_cmdsubst_extracted(self) -> None:
-        # Command substitution in an assignment value is a real execution.
+        # Command substitution in an assignment value is a real execution, and
+        # `export FOO=$(rm x)` captures its output rather than assigning a
+        # literal - so no variable-assignment segment is emitted, exactly as
+        # for `FOO=$(rm x) ls`.  That makes the substitution policies, not
+        # `variable_assignment`, the thing that decides this form.
         segs = parse_segments("export FOO=$(rm x)")
-        assert segs[0]["command"] == "export"
-        assert any(s["command"] == "rm" for s in segs)
+        assert [(s["command"], s["arguments"]) for s in segs] == [("export", []), ("rm", ["x"])]
+
+    def test_export_bare_substitution_operand(self) -> None:
+        # `export $(cmd)` - the whole operand is a substitution, and the same
+        # carve-out covers it.
+        segs = parse_segments("export $(cmd)")
+        assert [(s["command"], s["arguments"]) for s in segs] == [("export", []), ("cmd", [])]
 
     def test_export_flag_operands(self) -> None:
         segs = parse_segments("export -f foo")
-        assert segs[0]["command"] == "export"
-        assert segs[0]["arguments"] == ["-f", "foo"]
+        assert [(s["command"], s["arguments"]) for s in segs] == [("", ["-f", "foo"]), ("export", [])]
 
     def test_declclause_variants_are_commands(self) -> None:
-        for command, variant in [
-            ("readonly FOO", "readonly"),
-            ("local x=1 y=2", "local"),
-            ("declare FOO=1", "declare"),
-            ("typeset -x FOO", "typeset"),
+        for source, variant, operands in [
+            ("readonly FOO", "readonly", ["FOO"]),
+            ("local x=1 y=2", "local", ["x=1", "y=2"]),
+            ("declare FOO=1", "declare", ["FOO=1"]),
+            ("typeset -x FOO", "typeset", ["-x", "FOO"]),
         ]:
-            segs = parse_segments(command)
-            assert segs[0]["command"] == variant
-            assert len(segs) == 1
+            segs = parse_segments(source)
+            assert [(s["command"], s["arguments"]) for s in segs] == [("", operands), (variant, [])], source
 
     def test_declclause_array_operand(self) -> None:
         segs = parse_segments("declare -a arr=(a b)")
-        assert segs[0]["command"] == "declare"
-        assert segs[0]["arguments"] == ["-a", "arr=(a b)"]
+        assert [(s["command"], s["arguments"]) for s in segs] == [("", ["-a", "arr=(a b)"]), ("declare", [])]
 
     def test_declclause_array_value_cmdsubst_extracted(self) -> None:
-        # Command substitution inside an array element is a real execution.
-        assert any(s["command"] == "ls" for s in parse_segments("declare -a arr=($(ls))"))
+        # The substitution carve-out only inspects the assignment's `value`, not
+        # its array *elements*, so `arr=($(ls))` keeps its variable-assignment
+        # segment - matching the pre-existing CallExpr behaviour for
+        # `A=($(ls))` - while still surfacing the command that really runs.
+        segs = parse_segments("declare -a arr=($(ls))")
+        assert [(s["command"], s["arguments"]) for s in segs] == [
+            ("", ["-a", "arr=($(...))"]),
+            ("declare", []),
+            ("ls", []),
+        ]
+
+    def test_bare_variant_without_operands_yields_no_segments(self) -> None:
+        # `export` on its own assigns nothing, and a keyword segment is only
+        # emitted alongside an operand - so the operand-less form produces no
+        # segments at all, as it did before the split.
+        assert parse_segments("export") == []
+        assert parse_segments("readonly") == []
 
 
 class TestConditionals:

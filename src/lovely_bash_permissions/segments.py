@@ -87,6 +87,26 @@ def _part_value(p: object) -> str:
     return ""
 
 
+def _assigns_have_substitution(assigns: list[Assign]) -> bool:
+    """True when any assignment's value expands a command or process substitution.
+
+    ``x=$(cmd)`` is a capture-output operation, which bash evaluates through
+    the substitution policies rather than ``variable_assignment`` - so an
+    assignment carrying one must not become a variable-assignment segment.
+    A substitution can also hide inside double quotes (``x="$(cmd)"``), which
+    is why the inner parts are inspected too.
+    """
+    for assign in assigns:
+        if assign.value is None:
+            continue
+        for part in assign.value.parts:
+            if isinstance(part, (CmdSubst, ProcSubst)):
+                return True
+            if isinstance(part, DblQuoted) and any(isinstance(inner, (CmdSubst, ProcSubst)) for inner in part.parts):
+                return True
+    return False
+
+
 def _array_text(assign: Assign) -> str:
     """Render an array assignment's elements, e.g. ``(a b c)``.
 
@@ -296,28 +316,12 @@ def _extract_segments(
             # substitution policies (command_substitution / process_substitution), not
             # variable_assignment. Only pure variable assignments (plain literal values)
             # should be extracted as separate variable assignment segments.
-            if node.assigns:
-                has_cmdsubst = False
-                for a in node.assigns:
-                    if a.value is not None:
-                        for part in a.value.parts:
-                            if isinstance(part, (CmdSubst, ProcSubst)):
-                                has_cmdsubst = True
-                                break
-                            # Recurse into DblQuoted parts to find CmdSubst/ProcSubst inside
-                            if isinstance(part, DblQuoted):
-                                for inner in part.parts:
-                                    if isinstance(inner, (CmdSubst, ProcSubst)):
-                                        has_cmdsubst = True
-                                        break
-                    if has_cmdsubst:
-                        break
-                if not has_cmdsubst:
-                    var_assign_args = [_assign_operand_text(a) for a in node.assigns]
-                    var_assign_args = [arg for arg in var_assign_args if arg]
-                    if var_assign_args:
-                        # Add variable assignment segment before the command segment
-                        segments.append({"command": "", "arguments": var_assign_args, "redirections": []})
+            if node.assigns and not _assigns_have_substitution(node.assigns):
+                var_assign_args = [_assign_operand_text(a) for a in node.assigns]
+                var_assign_args = [arg for arg in var_assign_args if arg]
+                if var_assign_args:
+                    # Add variable assignment segment before the command segment
+                    segments.append({"command": "", "arguments": var_assign_args, "redirections": []})
 
             redir_dicts = _redir_dicts(redirs or [])
             segments.append(
@@ -364,20 +368,22 @@ def _extract_segments(
                                 segments.extend(_extract_segments(elem.value, redirs))
 
     elif isinstance(node, DeclClause):
-        # Declaration builtins (export/readonly/local/declare/typeset) are
-        # commands like any other: the variant keyword is the command name and
-        # each operand (naked name, flag, NAME=value, arr=(...)) is an
-        # argument. Recurse into every operand sub-expression so command
-        # substitutions inside them are still extracted (export FOO=$(rm x)).
-        # Inherit redirections from the parent statement/compound the same
-        # way CallExpr does.
+        # A declaration builtin's operands are variable assignments - `export
+        # FOO=bar` assigns exactly as `FOO=bar` does, and `local x=1` likewise -
+        # so they are split into their own variable-assignment segment, the same
+        # way the CallExpr handler splits `FOO=bar ls`. The variant keyword stays
+        # a command segment in its own right (`export` really does run).
+        # Keeping the operands as arguments of the variant segment instead meant
+        # `variable_assignment` never reached them, so `export FOO=bar` was
+        # approved even under `"variable_assignment": "deny"`.
         redir_dicts = _redir_dicts(redirs or [])
+        declares = node.assigns or []
 
-        operands: list[str] = [
-            operand for operand in (_assign_operand_text(assign) for assign in node.assigns or []) if operand
-        ]
+        operands: list[str] = [operand for operand in (_assign_operand_text(assign) for assign in declares) if operand]
         if operands:
-            segments.append({"command": node.variant, "arguments": operands, "redirections": redir_dicts})
+            if not _assigns_have_substitution(declares):
+                segments.append({"command": "", "arguments": operands, "redirections": []})
+            segments.append({"command": node.variant, "arguments": [], "redirections": redir_dicts})
         # Recurse into redirection target words so nested command/process
         # substitutions are extracted (e.g. `export F=$(generate_name)`).
         # Also recurse into heredoc bodies (Hdoc) for the same reason as
@@ -387,7 +393,7 @@ def _extract_segments(
                 segments.extend(_extract_segments(r.word))
             if r.hdoc is not None:
                 segments.extend(_extract_segments(r.hdoc))
-        for assign in node.assigns or []:
+        for assign in declares:
             if assign.index is not None:
                 segments.extend(_extract_segments(assign.index, redirs))
             if assign.value is not None:

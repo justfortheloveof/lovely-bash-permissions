@@ -22,7 +22,9 @@ its own copy of the assignment renderer, which dropped array elements
 declaration flag (``declare -a`` -> ``declare =-a``).  It now delegates to the
 renderer ``segments`` uses for permission evaluation, and the tests below pin
 that the inspection output agrees with :func:`parse_segments` operand for
-operand - that agreement is the point of the change.
+operand - that agreement is the point of the change.  The comparison is against
+the variable-assignment segment (``command == ""``), which is where both a bare
+assignment and a declaration builtin's operands are reported.
 """
 
 import pytest
@@ -59,23 +61,28 @@ def _assign_operands(lines: list[str], variant: str | None = None) -> list[str]:
     return [line[len(prefix) :] for line in lines if line.startswith(prefix)]
 
 
-def _segment_arguments(source: str, command: str) -> list[str]:
-    """Return the non-empty arguments ``parse_segments`` reports for *command*.
+def _assignment_arguments(source: str) -> list[str]:
+    """Return the non-empty arguments of *source*'s variable-assignment segment.
+
+    ``parse_segments`` reports assignment operands on the segment whose command
+    is ``""`` - for a bare assignment and for a declaration builtin's operands
+    alike - and that is the segment the permission path gates with the
+    ``variable_assignment`` policy, so it is the one the rendering has to agree
+    with.
 
     Args:
         source: The bash source to segment.
-        command: The segment's command name ("" for a bare assignment).
 
     Returns:
-        The segment's arguments, empty ones dropped.
+        The variable-assignment segment's arguments, empty ones dropped.
 
     Raises:
-        AssertionError: If no segment with that command name is found.
+        AssertionError: If the source produces no such segment.
     """
     for segment in parse_segments(source):
-        if segment["command"] == command:
+        if segment["command"] == "":
             return [str(argument) for argument in segment["arguments"] if argument]
-    raise AssertionError(f"no {command!r} segment in {parse_segments(source)}")
+    raise AssertionError(f"no variable-assignment segment in {parse_segments(source)}")
 
 
 class TestForLoopWords:
@@ -294,7 +301,15 @@ class TestUnrenderableAssignment:
 
 
 class TestAgreesWithSegments:
-    """The rendered operands are the operands ``segments`` reports."""
+    """The rendered operands are the operands ``segments`` reports.
+
+    The CLI renders a declaration builtin's assigns straight from the AST on one
+    ``assign: <variant> <operand>`` line, while ``parse_segments`` now splits
+    those operands onto the variable-assignment segment (the keyword keeps its
+    own, empty, command segment).  So the comparison is against the
+    variable-assignment segment: that is the segment the permission path
+    evaluates, which is exactly what this test is here to keep honest.
+    """
 
     @pytest.mark.parametrize(
         ("source", "variant"),
@@ -322,5 +337,5 @@ class TestAgreesWithSegments:
     ) -> None:
         assert main(["--string", source]) == 0
         rendered = _assign_operands(_lines(capsys), variant)
-        expected = _segment_arguments(source, "" if variant is None else variant)
+        expected = _assignment_arguments(source)
         assert rendered == expected

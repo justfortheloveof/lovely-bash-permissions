@@ -98,12 +98,19 @@ class TestAllowedPatterns:
         assert result["status"] == "ask"
 
     def test_declclause_export_segment_extracted(self) -> None:
-        """DeclClause export is evaluated as the export command."""
+        """DeclClause export is evaluated as the export command.
+
+        The operand is reported as its own variable-assignment segment, so it
+        needs a policy of its own; ``variable_assignment=allow`` keeps the test
+        about the keyword segment matching the pattern.
+        """
         result = evaluate_bash_command(
             "export BOGUS=true bogus",
-            make_config(allowed=[r"^export(\s+.*)?$"]),
+            make_config(allowed=[r"^export(\s+.*)?$"], variable_assignment="allow"),
         )
         assert result["status"] == "allow"
+        assert [segment["command"] for segment in result["segments"]] == ["", "export"]
+        assert r"command matches allowed pattern: ^export(\s+.*)?$" in result["reason"]
 
     def test_for_clause_extracted(self) -> None:
         """For loop body commands should be extracted."""
@@ -961,10 +968,15 @@ class TestSubshellHandling:
         assert result["reason"].count(r"^cat(\s+.*)?$") == 1
 
     def test_export_matched_pattern_listed_once(self) -> None:
-        """`export FOO` matches the export pattern and lists it once."""
+        """`export FOO` matches the export pattern and lists it once.
+
+        The operand is a separate variable-assignment segment (allowed here), so
+        the count reflects the keyword segment alone - no double listing from
+        the segment loop and the AST walk.
+        """
         result = evaluate_bash_command(
             "export FOO",
-            make_config(allowed=[r"^export(\s+.*)?$"]),
+            make_config(allowed=[r"^export(\s+.*)?$"], variable_assignment="allow"),
         )
         assert result["status"] == "allow"
         assert result["reason"].count(r"^export(\s+.*)?$") == 1
@@ -1940,22 +1952,58 @@ class TestVariableAssignment:
         assert result["status"] == "allow"
 
     def test_export_still_treated_as_command(self) -> None:
-        """export FOO=bar is a command (export), not a variable assignment."""
-        result = evaluate_bash_command(
+        """`export FOO=bar` runs `export`, and its operand is a variable assignment.
+
+        Both halves matter: the keyword is a command segment the allowed pattern
+        matches on its own, while the operand is a *separate* segment that
+        ``variable_assignment`` gates.  So allowing the assignment lets the
+        pattern speak for the keyword, and denying it denies the whole command
+        even though `export` itself is allow-listed.
+        """
+        allowed = [r"^export(\s+.*)?$"]
+        allowed_result = evaluate_bash_command(
             "export FOO=bar",
-            make_config(allowed=[r"^export(\s+.*)?$"], variable_assignment="deny"),
+            make_config(allowed=allowed, wildcard="allow", variable_assignment="allow"),
         )
-        # export is allowed, so it should pass regardless of variable_assignment
-        assert result["status"] == "allow"
+        assert allowed_result["status"] == "allow"
+        assert [(s["command"], s["arguments"]) for s in allowed_result["segments"]] == [
+            ("", ["FOO=bar"]),
+            ("export", []),
+        ]
+        assert r"command matches allowed pattern: ^export(\s+.*)?$" in allowed_result["reason"]
+
+        denied_result = evaluate_bash_command(
+            "export FOO=bar",
+            make_config(allowed=allowed, wildcard="allow", variable_assignment="deny"),
+        )
+        assert denied_result["status"] == "deny"
+        assert "variable assignment denied: ['FOO=bar']" in denied_result["reason"]
 
     def test_local_still_treated_as_command(self) -> None:
-        """local FOO=bar is a command (local), not a variable assignment."""
-        result = evaluate_bash_command(
+        """`local FOO=bar` runs `local`, and its operand is a variable assignment.
+
+        Same split as `export`: the keyword segment is matchable by
+        ``allowed_cmds_regex``, and the operand is gated by
+        ``variable_assignment`` on its own.
+        """
+        allowed = [r"^local(\s+.*)?$"]
+        allowed_result = evaluate_bash_command(
             "local FOO=bar",
-            make_config(allowed=[r"^local(\s+.*)?$"], variable_assignment="deny"),
+            make_config(allowed=allowed, wildcard="allow", variable_assignment="allow"),
         )
-        # local is allowed, so it should pass regardless of variable_assignment
-        assert result["status"] == "allow"
+        assert allowed_result["status"] == "allow"
+        assert [(s["command"], s["arguments"]) for s in allowed_result["segments"]] == [
+            ("", ["FOO=bar"]),
+            ("local", []),
+        ]
+        assert r"command matches allowed pattern: ^local(\s+.*)?$" in allowed_result["reason"]
+
+        denied_result = evaluate_bash_command(
+            "local FOO=bar",
+            make_config(allowed=allowed, wildcard="allow", variable_assignment="deny"),
+        )
+        assert denied_result["status"] == "deny"
+        assert "variable assignment denied: ['FOO=bar']" in denied_result["reason"]
 
     def test_multiple_variable_assignments_before_command(self) -> None:
         """Multiple variable assignments before command all get checked."""
@@ -2026,6 +2074,124 @@ class TestVariableAssignment:
             make_config(allowed=[r"^echo(\s+.*)?$"], command_substitution="allow", variable_assignment="allow"),
         )
         assert result["status"] == "allow"
+
+
+class TestDeclarationOperandsAreVariableAssignments:
+    """A declaration builtin's operands reach the variable_assignment policy.
+
+    Regression: the operands used to hang off the variant segment
+    (``[('export', ['FOO=bar'])]``), and the policy is only ever consulted for
+    a segment whose command is `""`.  So with
+    ``{"*": "allow", "variable_assignment": "deny"}`` the bare ``FOO=bar``
+    denied while every declared form was approved - the policy was bypassed by
+    typing one extra word in front of the assignment.  The operands are now
+    split into their own variable-assignment segment, so both spellings of the
+    same assignment are gated identically.
+    """
+
+    _CONFIG: ClassVar[dict[str, str]] = {"*": "allow", "variable_assignment": "deny"}
+
+    @pytest.mark.parametrize(
+        ("source", "keyword"),
+        [
+            ("FOO=bar", None),
+            ("export FOO=bar", "export"),
+            ("readonly FOO=bar", "readonly"),
+            ("local x=1", "local"),
+            ("declare -i y=2", "declare"),
+            ("typeset -x z=3", "typeset"),
+            ("export A=(a b)", "export"),
+            # A naked name counts too: shfmt reports `export FOO` as a
+            # name-less assign, so it is an assignment - unlike a bare `FOO`,
+            # which is a call and stays with the wildcard.
+            ("export FOO", "export"),
+        ],
+    )
+    def test_denied_like_the_bare_assignment(self, source: str, keyword: str | None) -> None:
+        result = evaluate_bash_command(source, self._CONFIG)
+        assert result["status"] == "deny", source
+        assert "variable assignment denied" in result["reason"], source
+        # The denial comes from a real variable-assignment segment, not from the
+        # keyword segment; the keyword is still reported, behind the operand.
+        assert [segment["command"] for segment in result["segments"]] == ([""] if keyword is None else ["", keyword])
+
+    def test_declared_form_denies_exactly_when_the_bare_form_does(self) -> None:
+        for bare, declared in (
+            ("FOO=bar", "export FOO=bar"),
+            ("A=(a b)", "export A=(a b)"),
+            ("A+=(a b)", "export A+=(a b)"),
+        ):
+            assert evaluate_bash_command(bare, self._CONFIG)["status"] == "deny", bare
+            assert evaluate_bash_command(declared, self._CONFIG)["status"] == "deny", declared
+
+    def test_variant_keyword_is_still_an_allow_matchable_command(self) -> None:
+        """Splitting out the operand did not demote the keyword.
+
+        ``export`` is still its own command segment, still matched by
+        ``allowed_cmds_regex`` on its own line, so allow-listing it works
+        exactly as before - the operand's policy is a separate question.
+        """
+        result = evaluate_bash_command(
+            "export FOO=bar",
+            {"*": "allow", "allowed_cmds_regex": [r"^export$"], "variable_assignment": "allow"},
+        )
+        assert result["status"] == "allow"
+        assert [(s["command"], s["arguments"]) for s in result["segments"]] == [("", ["FOO=bar"]), ("export", [])]
+        assert "command matches allowed pattern: ^export$" in result["reason"]
+
+    def test_denied_operand_still_reports_the_keyword_segment(self) -> None:
+        # Both segments are reported, so the caller can see that `local` ran
+        # even though the assignment is what caused the denial.
+        result = evaluate_bash_command("local x=1", self._CONFIG)
+        assert [(s["command"], s["arguments"]) for s in result["segments"]] == [("", ["x=1"]), ("local", [])]
+
+
+class TestDeclarationSubstitutionCarveOut:
+    """A declaration operand whose value expands `$( )` is capture-output.
+
+    ``export FOO=$(cmd)`` captures command output, so it belongs to the
+    ``command_substitution`` policy rather than ``variable_assignment`` - the
+    same carve-out that already applied to ``FOO=$(rm x) ls``.  No
+    variable-assignment segment is emitted for it, so a denying
+    ``variable_assignment`` never reaches the form.
+
+    The carve-out only inspects the assignment's ``value``, not its array
+    *elements*, so ``export A=($(cmd))`` keeps its variable-assignment segment -
+    matching the pre-existing CallExpr behaviour for ``A=($(cmd))``.
+    """
+
+    _CONFIG: ClassVar[dict[str, str]] = {
+        "*": "allow",
+        "variable_assignment": "deny",
+        "command_substitution": "allow",
+    }
+
+    @pytest.mark.parametrize(
+        "source",
+        ["FOO=$(cmd) ls", "export FOO=$(cmd)", "export $(cmd)"],
+    )
+    def test_capture_output_operand_is_not_a_variable_assignment(self, source: str) -> None:
+        result = evaluate_bash_command(source, self._CONFIG)
+        assert "" not in [segment["command"] for segment in result["segments"]], source
+        assert result["status"] == "allow", source
+
+    def test_declared_capture_output_is_the_substitution_policys_job(self) -> None:
+        assert evaluate_bash_command("export FOO=$(rm -rf /)", self._CONFIG)["status"] == "allow"
+        denied = evaluate_bash_command("export FOO=$(rm -rf /)", {**self._CONFIG, "command_substitution": "deny"})
+        assert denied["status"] == "deny"
+
+    def test_array_element_substitution_keeps_the_variable_assignment(self) -> None:
+        # `A=($(cmd))` was never covered by the carve-out, and a declared array
+        # is treated the same way: the operand is still an assignment, so the
+        # denying variable_assignment policy still denies it.
+        result = evaluate_bash_command("export A=($(cmd))", self._CONFIG)
+        assert [(s["command"], s["arguments"]) for s in result["segments"]] == [
+            ("", ["A=($(...))"]),
+            ("export", []),
+            ("cmd", []),
+        ]
+        assert result["status"] == "deny"
+        assert "variable assignment denied: ['A=($(...))']" in result["reason"]
 
 
 class TestBackgroundExecutionCompound:
