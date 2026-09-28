@@ -325,7 +325,7 @@ class TestDeclClause:
     def test_declclause_array_operand(self) -> None:
         segs = parse_segments("declare -a arr=(a b)")
         assert segs[0]["command"] == "declare"
-        assert segs[0]["arguments"] == ["-a", "arr=(...)"]
+        assert segs[0]["arguments"] == ["-a", "arr=(a b)"]
 
     def test_declclause_array_value_cmdsubst_extracted(self) -> None:
         # Command substitution inside an array element is a real execution.

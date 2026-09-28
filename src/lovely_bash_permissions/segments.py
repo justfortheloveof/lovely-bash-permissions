@@ -26,6 +26,7 @@ from .ast import (
     ArithmExp,
     ArrayElem,
     ArrayExpr,
+    Assign,
     BinaryArithm,
     BinaryCmd,
     BinaryTest,
@@ -84,6 +85,30 @@ def _part_value(p: object) -> str:
         v = getattr(p, "value", None)
         return v if isinstance(v, str) else ""
     return ""
+
+
+def _array_text(assign: Assign) -> str:
+    """Render an array assignment's elements, e.g. ``(a b c)``.
+
+    Falls back to the ``(...)`` placeholder when the array has no elements.
+    """
+    array = assign.array
+    if not isinstance(array, ArrayExpr):
+        return "(...)"
+    elems: list[str] = []
+    for elem in array.elems:
+        if not isinstance(elem, ArrayElem) or (elem.value is None and elem.index is None):
+            continue
+        text = _word_raw(elem.value) if elem.value is not None else ""
+        if isinstance(elem.index, Word):
+            # Sparse array (`A=([0]=x)`): keep the subscript visible so the
+            # element is not silently read as a positional one.
+            text = f"[{_word_raw(elem.index)}]={text}"
+        if text:
+            elems.append(text)
+    if not elems:
+        return "(...)"
+    return f"({' '.join(elems)})"
 
 
 def _redir_dicts(redirs: list[Redir]) -> list[dict[str, Any]]:
@@ -246,7 +271,7 @@ def _extract_segments(
                             elif a.value is not None:
                                 var_assign_args.append(f"{name}={_word_raw(a.value)}")
                             elif a.array is not None:
-                                var_assign_args.append(f"{name}=(...)")
+                                var_assign_args.append(f"{name}={_array_text(a)}")
                             else:
                                 var_assign_args.append(name)
                         elif a.value is not None:
@@ -295,7 +320,7 @@ def _extract_segments(
                     elif a.value is not None:
                         args.append(f"{name}={_word_raw(a.value)}")
                     elif a.array is not None:
-                        args.append(f"{name}=(...)")
+                        args.append(f"{name}={_array_text(a)}")
                     else:
                         args.append(name)
                 elif a.value is not None:
@@ -341,7 +366,7 @@ def _extract_segments(
                 elif assign.value is not None:
                     operands.append(f"{name}={_word_raw(assign.value)}")
                 elif assign.array is not None:
-                    operands.append(f"{name}=(...)")
+                    operands.append(f"{name}={_array_text(assign)}")
                 else:
                     operands.append(name)
             elif assign.value is not None:
