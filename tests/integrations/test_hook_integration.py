@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
+from lovely_bash_permissions.config.devin import exec_permission_to_regex
 from lovely_bash_permissions.evaluate import evaluate_bash_command
 from lovely_bash_permissions.hook import (
     _error_action,
@@ -288,8 +289,18 @@ def test_reason_preserved_in_block() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _effective_config(error: str = "ask", wildcard: str = "ask") -> dict[str, str | list[str]]:
-    return {"*": wildcard, "error": error, "allowed_cmds_regex": [], "blocked_cmds_regex": []}
+def _effective_config(
+    error: str = "ask",
+    wildcard: str = "ask",
+    allowed: list[str] | None = None,
+    blocked: list[str] | None = None,
+) -> dict[str, str | list[str]]:
+    return {
+        "*": wildcard,
+        "error": error,
+        "allowed_cmds_regex": allowed or [],
+        "blocked_cmds_regex": blocked or [],
+    }
 
 
 def test_error_policy_defaults_to_wildcard_ask() -> None:
@@ -365,9 +376,23 @@ def test_unexpected_exception_routed_through_error_policy() -> None:
 
 
 def _round_trip(command: str) -> tuple[str, str]:
-    """Feed a command through one evaluate+label pass, returning (new, action)."""
+    """Feed a command through one evaluate+label pass, returning (new, action).
+
+    Uses a config equivalent to a real one after ``--setup``: the Devin allow
+    list carries ``Exec(:)``, which is what permits the hook's own label. The
+    label is not special-cased, so without that entry re-evaluation asks.
+    """
     event = _pretooluse_exec_event(command)
-    decision = process_hook_event(event)
+    config = _effective_config(
+        wildcard="allow",
+        allowed=[exec_permission_to_regex(":"), r"^ls(\s+.*)?$"],
+    )
+    with (
+        patch("lovely_bash_permissions.hook.PermissionsManager") as MockMgr,
+        patch("lovely_bash_permissions.hook.get_effective_bash_config", return_value=config),
+    ):
+        MockMgr.return_value.get_lovely_config.return_value = {"bash": {}}
+        decision = process_hook_event(event)
     response = generate_hook_response(event, decision)
     assert response is not None
     output = response["hookSpecificOutput"]["updatedInput"]["command"]
@@ -391,20 +416,36 @@ class TestHookLabelIdempotent:
         assert wrapped.startswith(": '[♡ perms: 💚 auto-approved]")
         assert wrapped.count("[♡ perms: ") == 1
 
-    def test_repeated_passes_do_not_grow(self) -> None:
+    def test_repeated_passes_keep_exactly_one_wrapper(self) -> None:
+        """Never more than one label, however many times it is re-evaluated."""
         command = "ls"
-        first, _ = _round_trip(command)
         for _ in range(10):
             command, action = _round_trip(command)
             assert action == "allow"
-            assert command == first
+            assert command.count("[♡ perms: ") == 1
+
+    def test_command_reaches_a_fixed_point(self) -> None:
+        """The rewritten string stops changing after the second pass.
+
+        Pass 1 labels a bare `ls`, so the reason names one matching pattern.
+        From pass 2 the `:` segment matches `Exec(:)` as well, so the reason
+        names both and the string settles - it does not keep growing.
+        """
+        command, _ = _round_trip("ls")
+        settled, _ = _round_trip(command)
+        assert settled != command  # pass 2 differs: the reason gains a pattern
+        for _ in range(20):
+            command, action = _round_trip(command)
+            assert action == "allow"
+            assert command == settled
 
     def test_growth_is_bounded_under_many_passes(self) -> None:
         command, _ = _round_trip("ls")
-        expected = len(command)
         for _ in range(50):
             command, _ = _round_trip(command)
-        assert len(command) == expected
+        # Bounded: it settles at pass 2 and never approaches the pre-fix
+        # behaviour of +81 chars per pass (~4k after 50 passes).
+        assert len(command) < 200
         assert command.count("[♡ perms: ") == 1
 
     def test_already_labelled_command_relabels_once(self) -> None:
@@ -493,11 +534,12 @@ class TestHookLabelQuoting:
         wrapped = _hook_command("allow", reason, "echo hi")
         assert evaluate_bash_command(wrapped, {"*": "ask"})["status"] == "ask"
 
-    def test_quoted_label_is_still_recognised_as_a_label(self) -> None:
-        # The evaluator's label matcher keys off the quoted '[♡ perms: ' prefix.
+    def test_quoted_label_is_permitted_by_exec_colon(self) -> None:
+        # The label is not recognised by any matcher; Exec(:) in the Devin
+        # allow list is what permits it, whether or not the label needs quoting.
         wrapped = _hook_command("allow", "matches pattern: ^ls(\\s+.*)?$", "ls")
         assert wrapped.startswith(": '[♡ perms: ")
-        config = {"*": "ask", "allowed_cmds_regex": [r"^ls(\s+.*)?$"]}
+        config = {"*": "ask", "allowed_cmds_regex": [exec_permission_to_regex(":"), r"^ls(\s+.*)?$"]}
         assert evaluate_bash_command(wrapped, config)["status"] == "allow"
 
     def test_unquoted_label_shape_is_unchanged(self) -> None:

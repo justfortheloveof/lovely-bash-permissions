@@ -13,7 +13,7 @@ import re
 from collections.abc import Sequence
 from typing import Any, Literal
 
-from .ast import CallExpr, CmdSubst, File, Node, ProcSubst, Subshell
+from .ast import CallExpr, CmdSubst, Node, ProcSubst, Subshell
 from .converter import node_from_json
 from .inspect import _traverse, _word_exec, _word_raw, _word_value, iter_children
 from .parser import parse
@@ -184,27 +184,6 @@ def _command_string(name: str, args: list[str]) -> str:
     if any("$(...)" not in a for a in cleaned):
         return name if not cleaned else " ".join([name, *cleaned])
     return name
-
-
-#: Raw first-argument prefixes emitted by the hook for its own ``:`` no-op label.
-#: The bare ``:`` builtin ignores its arguments, so a matching segment carries
-#: no behavior - it is recognized (not "approved") so re-evaluated rewrites do
-#: not spuriously ask. Uses the raw (quote-preserving) argument form so the
-#: label's literal quoting is honored regardless of ``_strip_quotes``.
-_HOOK_LABEL_ARG_PREFIXES = ("'[♡ perms: ", '"[♡ perms: ')
-
-
-def _is_hook_label_segment(cmd_name: str, args: list[str]) -> bool:
-    """True when the segment is the hook's own inert ``:`` label wrapper.
-
-    The hook wraps approved/asked/blocked commands as
-    ``: '<label>' <emoji> ; <cmd>``. When Devin feeds that rewritten command
-    back through evaluation, the ``:`` wrapper must not be flagged as an
-    unmatched command. It is exempted from the allowed-pattern check; the
-    payload command(s) after ``;`` are still evaluated normally, so a forged
-    label cannot smuggle an unauthorized command past the rules.
-    """
-    return cmd_name == ":" and bool(args) and args[0].startswith(_HOOK_LABEL_ARG_PREFIXES)
 
 
 def _opaque_match_unreliable(pattern: str) -> bool:
@@ -378,28 +357,16 @@ def _resolve_level(config: dict[str, Any], key: str) -> Any:  # noqa: ANN401
     return value if value is not None else config.get("*", "ask")
 
 
-def _whole_command_scan_text(command: str, raw_tree: dict[str, Any]) -> str:
+def _whole_command_scan_text(command: str) -> str:
     """Return the command text used for the whole-command blocked scan.
 
-    Normally that is *command* as written. The hook rewrites verdicts as
-    ``: '<label>' <emoji> ; <command>``, and Devin feeds that string back for
-    re-evaluation; the label is our own text, not the user's, so a blocked
-    pattern matching the *reason* (e.g. a deny reason quoting a path) must not
-    deny the payload it describes. The wrapper is recognized structurally via
-    AST offsets (never by regex - a user command may legitimately begin with
-    ``:``) and stripped, leaving the payload command as the scanned text.
+    The hook's verdict label (``: '<label>' <emoji> ; <cmd>``) is *not* carved
+    out: it is scanned like any other command text. It contains no user payload
+    - only the status word and, on an allow, the allow-list entry that matched -
+    so scanning it cannot deny a command its own reason describes, and dropping
+    the special case keeps the label subject to exactly the same rules as a
+    user-written ``:``.
     """
-    file_node = node_from_json(raw_tree)
-    if isinstance(file_node, File) and file_node.stmts:
-        first = file_node.stmts[0]
-        if first.end is not None and isinstance(first.cmd, CallExpr) and first.cmd.args:
-            name0 = _word_value(first.cmd.args[0])
-            args0 = [_word_raw(a) for a in first.cmd.args[1:]]
-            if _is_hook_label_segment(name0, args0):
-                # shfmt reports offsets in bytes, so slice the encoded form:
-                # the label itself is multi-byte (emoji).
-                encoded = command.encode("utf-8")
-                return encoded[first.end.offset :].decode("utf-8", errors="replace").lstrip("; \t")
     return command
 
 
@@ -477,9 +444,7 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     # posture. It is purely additive: a hit here only ever forces a deny.
     whole_command_hits: list[tuple[str, str]] = []
     if blocked_patterns:
-        whole_command_hits = _match_texts(
-            [_whole_command_scan_text(command, raw_tree)], blocked_patterns, raw_fallback="always"
-        )
+        whole_command_hits = _match_texts([_whole_command_scan_text(command)], blocked_patterns, raw_fallback="always")
 
     subst_flags = _subst_flags(raw_tree)
     has_cmd_subst = subst_flags["command_substitution"]
@@ -625,12 +590,6 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                 segment_result["allowed"] = False
                 overall_status = "ask"
                 reasons.append(f"variable assignment requires approval: {args}")
-        elif _is_hook_label_segment(cmd_name, args):
-            # The hook's own `:` no-op label wrapper - inert (the `:` builtin
-            # ignores its args) and exempted from the allowed-pattern check so
-            # re-evaluated rewrites don't spuriously ask. Payload segments are
-            # still evaluated normally below.
-            segment_result["allowed"] = True
         elif allowed_patterns:
             # Check allowed patterns against command name.
             # If arguments contain real values (not "$(...)" placeholders),
@@ -658,13 +617,11 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                 segment_result["allowed"] = False
                 any_segment_not_allowed = True
 
-        # Check blocked patterns. The hook's own inert `:` label is skipped for
-        # the same reason it is skipped for allowed patterns: the `:` builtin
-        # ignores its arguments, so the label text is ours, not the user's
-        # command, and scanning it would let a blocked pattern matching the
-        # verdict *reason* deny the very command that reason describes. The
-        # payload after `;` is scanned per-segment and as a whole command.
-        if blocked_patterns and not _is_hook_label_segment(cmd_name, args):
+        # Check blocked patterns. The hook's own inert `:` label is treated like
+        # any other command, so it needs `Exec(:)` in the Devin allow list just
+        # as a user-written `:` would; the label carries no privilege, because
+        # the payload after `;` is scanned per-segment and as a whole command.
+        if blocked_patterns:
             norm_args = segment.get("normalized_arguments")
             matched, pattern, value = _match_blocked_patterns(cmd_name, args, blocked_patterns, norm_args)
             if matched:

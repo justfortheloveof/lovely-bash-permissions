@@ -23,7 +23,13 @@ from .config.loader import get_permissions_config_file_paths
 from .config.manager import PermissionsManager
 from .hook import HOOK_LABEL_PREFIX, generate_hook_response, process_hook_event
 
-LABEL_EXEC_NAME = "Exec(: '[♡ perms:)"
+#: The Devin ``permissions.allow`` entry that lets the hook's own ``:`` no-op
+#: label run without prompting again. Deliberately just ``Exec(:)`` rather than a
+#: pattern quoting the label text: the allowed-matcher compares against each
+#: segment's *executed* line, which has its quotes stripped, so a pattern
+#: containing the label's literal ``'`` could never match. ``:`` ignores its
+#: arguments, so allowing it grants nothing.
+LABEL_EXEC_NAME = "Exec(:)"
 
 
 def with_error_prefix(message: str) -> str:

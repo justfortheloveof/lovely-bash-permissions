@@ -62,7 +62,7 @@ Create `.devin/hooks.v1.json` in the project root:
 
 ### First-time setup
 
-When the hook handles a `PreToolUse` event, it rewrites the command with a harmless leading no-op label like `: '[♡ perms: 💚 auto-approved] ...'`. Devin's own `Exec(...)` permissions must allow that no-op command (`:`) / prefix, otherwise the rewritten command itself triggers another approval.
+When the hook handles a `PreToolUse` event, it rewrites the command with a leading no-op label like `: '[♡ perms: 💚 auto-approved] ...'`. That `:` is an ordinary command as far as the rules are concerned - it is checked, gated and blocked like anything else you write - so Devin's own `Exec(...)` permissions must allow it, otherwise the rewritten command itself triggers another approval.
 
 Run once:
 
@@ -70,17 +70,22 @@ Run once:
 uv run lovely-devin-permissions --setup
 ```
 
-This adds `Exec(: '[♡ perms:)` to your global Devin `permissions.allow` list so the label is auto-approved. On Windows the global config is `%APPDATA%\devin\config.json`.
+This adds `Exec(:)` to your global Devin `permissions.allow` list so the label is auto-approved. On Windows the global config is `%APPDATA%\devin\config.json`.
 
 To add it manually, put this in `~/.config/devin/config.json`:
 
 ```json
 {
   "permissions": {
-    "allow": ["Exec(: '[♡ perms:)"]
+    "allow": ["Exec(:)"]
   }
 }
 ```
+
+> [!IMPORTANT]
+> Use `Exec(:)`, not a pattern quoting the label text such as `Exec(: '[♡ perms:)`. `allowed_cmds_regex` is matched against each segment's *executed* command line, which has its quotes stripped, so a pattern containing the label's literal `'` resolves to `^: '\[♡ perms:(\s|$)` and can never match the executed `: [♡ perms: ...`. Allowing `:` is safe because the `:` builtin ignores its arguments - it runs nothing, whatever you pass it.
+>
+> The label is not exempt from `blocked_cmds_regex`, which is matched against the whole command as written. It holds no user payload - only a status word and, on an allow, the allow-list entry that matched - so the only way it trips a rule is a `blocked_cmds_regex` that literally matches `perms`, `auto-approved` or `♡`. Don't write those; every other command you approve would deny itself.
 
 ## What it does
 
@@ -293,7 +298,7 @@ flowchart TD
     style R stroke:#0000ff,stroke-width:2px
 ```
 
-Fired *before* the command runs. The hook modifies the command by prepending a no-op `:` label with user-facing status info - green 💚 for auto-approved, red ❤️ for auto-rejected, yellow 💛 for commands needing user approval. The label matches `Exec(: '[♡ perms:)` in Devin's `permissions.allow` (added by `--setup`), so Devin auto-approves the label - but the actual command after `;` is still assessed by both lovely-devin-permissions and Devin's permission system.
+Fired *before* the command runs. The hook modifies the command by prepending a no-op `:` label with user-facing status info - green 💚 for auto-approved, red ❤️ for auto-rejected, yellow 💛 for commands needing user approval. The label matches `Exec(:)` in Devin's `permissions.allow` (added by `--setup`), so Devin auto-approves the label - but the actual command after `;` is still assessed by both lovely-devin-permissions and Devin's permission system.
 
 ### PermissionRequest
 
@@ -400,7 +405,7 @@ This is useful for confirming which rules Devin will see before running a sessio
 
 - Run `uv run lovely-devin-permissions --show-config` to see which files were read and the effective bash config.
 - If every command is blocked with `invalid permissions config (blocked)` or `config error (blocked)`, one of the source configs is invalid: an invalid `lovely-permissions.jsonc` (a completely missing config falls back to ask instead) or a malformed Devin `Exec(...)` allow rule. Run `--show-config` to see the failures.
-- If every command still asks for approval when used as `PreToolUse`, run `--setup` to add the `Exec(: '[♡ perms:)` label permission to Devin.
+- If every command still asks for approval when used as `PreToolUse`, run `--setup` to add the `Exec(:)` label permission to Devin.
 
 ## Example Config
 
@@ -414,7 +419,7 @@ Example `permissions` in Devin config:
 ```json
   "permissions": {
     "allow": [
-      "Exec(: '[♡ perms:)"
+      "Exec(:)"
     ]
   },
 

@@ -6,6 +6,7 @@ Tests all CLI modes: setup, test, show-config, and hook mode.
 
 import json
 import os
+import re
 import subprocess
 import sys
 from contextlib import redirect_stdout, suppress
@@ -116,6 +117,56 @@ def run_cli_in_process(
     return captured.getvalue()
 
 
+class TestLabelExecEntry:
+    r"""The ``--setup`` entry must be a pattern the matcher can actually match.
+
+    ``--setup`` used to write ``Exec(: '[♡ perms:)``. That is a no-op: the
+    allowed-matcher compares against each segment's *executed* command line,
+    which has its quotes stripped, so the entry resolved to ``^: '\[♡ perms:(\s|$)``
+    while the executed line is ``: [♡ perms: ...`` - it never matched. A hidden
+    exemption in the evaluator was what actually kept re-evaluation working, so
+    the bug was invisible. The entry is now ``Exec(:)``.
+    """
+
+    def test_setup_writes_exec_colon(self, tmp_path: Path) -> None:
+        devin_dir = tmp_path / "devin-config"
+        run_cli_in_process("--setup", devin_config_dir=str(devin_dir))
+        config = json.loads(devin_dir.joinpath("config.json").read_text())
+        assert "Exec(:)" in config["permissions"]["allow"]
+
+    def test_setup_does_not_write_an_unmatchable_pattern(self, tmp_path: Path) -> None:
+        devin_dir = tmp_path / "devin-config"
+        run_cli_in_process("--setup", devin_config_dir=str(devin_dir))
+        config = json.loads(devin_dir.joinpath("config.json").read_text())
+        assert "Exec(: '[♡ perms:)" not in config["permissions"]["allow"]
+
+    def test_written_entry_matches_the_executed_label(self) -> None:
+        """The end-to-end contract: the entry permits the label the hook emits."""
+        from lovely_bash_permissions.config.devin import exec_permission_to_regex
+        from lovely_bash_permissions.devin_cli import LABEL_EXEC_NAME
+        from lovely_bash_permissions.hook import _hook_command
+        from lovely_bash_permissions.segments import parse_segments
+
+        # exec_permission_to_regex takes the bare prefix, not the Exec(...) wrapper.
+        assert LABEL_EXEC_NAME == "Exec(:)"
+        regex = exec_permission_to_regex(":")
+        wrapped = _hook_command("allow", "command matches allowed pattern: ^ls(\\s+.*)?$", "ls")
+        label = parse_segments(wrapped)[0]
+        executed = " ".join([label["command"], *label["arguments"]])
+        assert re.search(regex, executed), executed
+
+    def test_old_entry_would_not_have_matched(self) -> None:
+        """Pins why the change was necessary, so it is not reverted."""
+        from lovely_bash_permissions.config.devin import exec_permission_to_regex
+        from lovely_bash_permissions.hook import _hook_command
+        from lovely_bash_permissions.segments import parse_segments
+
+        wrapped = _hook_command("allow", "command matches allowed pattern: ^ls(\\s+.*)?$", "ls")
+        label = parse_segments(wrapped)[0]
+        executed = " ".join([label["command"], *label["arguments"]])
+        assert not re.search(exec_permission_to_regex("Exec(: '[♡ perms:)"), executed)
+
+
 class TestCliSetup:
     """Test --setup flag: adds label exec permission to devin global config."""
 
@@ -124,7 +175,7 @@ class TestCliSetup:
         devin_dir = tmp_path / "devin-config"
         result = run_cli_in_process("--setup", devin_config_dir=str(devin_dir))
         assert devin_dir.joinpath("config.json").exists()
-        assert "Added \"Exec(: '[♡ perms:)" in result
+        assert 'Added "Exec(:)' in result
 
     def test_setup_adds_label_exec_permission(self, tmp_path: Path) -> None:
         """Setup should add label exec permission to the allow list."""
@@ -134,11 +185,11 @@ class TestCliSetup:
             json.dump({"permissions": {"allow": []}}, f)
 
         result = run_cli_in_process("--setup", devin_config_dir=str(devin_dir))
-        assert "Added \"Exec(: '[♡ perms:)" in result
+        assert 'Added "Exec(:)' in result
 
         with open(devin_dir / "config.json") as f:
             config = json.load(f)
-        assert "Exec(: '[♡ perms:)" in config["permissions"]["allow"]
+        assert "Exec(:)" in config["permissions"]["allow"]
 
     def test_setup_short_flag(self, tmp_path: Path) -> None:
         """Short flag -s should work the same as --setup."""
@@ -148,14 +199,14 @@ class TestCliSetup:
             json.dump({"permissions": {"allow": []}}, f)
 
         result = run_cli_in_process("-s", devin_config_dir=str(devin_dir))
-        assert "Added \"Exec(: '[♡ perms:)" in result
+        assert 'Added "Exec(:)' in result
 
     def test_setup_idempotent(self, tmp_path: Path) -> None:
         """Running setup twice should be idempotent."""
         devin_dir = tmp_path / "devin-config"
         devin_dir.mkdir()
         with open(devin_dir / "config.json", "w") as f:
-            json.dump({"permissions": {"allow": ["Exec(: '[♡ perms:)"]}}, f)
+            json.dump({"permissions": {"allow": ["Exec(:)"]}}, f)
 
         result = run_cli_in_process("--setup", devin_config_dir=str(devin_dir))
         assert "is already present in" in result
@@ -168,13 +219,13 @@ class TestCliSetup:
             json.dump({"permissions": {"allow": ["Exec(git)", "Exec(npm)"]}}, f)
 
         result = run_cli_in_process("--setup", devin_config_dir=str(devin_dir))
-        assert "Added \"Exec(: '[♡ perms:)" in result
+        assert 'Added "Exec(:)' in result
 
         with open(devin_dir / "config.json") as f:
             config = json.load(f)
         assert "Exec(git)" in config["permissions"]["allow"]
         assert "Exec(npm)" in config["permissions"]["allow"]
-        assert "Exec(: '[♡ perms:)" in config["permissions"]["allow"]
+        assert "Exec(:)" in config["permissions"]["allow"]
 
     def test_setup_preserves_config_written_as_jsonc(self, tmp_path: Path) -> None:
         """Setup should read JSONC configs (comments, trailing commas) and preserve all fields."""
@@ -193,13 +244,13 @@ class TestCliSetup:
 
         result = run_cli("--setup", env={"DEVIN_GLOBAL_CONFIG_DIR": str(devin_dir)})
         assert result.returncode == 0, result.stderr
-        assert "Added \"Exec(: '[♡ perms:)" in result.stdout
+        assert 'Added "Exec(:)' in result.stdout
 
         with open(devin_dir / "config.json") as f:
             config = json.load(f)
         assert config["session"] == {"resume": True}
         assert config["permissions"]["deny"] == ["Exec(rm)"]
-        assert config["permissions"]["allow"] == ["Exec(git)", "Exec(npm run)", "Exec(: '[♡ perms:)"]
+        assert config["permissions"]["allow"] == ["Exec(git)", "Exec(npm run)", "Exec(:)"]
 
     def test_setup_aborts_on_invalid_json_preserving_file(self, tmp_path: Path) -> None:
         """A corrupt existing config must be left untouched, not overwritten."""
@@ -226,11 +277,11 @@ class TestCliSetup:
 
         result = run_cli("--setup", env={"DEVIN_GLOBAL_CONFIG_DIR": str(devin_dir)})
         assert result.returncode == 0, result.stderr
-        assert "Added \"Exec(: '[♡ perms:)" in result.stdout
+        assert 'Added "Exec(:)' in result.stdout
 
         with open(config_path) as f:
             config = json.load(f)
-        assert config["permissions"]["allow"] == ["Exec(: '[♡ perms:)"]
+        assert config["permissions"]["allow"] == ["Exec(:)"]
 
     def test_setup_aborts_on_non_object_root(self, tmp_path: Path) -> None:
         """A root value that isn't an object must not be clobbered."""
@@ -1094,7 +1145,7 @@ class TestFlagPrecedence:
         }
         result = run_cli_in_process("--setup", devin_config_dir=str(devin_dir), input_data=json.dumps(event))
         # Setup should have run (ignoring stdin)
-        assert "Added \"Exec(: '[♡ perms:)" in result
+        assert 'Added "Exec(:)' in result
 
 
 class TestErrorHandling:

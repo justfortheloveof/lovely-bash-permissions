@@ -36,7 +36,7 @@ class TestSetupOutputFormat:
 
             output = captured.getvalue()
             # Exact format from TypeScript:
-            assert 'Added "Exec(: \'[♡ perms:)" to' in output
+            assert 'Added "Exec(:)" to' in output
             assert 'so Devin auto-approves the hook\'s ":" no-op label' in output
 
     def test_setup_already_present_format(self) -> None:
@@ -51,7 +51,7 @@ class TestSetupOutputFormat:
 
             # Write config with label already present
             with open(f"{devin_dir}/config.json", "w") as f:
-                json.dump({"permissions": {"allow": ["Exec(: '[♡ perms:)"]}}, f)
+                json.dump({"permissions": {"allow": ["Exec(:)"]}}, f)
 
             with patch.dict(os.environ, {"DEVIN_GLOBAL_CONFIG_DIR": devin_dir}):
                 sys.argv = ["lovely-devin-permissions", "--setup"]
@@ -61,7 +61,7 @@ class TestSetupOutputFormat:
 
             output = captured.getvalue()
             # Exact format from TypeScript:
-            assert 'The Devin permission "Exec(: \'[♡ perms:)" is already present in' in output
+            assert 'The Devin permission "Exec(:)" is already present in' in output
 
 
 class TestPreToolUseResponseFormat:
