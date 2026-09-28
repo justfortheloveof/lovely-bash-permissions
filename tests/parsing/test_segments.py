@@ -717,6 +717,114 @@ class TestArithmeticCommandSubstitutions:
         assert result["status"] == "deny"
 
 
+class TestAssignOperandSubstitutions:
+    """Command substitutions inside assignment operands are always walked.
+
+    An assignment's value, subscript or array elements can contain command
+    substitutions and bash runs them.  The walk used to exist only on the
+    *standalone* assignment path, so an assignment **prefix** hid the whole
+    substitution: `x=$(cmd) ls` reported no segment for `cmd`, and a
+    redirection inside it escaped `output_redirection` / `input_redirection`
+    entirely while the identical standalone form was denied.
+    """
+
+    def test_assign_prefix_surfaces_the_inner_command(self) -> None:
+        assert [s["command"] for s in parse_segments("x=$(rm -rf /) ls")] == ["", "ls", "rm"]
+
+    def test_array_assign_prefix_surfaces_the_inner_command(self) -> None:
+        assert [s["command"] for s in parse_segments("A=$(rm -rf /) ls")] == ["", "ls", "rm"]
+
+    def test_all_spellings_agree(self) -> None:
+        # Prefix, standalone and declaration forms must extract identically.
+        for source in ("x=$(rm -rf /) ls", "x=$(rm -rf /)", "export x=$(rm -rf /)"):
+            assert "rm" in [s["command"] for s in parse_segments(source)], source
+
+    def test_redirection_inside_a_prefix_substitution_is_visible(self) -> None:
+        # The redirection must land on a segment, which is what the
+        # redirection policies read.
+        segs = parse_segments("x=$(echo hi > /tmp/f) ls")
+        assert [(s["command"], [r["Op"] for r in s["redirections"]]) for s in segs] == [
+            ("", []),
+            ("ls", []),
+            ("echo", [">"]),
+        ]
+
+    def test_standalone_form_is_not_double_counted(self) -> None:
+        segs = parse_segments("x=$(echo hi > /tmp/f)")
+        assert [(s["command"], [r["Op"] for r in s["redirections"]]) for s in segs] == [("", []), ("echo", [">"])]
+
+    def test_literal_assignments_produce_no_extra_segments(self) -> None:
+        # No substitution, so nothing extra may appear.
+        assert [s["command"] for s in parse_segments("FOO=bar ls")] == ["", "ls"]
+        assert [s["command"] for s in parse_segments("FOO=bar")] == [""]
+
+    def test_output_redirection_deny_fires_for_the_prefix_form(self) -> None:
+        cfg: dict[str, Any] = {"*": "allow", "output_redirection": "deny"}
+        for source in (
+            "x=$(echo hi > /tmp/f) ls",
+            "x=$(echo hi > /tmp/f)",
+            "export x=$(echo hi > /tmp/f)",
+            "A=$(echo hi > /tmp/f) ls",
+            "ls; x=$(echo hi > /tmp/f)",
+        ):
+            assert evaluate_bash_command(source, cfg)["status"] == "deny", source
+
+    def test_input_redirection_deny_fires_for_the_prefix_form(self) -> None:
+        cfg: dict[str, Any] = {"*": "allow", "input_redirection": "deny"}
+        for source in ("x=$(cat < /tmp/f) ls", "x=$(cat < /tmp/f)"):
+            assert evaluate_bash_command(source, cfg)["status"] == "deny", source
+
+
+class TestCommandNameSubstitutions:
+    """A command name that is an expansion still runs what it expands to.
+
+    `CallExpr` recursed into `args[1:]` but not `args[0]`, so a substitution in
+    *command-name* position was never walked. The inner command was still gated
+    for allow-matching (the evaluator's nested-CallExpr walk finds it) and
+    blocked patterns still saw the raw text, but a redirection inside it escaped
+    `output_redirection` / `input_redirection` entirely:
+
+        {"*": "allow", "output_redirection": "deny"}
+        $(echo hi > /tmp/f)   ->  allow   (the write slipped through)
+    """
+
+    def test_substitution_in_command_name_is_extracted(self) -> None:
+        assert [s["command"] for s in parse_segments("$(rm -rf /)")] == ["$(...)", "rm"]
+        assert [s["command"] for s in parse_segments("`rm -rf /`")] == ["$(...)", "rm"]
+
+    def test_param_default_in_command_name_is_extracted(self) -> None:
+        assert [s["command"] for s in parse_segments("${x:-$(rm -rf /)}")] == ["${x:-$(...)}", "rm"]
+
+    def test_command_name_substitution_keeps_the_command_position(self) -> None:
+        segs = parse_segments("$(which rm) -rf /")
+        assert segs[0]["command"] == "$(...)"
+        assert segs[0]["arguments"] == ["-rf", "/"]
+        assert segs[1]["command"] == "which"
+
+    def test_plain_command_names_are_not_duplicated(self) -> None:
+        for source, expected in (("ls", ["ls"]), ("echo hi", ["echo"]), ("grep -i x f", ["grep"])):
+            assert [s["command"] for s in parse_segments(source)] == expected, source
+
+    def test_output_redirection_deny_fires_in_command_name_position(self) -> None:
+        cfg: dict[str, Any] = {"*": "allow", "output_redirection": "deny"}
+        for source in ("$(echo hi > /tmp/f)", "$(echo hi > /tmp/f); ls", "${x:-$(echo hi > /tmp/f)}"):
+            assert evaluate_bash_command(source, cfg)["status"] == "deny", source
+
+    def test_input_redirection_deny_fires_in_command_name_position(self) -> None:
+        cfg: dict[str, Any] = {"*": "allow", "input_redirection": "deny"}
+        assert evaluate_bash_command("$(cat < /tmp/f)", cfg)["status"] == "deny"
+
+    def test_each_policy_only_fires_for_its_own_direction(self) -> None:
+        # Guard against the two policies cross-triggering.
+        assert (
+            evaluate_bash_command("$(echo hi > /tmp/f)", {"*": "allow", "input_redirection": "deny"})["status"]
+            == "allow"
+        )
+        assert (
+            evaluate_bash_command("$(cat < /tmp/f)", {"*": "allow", "output_redirection": "deny"})["status"] == "allow"
+        )
+
+
 class TestCStyleLoopSegments:
     """C-style for ((init; cond; post)) preludes are extracted (security-critical)."""
 

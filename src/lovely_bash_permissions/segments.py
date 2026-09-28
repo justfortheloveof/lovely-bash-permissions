@@ -167,6 +167,37 @@ def _assign_operand_text(assign: Assign) -> str:
     return f"{name}{index}{operator}{operand}"
 
 
+def _assign_sub_segments(assigns: list[Assign], redirs: list[Redir]) -> list[dict[str, Any]]:
+    """Surface the commands and redirections hidden inside assignment operands.
+
+    An assignment's value, subscript or array elements can contain command
+    substitutions, and bash runs them: ``x=$(echo hi > /etc/passwd)`` writes
+    the file. Walking them here is what makes the inner command a segment of
+    its own, so the allow-list sees it and the redirection policies can see its
+    redirections.
+
+    Every path that renders an assignment must call this. It was originally
+    present only on the standalone-assignment path, so an assignment *prefix*
+    (``x=$(cmd) ls``) hid the whole substitution - the inner command was
+    missing from ``parse_segments`` and its redirection escaped
+    ``output_redirection`` / ``input_redirection`` entirely.
+    """
+    out: list[dict[str, Any]] = []
+    for assign in assigns:
+        if assign.index is not None:
+            out.extend(_extract_segments(assign.index, redirs))
+        if assign.value is not None:
+            out.extend(_extract_segments(assign.value, redirs))
+        if isinstance(assign.array, ArrayExpr):
+            for elem in assign.array.elems:
+                if isinstance(elem, ArrayElem):
+                    if elem.index is not None:
+                        out.extend(_extract_segments(elem.index, redirs))
+                    if elem.value is not None:
+                        out.extend(_extract_segments(elem.value, redirs))
+    return out
+
+
 def _redir_dicts(redirs: list[Redir]) -> list[dict[str, Any]]:
     """Serialize Redir nodes into the segment dict format.
 
@@ -316,8 +347,12 @@ def _extract_segments(
                     "redirections": redir_dicts,
                 }
             )
-            # Recurse into arguments to find nested CmdSubst/ProcSubst redirections
-            for arg in node.args[1:]:
+            # Recurse into arguments to find nested CmdSubst/ProcSubst redirections.
+            # args[0] is included deliberately: a command name that is itself an
+            # expansion still runs what it expands to, so `$(echo hi > f)` and
+            # `${x:-$(cmd)} arg` must surface the inner command - otherwise the
+            # inner redirection is invisible to the redirection policies.
+            for arg in node.args:
                 segments.extend(_extract_segments(arg, redirs))
             # Recurse into redirection target words so nested command/process
             # substitutions are extracted (e.g. `cmd > $(generate_name)`).
@@ -329,6 +364,9 @@ def _extract_segments(
                     segments.extend(_extract_segments(r.word))
                 if r.hdoc is not None:
                     segments.extend(_extract_segments(r.hdoc))
+            # And into the assignment operands, so `x=$(cmd > f) ls` surfaces
+            # the same segments the standalone form `x=$(cmd > f)` does.
+            segments.extend(_assign_sub_segments(node.assigns or [], redirs or []))
         elif node.assigns:
             # Standalone variable assignment (no Args, only Assigns)
             # Create a segment so it can be evaluated against allowed patterns.
@@ -336,20 +374,9 @@ def _extract_segments(
             args = [operand for operand in (_assign_operand_text(a) for a in node.assigns) if operand]
             segments.append({"command": "", "arguments": args, "redirections": redir_dicts})
             # Recurse into assignment sub-expressions (values, indexes, arrays) so
-            # command substitutions inside them are extracted - e.g. the redirection
-            # in `x=$(echo hi > /etc/passwd)` must surface for blocked-path checks.
-            for a in node.assigns:
-                if a.index is not None:
-                    segments.extend(_extract_segments(a.index, redirs))
-                if a.value is not None:
-                    segments.extend(_extract_segments(a.value, redirs))
-                if a.array is not None and isinstance(a.array, ArrayExpr):
-                    for elem in a.array.elems:
-                        if isinstance(elem, ArrayElem):
-                            if elem.index is not None:
-                                segments.extend(_extract_segments(elem.index, redirs))
-                            if elem.value is not None:
-                                segments.extend(_extract_segments(elem.value, redirs))
+            # the redirection in `x=$(echo hi > /etc/passwd)` surfaces for
+            # blocked-path checks.
+            segments.extend(_assign_sub_segments(node.assigns, redirs or []))
 
     elif isinstance(node, DeclClause):
         # A declaration builtin's operands are variable assignments - `export
@@ -376,18 +403,8 @@ def _extract_segments(
                 segments.extend(_extract_segments(r.word))
             if r.hdoc is not None:
                 segments.extend(_extract_segments(r.hdoc))
-        for assign in declares:
-            if assign.index is not None:
-                segments.extend(_extract_segments(assign.index, redirs))
-            if assign.value is not None:
-                segments.extend(_extract_segments(assign.value, redirs))
-            if assign.array is not None and isinstance(assign.array, ArrayExpr):
-                for elem in assign.array.elems:
-                    if isinstance(elem, ArrayElem):
-                        if elem.index is not None:
-                            segments.extend(_extract_segments(elem.index, redirs))
-                        if elem.value is not None:
-                            segments.extend(_extract_segments(elem.value, redirs))
+        # Recurse into the declaration's operands (e.g. `export FOO=$(rm x)`).
+        segments.extend(_assign_sub_segments(declares, redirs or []))
     elif isinstance(node, CaseClause):
         # case/switch: the subject word (node.expr) and each branch's match
         # patterns can embed command substitutions that bash evaluates before
