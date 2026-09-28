@@ -158,6 +158,60 @@ def _collect_redirs(node: Node) -> Iterator[Redir]:
         yield from node.redirs
 
 
+def _slice_operand_text(node: Node | None, render_word: Callable[[Word], str]) -> str:
+    """Render one operand of a ``${var:offset:length}`` slice.
+
+    Slice operands are typed as bare ``Node`` (a Word in practice, but shfmt
+    also allows an arithmetic expression), so anything that is not a Word
+    falls back to the arithmetic placeholder instead of crashing the renderer.
+    """
+    if isinstance(node, Word):
+        return render_word(node)
+    if isinstance(node, ArithmExp):
+        return "$(( ... ))"
+    return ""
+
+
+def _param_exp_text(part: ParamExp, render_word: Callable[[Word], str]) -> str:
+    """Render a parameter expansion, keeping every operator and operand.
+
+    Operand words are rendered by *render_word* - the caller passes its own
+    word renderer so nesting, quoting and the opaque ``$(...)`` placeholder
+    behave identically to top-level parts (a ``CmdSubst`` operand must keep
+    rendering as ``$(...)``, because ``evaluate`` keys off that exact string
+    to decide a pattern match is unreliable).
+
+    A bare ``$VAR`` / ``${VAR}`` keeps its simple ``$VAR`` spelling; every
+    other form keeps its full text so a pattern matching the argument still
+    sees the whole expansion (e.g. ``${BAR:-/etc/passwd}`` rather than
+    ``$BAR``, which would hide the literal path from the matcher).
+    """
+    op_text = ""
+    exp = part.exp
+    if exp is not None and exp.op:
+        op_text = f"{exp.op}{render_word(exp.word) if exp.word is not None else ''}"
+    if part.orig is not None or part.replacement is not None:
+        # `${var/pat/rep}` and `${var//pat/rep}` - ``all`` is set for the ``//``
+        # (replace-all) spelling.
+        op_text += "//" if part.all else "/"
+        if part.orig is not None:
+            op_text += render_word(part.orig)
+        op_text += "/"
+        if part.replacement is not None:
+            op_text += render_word(part.replacement)
+    suffix = ""
+    if part.index is not None:
+        suffix += f"[{render_word(part.index)}]"
+    if part.slice is not None:
+        offset = _slice_operand_text(part.slice.offset, render_word)
+        length = _slice_operand_text(part.slice.length, render_word)
+        # An absent length is the offset-only spelling `${var:offset}`.
+        suffix += f":{offset}:{length}" if part.slice.length is not None else f":{offset}"
+    if not op_text and not suffix:
+        return f"${part.param}"
+    return "${" + part.param + op_text + suffix + "}"
+
+
 def _word_value(word: Word) -> str:
     """Get the best-effort string value of a word (concatenating all parts).
 
@@ -173,7 +227,7 @@ def _word_value(word: Word) -> str:
             if part.value is not None:
                 parts.append(part.value)
         elif isinstance(part, ParamExp):
-            parts.append(f"${part.param}")
+            parts.append(_param_exp_text(part, _word_value))
         elif isinstance(part, CmdSubst):
             parts.append("$(...)")
         elif isinstance(part, ArithmExp):
@@ -220,7 +274,7 @@ def _word_raw(word: Word) -> str:
             if part.value is not None:
                 parts.append(f'"{part.value}"')
         elif isinstance(part, ParamExp):
-            parts.append(f"${part.param}")
+            parts.append(_param_exp_text(part, _word_raw))
         elif isinstance(part, CmdSubst):
             parts.append("$(...)")
         elif isinstance(part, ArithmExp):
@@ -255,7 +309,7 @@ def _exec_part(part: Node, in_double_quotes: bool) -> str:
             return "".join(_exec_part(p, True) for p in part.parts)
         return _unescape_lit(part.value or "", in_double_quotes=True)
     if isinstance(part, ParamExp):
-        return f"${part.param}"
+        return _param_exp_text(part, _word_exec)
     if isinstance(part, CmdSubst):
         return "$(...)"
     if isinstance(part, ArithmExp):
