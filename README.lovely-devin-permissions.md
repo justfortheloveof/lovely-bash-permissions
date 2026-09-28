@@ -225,6 +225,21 @@ Prefer calling the target command directly over wrapping it. If you do need a wr
 
 Interpreter code strings (`python3 -c`, `node -e`, `perl -e`) are not shell and cannot be parsed as such; treat an allow-list entry for an interpreter as approving whatever that language can do.
 
+### A parameter expansion in command-name position
+
+When a parameter expansion *is* the command, bash expands it and runs the first resulting word. `${V:-mytool --flag}` runs `mytool` with `--flag`; `${V-cmd}` behaves the same for the `-` form. The evaluator reports one command whose name is the expansion text, `${V:-mytool --flag}`, because only the runtime value is the actual command name:
+
+| | |
+|---|---|
+| `${V:-$(rm -rf /)}` | The `$(...)` is a nested command, so `rm` **is** extracted and gated separately. |
+| `${V:-rm -rf /}` | The default is a plain word, not a command, so nothing is extracted. |
+
+What still protects you: `blocked_cmds_regex` is matched against the command as written, so a pattern for `rm -rf` or `/etc` denies `${V:-rm -rf /}` and `${V:-/etc/passwd}` in every spelling we tested. And the default posture is to prompt — `${V:-rm -rf /}` is *not* allow-listed, so it asks rather than running.
+
+What does not: under `"*": "allow"` the opaque expansion is approved along with everything else, so the command it becomes runs ungated. That is the same posture as any other unrecognised command under a blanket allow, and it is why an allow-list is the safer configuration. Nor can a pattern see a value that only exists after expansion: `${V:-cm*}` contains the literal `cm*`, so a blocked pattern for `cmdx` does not match it.
+
+If you need this gated, list the command that can appear there and prefer the `$(...)` form, whose inner command is checked.
+
 ### How policy levels combine
 
 Every bash option takes `"allow"`, `"ask"` or `"deny"`, and they do not all mean the same thing:
