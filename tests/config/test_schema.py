@@ -84,7 +84,9 @@ def test_tool_string_instead_of_object_rejected() -> None:
 
 
 def test_invalid_regex_rejected_with_path() -> None:
-    config = {"bash": {"blocked_cmds_regex": "["}}
+    # A list, not a bare string: a string used to be iterated into characters,
+    # which is what made this test pass at all.
+    config = {"bash": {"blocked_cmds_regex": ["["]}}
     try:
         PermissionsConfig.model_validate(config)
         raise AssertionError("expected ValidationError")
@@ -286,3 +288,73 @@ def test_unknown_tool_name_rejected(caplog: pytest.LogCaptureFixture) -> None:
     assert result is not None
     assert len(caplog.record_tuples) == 1
     assert "unknown config key 'git'" in caplog.text
+
+
+class TestRegexListMustBeAList:
+    """A bare string must not be iterated into single-character patterns.
+
+    ``validate_regexes`` runs ``mode="before"``, so pydantic never got to
+    reject a non-list. A string is iterable, so ``"not-a-list"`` became
+    ``['n','o','t','-','a','-','l','i','s','t']`` - and most single characters
+    appear in almost any command line. The result was a policy-inverting
+    fail-open: ``"*" : "deny"`` with ``allowed_cmds_regex: "not-a-list"``
+    approved ``ls``, matching the pattern ``l``.
+    """
+
+    @pytest.mark.parametrize("key", ["allowed_cmds_regex", "blocked_cmds_regex"])
+    @pytest.mark.parametrize("value", ["not-a-list", "ls", "^ls$", "etc", ""])
+    def test_bare_string_rejected(self, key: str, value: str) -> None:
+        with pytest.raises(ValidationError) as exc:
+            PermissionsConfig.model_validate({"bash": {key: value}})
+        assert "must be a list of regex patterns" in exc.value.errors()[0]["msg"]
+
+    def test_bare_string_never_becomes_char_patterns(self) -> None:
+        with pytest.raises(ValidationError):
+            PermissionsConfig.model_validate({"bash": {"allowed_cmds_regex": "not-a-list"}})
+        # The old behaviour, for contrast: every character a pattern.
+        parsed = ToolConfig.model_validate({"allowed_cmds_regex": ["n", "o", "t"]})
+        assert parsed.allowed_cmds_regex == ["n", "o", "t"]
+
+    @pytest.mark.parametrize("value", [{"a": "b"}, 123, 1.5, None, True])
+    def test_other_non_list_types_rejected(self, value: object) -> None:
+        with pytest.raises(ValidationError) as exc:
+            PermissionsConfig.model_validate({"bash": {"allowed_cmds_regex": value}})
+        assert "must be a list of regex patterns" in exc.value.errors()[0]["msg"]
+
+    def test_error_names_the_fix(self) -> None:
+        with pytest.raises(ValidationError) as exc:
+            PermissionsConfig.model_validate({"bash": {"blocked_cmds_regex": "/etc"}})
+        msg = exc.value.errors()[0]["msg"]
+        assert "blocked_cmds_regex" in msg
+        assert "Wrap a single pattern in a list" in msg
+
+    @pytest.mark.parametrize(
+        "value",
+        [[], ["^ls$"], ["^ls(\\s+.*)?$", "^git\\s+status$"], ["^echo$"]],
+    )
+    def test_valid_lists_still_accepted(self, value: list[str]) -> None:
+        parsed = PermissionsConfig.model_validate({"bash": {"allowed_cmds_regex": value}})
+        assert parsed.bash is not None
+        assert parsed.bash.allowed_cmds_regex == value
+
+    def test_invalid_regex_inside_a_list_still_rejected(self) -> None:
+        with pytest.raises(ValidationError) as exc:
+            PermissionsConfig.model_validate({"bash": {"blocked_cmds_regex": ["[", "^ok$"]}})
+        assert "unterminated character set" in exc.value.errors()[0]["msg"]
+
+
+class TestMalformedRegexListCannotInvertPolicy:
+    """End to end: a malformed list blocks instead of approving."""
+
+    def test_wildcard_deny_not_overridden_by_char_patterns(self) -> None:
+        config = {"bash": {"*": "deny", "allowed_cmds_regex": "not-a-list"}}
+        with pytest.raises(ValidationError):
+            PermissionsConfig.model_validate(config)
+
+    def test_char_patterns_would_have_matched(self) -> None:
+        """Documents why the old behaviour was a real fail-open, not cosmetic."""
+        from lovely_bash_permissions.evaluate import evaluate_bash_command
+
+        result = evaluate_bash_command("ls", {"*": "deny", "allowed_cmds_regex": ["l", "s"]})
+        assert result["status"] == "allow"
+        assert "l" in result["reason"]

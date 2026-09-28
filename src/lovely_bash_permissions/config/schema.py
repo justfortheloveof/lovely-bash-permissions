@@ -68,11 +68,30 @@ class ToolConfig(BaseModel):
 
     @field_validator("blocked_cmds_regex", "allowed_cmds_regex", mode="before")
     @classmethod
-    def validate_regexes(cls, v: list[str], info: ValidationInfo) -> list[str]:
+    def validate_regexes(cls, v: object, info: ValidationInfo) -> object:
         """Validate that each pattern compiles as a regex.
 
         Patterns are used as-written - no stripping or mutation.
+
+        This runs *before* pydantic coerces the value to a list, so the type
+        has to be checked here. A bare string is iterable, and iterating it
+        would silently turn ``"not-a-list"`` into the single-character patterns
+        ``['n', 'o', 't', '-', 'a', ...]``. Most single characters occur in
+        almost any command line, so a malformed ``allowed_cmds_regex`` would
+        approve commands the wildcard had denied - a policy-inverting fail-open
+        (``"*" : "deny"`` plus ``allowed_cmds_regex: "not-a-list"`` approved
+        ``ls``, matching the pattern ``l``). A dict is iterable too, and yields
+        its keys. Reject both, naming the fix, as with any other malformed
+        config value.
         """
+        if not isinstance(v, (list, tuple)):
+            key = info.field_name
+            # ValueError, not TypeError: pydantic only wraps ValueError from a
+            # validator into a ValidationError. TRY004 does not apply.
+            raise ValueError(  # noqa: TRY004
+                f"{key} must be a list of regex patterns, got {type(v).__name__}. "
+                f'Wrap a single pattern in a list, e.g. {key}: ["^ls(\\\\s+.*)?$"]'
+            )
         result: list[str] = []
         for p in v:
             try:
