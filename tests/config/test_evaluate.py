@@ -2832,10 +2832,13 @@ class TestArithmeticCommandSubstitutionPolicy:
         assert evaluate_bash_command(self.CMD, {"*": "allow", "command_substitution": "allow"})["status"] == "allow"
 
     def test_ask_wildcard_deny_subshell(self) -> None:
-        # `ask` for every sibling spelling too: a substitution policy only
-        # downgrades an otherwise-`allow` verdict, and here the wildcard has
-        # already produced `ask`.
-        assert evaluate_bash_command(self.CMD, {"*": "ask", "command_substitution": "deny"})["status"] == "ask"
+        # `deny` is an absolute block: it wins over the wildcard, so the
+        # substitution is refused outright rather than prompting.  This is the
+        # case that used to report `ask`, because the gate only ran when the
+        # verdict was still `allow` and the wildcard had already spoken.
+        result = evaluate_bash_command(self.CMD, {"*": "ask", "command_substitution": "deny"})
+        assert result["status"] == "deny"
+        assert "command substitution denied in config" in result["reason"]
 
     def test_deny_wildcard_allow_subshell(self) -> None:
         assert evaluate_bash_command(self.CMD, {"*": "deny", "command_substitution": "allow"})["status"] == "deny"
@@ -3001,7 +3004,7 @@ class TestSubstitutionKeySplit:
             {"*": "allow", "subshell": "deny"},
         )
         assert result["status"] == "deny"
-        assert "subshell (...) requires approval" in result["reason"]
+        assert "subshell (...) denied in config" in result["reason"]
 
     def test_time_prefix_paren_subshell_deny(self) -> None:
         """`time ( rm x )` is denied too - the `time` prefix doesn't mask the group."""
@@ -3034,7 +3037,7 @@ class TestSubstitutionKeySplit:
         deny_cfg = {"*": "allow", "command_substitution": "deny"}
         result = evaluate_bash_command("echo $(true)", deny_cfg)
         assert result["status"] == "deny"
-        assert "command substitution requires approval" in result["reason"]
+        assert "command substitution denied in config" in result["reason"]
 
     def test_proc_subst_gated_independently_of_paren_subshell(self) -> None:
         """`echo <(true)`: process_substitution=deny denies; subshell=deny alone is irrelevant."""
@@ -3042,19 +3045,19 @@ class TestSubstitutionKeySplit:
         deny_cfg = {"*": "allow", "process_substitution": "deny", "allowed_cmds_regex": allow_list}
         result = evaluate_bash_command("echo <(true)", deny_cfg)
         assert result["status"] == "deny"
-        assert "process substitution requires approval" in result["reason"]
+        assert "process substitution denied in config" in result["reason"]
 
         allow_cfg = {"*": "allow", "subshell": "deny", "allowed_cmds_regex": allow_list}
         assert evaluate_bash_command("echo <(true)", allow_cfg)["status"] == "allow"
 
-    def test_arithmetic_cmdsubst_inherited_allow_asks(self) -> None:
-        """`(( x[$(rm)] ))`: command_substitution=deny denies."""
+    def test_arithmetic_cmdsubst_deny_is_absolute(self) -> None:
+        """`(( x[$(rm)] ))`: command_substitution=deny denies, whatever the wildcard."""
         result = evaluate_bash_command(
             "(( x[$(rm)] ))",
             {"*": "allow", "command_substitution": "deny"},
         )
         assert result["status"] == "deny"
-        assert "command substitution requires approval" in result["reason"]
+        assert "command substitution denied in config" in result["reason"]
 
     def test_arithmetic_cmdsubst_inherited_allow_is_honoured(self) -> None:
         """`(( x[$(rm)] ))` is no longer zero-segment.
@@ -3069,3 +3072,116 @@ class TestSubstitutionKeySplit:
         result = evaluate_bash_command("(( x[$(rm)] ))", {"*": "allow"})
         assert result["status"] == "allow"
         assert [s["command"] for s in result["segments"]] == ["rm"]
+
+
+class TestDenyIsAbsolute:
+    """A `deny` on any policy key is an absolute block.
+
+    The three construct keys - `command_substitution`, `process_substitution`
+    and `subshell` - used to be consulted only when the verdict was still
+    `allow`, so under the default `"*": "ask"` a `deny` on one of them was
+    silently inert: the wildcard had already produced `ask` and the policy was
+    never read. `variable_assignment` and the redirection policies never had
+    that problem (they set or force `deny` outright), which made these three
+    the odd ones out. They are now absolute too.
+    """
+
+    # key -> a command that exercises exactly that construct
+    CONSTRUCTS: ClassVar[list[tuple[str, str]]] = [
+        ("command_substitution", "echo $(rm x)"),
+        ("process_substitution", "echo <(rm x)"),
+        ("subshell", "( rm x )"),
+    ]
+
+    # key -> the same construct, wrapping a command that blocked_cmds_regex denies
+    BLOCKED_CONSTRUCTS: ClassVar[list[tuple[str, str]]] = [
+        ("command_substitution", "echo $(cat /etc/passwd)"),
+        ("process_substitution", "echo <(cat /etc/passwd)"),
+        ("subshell", "( cat /etc/passwd )"),
+    ]
+
+    @staticmethod
+    def _label(key: str) -> str:
+        return "subshell (...)" if key == "subshell" else key.replace("_", " ")
+
+    @pytest.mark.parametrize(("key", "command"), CONSTRUCTS)
+    def test_deny_blocks_from_ask_and_allow_wildcards(self, key: str, command: str) -> None:
+        # These are the cases that used to report `ask`: the wildcard had
+        # already spoken, so the construct policy was never consulted.
+        for wildcard in ("ask", "allow"):
+            result = evaluate_bash_command(command, {"*": wildcard, key: "deny"})
+            assert result["status"] == "deny", (key, wildcard)
+            assert f"{self._label(key)} denied in config" in result["reason"], (key, wildcard)
+
+    @pytest.mark.parametrize(("key", "command"), CONSTRUCTS)
+    def test_deny_wildcard_still_denies(self, key: str, command: str) -> None:
+        # With `"*": "deny"` the wildcard has already refused the command, so
+        # the construct policy has nothing left to add to the reason.
+        result = evaluate_bash_command(command, {"*": "deny", key: "deny"})
+        assert result["status"] == "deny"
+        assert "requires approval" not in result["reason"]
+
+    @pytest.mark.parametrize(("key", "command"), CONSTRUCTS)
+    def test_deny_beats_an_allow_listed_command(self, key: str, command: str) -> None:
+        # Even when every command in the line matches an allowed pattern, a
+        # `deny` on the construct still refuses it.
+        result = evaluate_bash_command(command, {"*": "ask", key: "deny", "allowed_cmds_regex": [r"^\w+(\s.*)?$"]})
+        assert result["status"] == "deny"
+        assert "denied in config" in result["reason"]
+
+    @pytest.mark.parametrize(("key", "command"), CONSTRUCTS)
+    def test_ask_still_only_downgrades_an_allow(self, key: str, command: str) -> None:
+        # `ask` keeps its narrower meaning - it prevents auto-approval and
+        # nothing more, so it is inert once the verdict is already `ask`.
+        assert evaluate_bash_command(command, {"*": "allow", key: "ask"})["status"] == "ask"
+        assert evaluate_bash_command(command, {"*": "ask", key: "ask"})["status"] == "ask"
+        assert evaluate_bash_command(command, {"*": "allow", key: "ask"})["reason"].count("requires approval") == 1
+
+    @pytest.mark.parametrize(("key", "command"), BLOCKED_CONSTRUCTS)
+    def test_ask_does_not_soften_an_existing_deny(self, key: str, command: str) -> None:
+        # An `ask` on the construct must never turn a hard block back into a
+        # prompt - here the `deny` comes from `blocked_cmds_regex`.
+        result = evaluate_bash_command(
+            command,
+            {"*": "allow", key: "ask", "blocked_cmds_regex": [r"\/etc"]},
+        )
+        assert result["status"] == "deny"
+        assert "matches blocked pattern" in result["reason"]
+        assert "requires approval" not in result["reason"]
+
+    def test_ask_does_not_soften_a_variable_assignment_deny(self) -> None:
+        result = evaluate_bash_command(
+            "FOO=bar $(rm x)",
+            {"*": "allow", "variable_assignment": "deny", "command_substitution": "ask"},
+        )
+        assert result["status"] == "deny"
+        assert "variable assignment denied" in result["reason"]
+
+    def test_empty_segment_path_reports_deny_wording(self) -> None:
+        # The zero-segment path can return a `deny` too; it must not claim the
+        # user can approve it.
+        result = evaluate_bash_command(
+            "(( x[$(rm z)] ))",
+            {"*": "ask", "command_substitution": "deny", "allowed_cmds_regex": [r"^rm(\s+.*)?$"]},
+        )
+        assert result["status"] == "deny"
+        assert "command substitution denied in config" in result["reason"]
+        assert "requires approval" not in result["reason"]
+
+    def test_nested_nonmatch_deny_is_attributable_to_config(self) -> None:
+        # The block should say both *what* was rejected and that no runtime
+        # approval would let it through.
+        result = evaluate_bash_command(
+            "find . $(rm x)",
+            {"*": "allow", "command_substitution": "deny", "allowed_cmds_regex": [r"^find(\s.*)?$"]},
+        )
+        assert result["status"] == "deny"
+        assert "do not match allowed patterns" in result["reason"]
+        assert "command substitution denied in config" in result["reason"]
+
+    def test_the_three_keys_are_independent(self) -> None:
+        # Allowing one must not disarm another.
+        assert evaluate_bash_command("( $(rm x) )", {"*": "ask", "subshell": "allow"})["status"] == "ask"
+        result = evaluate_bash_command("( $(rm x) )", {"*": "ask", "command_substitution": "deny"})
+        assert result["status"] == "deny"
+        assert "command substitution denied in config" in result["reason"]

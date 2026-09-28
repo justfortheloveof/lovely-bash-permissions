@@ -547,10 +547,11 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                 )
             else:
                 _empty_status = _cs_policy
+                # A `deny` here is an absolute block, so the reason must not
+                # claim the user can still approve it at runtime.
+                _subst_label = "command substitution" if has_cmd_subst else "process substitution"
                 _empty_reason = (
-                    "command substitution requires approval"
-                    if has_cmd_subst
-                    else "process substitution requires approval"
+                    f"{_subst_label} denied in config" if _cs_policy == "deny" else f"{_subst_label} requires approval"
                 )
         else:
             _empty_status = _wildcard
@@ -780,28 +781,57 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                 overall_status = "ask"  # Validation failed, allow policy → ask for approval
             elif _sub_policy == "deny":
                 overall_status = "deny"  # Validation failed, deny policy → reject outright
+                # The block comes from configuration, so say so: the non-match
+                # reason above explains *what* was rejected, this explains that
+                # no amount of approval at runtime would let it through.
+                reasons.append(
+                    ("command substitution" if has_cmd_subst else "process substitution") + " denied in config"
+                )
             else:  # ask
                 overall_status = _sub_policy
 
-    # $(...) and <(...) each gate independently (ask on either when overall
-    # is still allow).
-    for _flag, _key, _label in (
-        (has_cmd_subst, "command_substitution", "command substitution requires approval"),
-        (has_proc_subst, "process_substitution", "process substitution requires approval"),
-    ):
-        if _flag and overall_status == "allow":
-            _pol = rules.get(_key, "ask")
-            if _pol != "allow":
-                overall_status = _pol
-                reasons.append(_label)
+    def _construct_policy_verdict(flag: bool, key: str, label: str, current: str) -> tuple[str, str | None]:
+        """Gate one construct policy onto an existing verdict.
 
-    # ( ... ) paren-group subshells: inner segments are already scanned above
-    # (blocked patterns / allowed patterns); the policy gates the construct itself.
-    if has_paren_subshell and overall_status == "allow":
-        _paren_pol = rules.get("subshell", "ask")
-        if _paren_pol != "allow":
-            overall_status = _paren_pol
-            reasons.append("subshell (...) requires approval")
+        ``deny`` is an ABSOLUTE block: it wins over the wildcard, over allow
+        patterns, and over any other policy, and it is not overridable at
+        runtime - only a config change lifts it.  That is what
+        ``variable_assignment`` and the redirection policies already do (see the
+        aggregation above).  These construct keys were the holdouts: their gate
+        only ran when the verdict was still ``allow``, so under the default
+        ``"*": "ask"`` a ``deny`` here was silently inert - the wildcard had
+        already spoken and the policy was never consulted.
+
+        ``ask`` keeps its narrower meaning: it only downgrades an otherwise
+        ``allow`` verdict, i.e. it prevents auto-approval, and keeps the
+        "requires approval" wording because that is still actionable at runtime.
+        A verdict that is already ``deny`` is never softened.
+
+        Returns:
+            The new status, and the reason to append (or None for no change).
+        """
+        if not flag or current == "deny":
+            return current, None
+        pol = rules.get(key, "ask")
+        if pol == "deny":
+            return "deny", f"{label} denied in config"
+        if pol != "allow" and current == "allow":
+            return pol, f"{label} requires approval"
+        return current, None
+
+    # $(...), <(...) and ( ... ) each gate independently.
+    for _flag, _key, _label in (
+        (has_cmd_subst, "command_substitution", "command substitution"),
+        (has_proc_subst, "process_substitution", "process substitution"),
+        # ( ... ) paren-group subshells: inner segments are already scanned
+        # above (blocked patterns / allowed patterns); the policy gates the
+        # construct itself.
+        (has_paren_subshell, "subshell", "subshell (...)"),
+    ):
+        overall_status, _added_reason = _construct_policy_verdict(_flag, _key, _label, overall_status)
+        if _added_reason:
+            reasons.append(_added_reason)
+
     # Only include approval reasons when status is allow; hide them for ask/deny
     if overall_status == "allow" and all_matched_patterns:
         # Build approval reason from ALL matched patterns (top-level + nested)
