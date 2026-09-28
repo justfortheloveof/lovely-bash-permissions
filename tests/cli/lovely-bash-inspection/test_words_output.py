@@ -15,11 +15,22 @@ The renderer now emits three extra lines:
 Commands nested inside those words (``for i in $(cmd)``) are already
 rendered by the generic child descent, so these tests also pin that they are
 not rendered twice.
+
+The same file also covers how assignments are rendered.  The CLI used to carry
+its own copy of the assignment renderer, which dropped array elements
+(``A+=(x y)`` -> ``A+=(...)``) and appended a stray ``=`` to a name-less
+declaration flag (``declare -a`` -> ``declare =-a``).  It now delegates to the
+renderer ``segments`` uses for permission evaluation, and the tests below pin
+that the inspection output agrees with :func:`parse_segments` operand for
+operand - that agreement is the point of the change.
 """
 
 import pytest
 
+from lovely_bash_permissions import cli
+from lovely_bash_permissions.ast import Assign
 from lovely_bash_permissions.cli import main
+from lovely_bash_permissions.segments import parse_segments
 
 
 def _lines(capsys: pytest.CaptureFixture[str]) -> list[str]:
@@ -30,6 +41,41 @@ def _lines(capsys: pytest.CaptureFixture[str]) -> list[str]:
 def _payload(lines: list[str]) -> list[str]:
     """Return the indented payload lines (skip headers and the summary)."""
     return [line for line in lines if line.startswith(" ")]
+
+
+def _assign_operands(lines: list[str], variant: str | None = None) -> list[str]:
+    """Return the operands rendered on ``assign:`` lines.
+
+    Args:
+        lines: The captured output lines.
+        variant: ``None`` (the default) reads bare assignment lines; a keyword
+            such as ``"declare"`` reads that declaration's operands, which the
+            CLI renders as ``assign: declare <operand>``.
+
+    Returns:
+        The operand text of each matching line, without the ``assign:`` prefix.
+    """
+    prefix = "  assign: " if variant is None else f"  assign: {variant} "
+    return [line[len(prefix) :] for line in lines if line.startswith(prefix)]
+
+
+def _segment_arguments(source: str, command: str) -> list[str]:
+    """Return the non-empty arguments ``parse_segments`` reports for *command*.
+
+    Args:
+        source: The bash source to segment.
+        command: The segment's command name ("" for a bare assignment).
+
+    Returns:
+        The segment's arguments, empty ones dropped.
+
+    Raises:
+        AssertionError: If no segment with that command name is found.
+    """
+    for segment in parse_segments(source):
+        if segment["command"] == command:
+            return [str(argument) for argument in segment["arguments"] if argument]
+    raise AssertionError(f"no {command!r} segment in {parse_segments(source)}")
 
 
 class TestForLoopWords:
@@ -144,3 +190,137 @@ class TestRedirectionPlacementUnaffected:
         lines = _lines(capsys)
         assert len([line for line in lines if "redirection:" in line]) == 1
         assert lines.index("  cmd: :") + 1 == lines.index("  redirection: 2>> /tmp/err")
+
+
+class TestAssignmentRendering:
+    """Assignments render as written, for every shape shfmt produces."""
+
+    def test_declared_array_after_a_flag_keeps_its_elements(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["--string", "declare -a A=(a b)"]) == 0
+        assert "  assign: declare A=(a b)" in _lines(capsys)
+
+    def test_array_append_keeps_its_elements(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["--string", "A+=(x y)"]) == 0
+        assert "  assign: A+=(x y)" in _lines(capsys)
+
+    def test_subscripted_array_append_keeps_its_elements(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["--string", "A[i]+=(x y)"]) == 0
+        assert "  assign: A[i]+=(x y)" in _lines(capsys)
+
+    def test_plain_array_keeps_its_elements(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["--string", "A=(a b)"]) == 0
+        assert "  assign: A=(a b)" in _lines(capsys)
+
+    def test_subscripted_scalar_is_unchanged(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["--string", "A[i]=value"]) == 0
+        assert "  assign: A[i]=value" in _lines(capsys)
+
+    def test_empty_array_keeps_the_placeholder(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["--string", "A=()"]) == 0
+        assert "  assign: A=(...)" in _lines(capsys)
+
+    def test_sparse_array_keeps_its_subscripts(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["--string", "A=([0]=x [2]=y)"]) == 0
+        assert "  assign: A=([0]=x [2]=y)" in _lines(capsys)
+
+    def test_naked_flag_gets_no_stray_equals(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["--string", "declare -a"]) == 0
+        lines = _lines(capsys)
+        assert "  assign: declare -a" in lines
+        assert not [line for line in lines if "declare =-a" in line]
+
+    def test_naked_name_gets_no_stray_equals(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["--string", "export FOO"]) == 0
+        assert "  assign: export FOO" in _lines(capsys)
+
+    def test_declared_scalar(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["--string", "export FOO=bar"]) == 0
+        assert "  assign: export FOO=bar" in _lines(capsys)
+
+    def test_declared_array_keeps_its_elements(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["--string", "export A=(a b)"]) == 0
+        assert "  assign: export A=(a b)" in _lines(capsys)
+
+    def test_substitution_element_surfaces_the_nested_command_once(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["--string", "A=($(cmd))"]) == 0
+        lines = _lines(capsys)
+        assert "  assign: A=($(...))" in lines
+        assert [line.strip() for line in lines if "cmd:" in line] == ["cmd: cmd"]
+
+    def test_substitution_in_a_declared_array_surfaces_the_nested_command(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert main(["--string", "export A=($(cmd))"]) == 0
+        lines = _lines(capsys)
+        assert "  assign: export A=($(...))" in lines
+        assert [line.strip() for line in lines if "cmd:" in line] == ["cmd: cmd"]
+
+    def test_nested_command_in_a_value_is_not_double_rendered(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["--string", "A=$(cmd)"]) == 0
+        lines = _lines(capsys)
+        assert "  assign: A=$(...)" in lines
+        assert [line.strip() for line in lines if "cmd:" in line] == ["cmd: cmd"]
+
+
+def _blank_assign_text(assign: Assign) -> str:
+    """Stand-in renderer for an assignment that has nothing to render."""
+    return ""
+
+
+class TestUnrenderableAssignment:
+    """An assignment with nothing to render produces no ``assign:`` line."""
+
+    def test_delegating_renderer_reports_empty(self) -> None:
+        assert cli._assign_text(Assign()) == ""
+
+    def test_bare_assignment_line_is_omitted(
+        self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(cli, "_assign_text", _blank_assign_text)
+        assert main(["--string", "A=b"]) == 0
+        lines = _lines(capsys)
+        assert not [line for line in lines if "assign" in line]
+
+    def test_declared_assignment_line_is_omitted(
+        self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(cli, "_assign_text", _blank_assign_text)
+        assert main(["--string", "export FOO=bar"]) == 0
+        lines = _lines(capsys)
+        assert not [line for line in lines if "assign" in line]
+        # The statement keeps its header, exactly as an operand-less
+        # declaration does, rather than growing a dangling ``assign:`` line.
+        assert lines[0].startswith("statement 1 ")
+
+
+class TestAgreesWithSegments:
+    """The rendered operands are the operands ``segments`` reports."""
+
+    @pytest.mark.parametrize(
+        ("source", "variant"),
+        [
+            ("A=(a b)", None),
+            ("A+=(x y)", None),
+            ("A[i]+=(x y)", None),
+            ("A=(a b c)", None),
+            ("A[i]=value", None),
+            ("A=()", None),
+            ("A=([0]=x [2]=y)", None),
+            ("A=($(cmd))", None),
+            ("A=$(cmd)", None),
+            ("A=value", None),
+            ("A=", None),
+            ("declare -a A=(a b)", "declare"),
+            ("declare -a", "declare"),
+            ("export FOO=bar", "export"),
+            ("export A=(a b)", "export"),
+            ("export A=($(cmd))", "export"),
+        ],
+    )
+    def test_operands_match_the_segment_arguments(
+        self, capsys: pytest.CaptureFixture[str], source: str, variant: str | None
+    ) -> None:
+        assert main(["--string", source]) == 0
+        rendered = _assign_operands(_lines(capsys), variant)
+        expected = _segment_arguments(source, "" if variant is None else variant)
+        assert rendered == expected

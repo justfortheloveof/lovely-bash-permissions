@@ -19,6 +19,8 @@ from collections.abc import Iterator
 from typing import NoReturn
 
 from .ast import (
+    ArrayElem,
+    ArrayExpr,
     Assign,
     BinaryCmd,
     CallExpr,
@@ -28,7 +30,6 @@ from .ast import (
     DeclClause,
     File,
     ForClause,
-    Lit,
     Node,
     ProcSubst,
     Redir,
@@ -38,6 +39,7 @@ from .ast import (
 from .converter import parse_ast
 from .errors import LovelyDevinPermissionsError
 from .inspect import _word_value, has_pipe, has_variable, iter_children
+from .segments import _assign_operand_text
 
 PROG = "lovely-bash-inspection"
 INDENT = "  "
@@ -115,16 +117,25 @@ def _redir_text(redir: Redir) -> str:
 
 
 def _assign_text(assign: Assign) -> str:
-    """Reconstruct a best-effort string for an assignment's left-hand side."""
-    name = assign.name.value if isinstance(assign.name, Lit) else (assign.name.value if assign.name else "?")
-    if assign.index is not None and isinstance(assign.index, Word):
-        name += f"[{_word_value(assign.index)}]"
-    op = "+=" if assign.append else "="
-    if assign.value is not None:
-        return f"{name}{op}{_word_value(assign.value)}"
-    if assign.array is not None:
-        return f"{name}{op}(...)"
-    return name + op
+    """Reconstruct a variable assignment as written.
+
+    Delegates to :func:`lovely_bash_permissions.segments._assign_operand_text`
+    so the inspection output and the permission-evaluation path share a single
+    renderer.  That renderer covers every shape shfmt produces - scalar,
+    subscripted, array, ``+=`` combined with either, and naked declaration
+    operands (a bare name or a flag such as ``declare -a``) - where an
+    earlier copy here dropped array elements and appended a stray ``=`` to a
+    name-less flag.
+
+    Args:
+        assign: The ``Assign`` node to render.
+
+    Returns:
+        The assignment as written, or ``""`` when there is nothing to render.
+        Callers omit the ``assign:`` line for the empty result rather than
+        printing it with nothing after the colon.
+    """
+    return _assign_operand_text(assign)
 
 
 # ---------------------------------------------------------------------------
@@ -323,17 +334,50 @@ def _render_command(call: CallExpr, indent: int, report: _Report) -> None:
             report.add(indent, f"args: {', '.join(args)}")
         _render_word_subs(call.args, indent, report)
     for assign in call.assigns or []:
-        report.add(indent, f"assign: {_assign_text(assign)}")
-        if assign.value:
-            _render_word_subs([assign.value], indent, report)
+        text = _assign_text(assign)
+        # An assignment with nothing renderable (see ``_assign_text``) would
+        # otherwise leave a dangling ``assign:`` line.
+        if text:
+            report.add(indent, f"assign: {text}")
+        _render_assign_subs(assign, indent, report)
 
 
 def _render_declared(decl: DeclClause, indent: int, report: _Report) -> None:
-    """Render a declaration clause (e.g. ``export FOO=$(...)``)."""
+    """Render a declaration clause (e.g. ``export FOO=$(...)``).
+
+    Each operand is a separate ``assign:`` line prefixed with the declaration
+    keyword, so ``declare -a A=(a b)`` reads as ``declare -a`` plus
+    ``declare A=(a b)`` - the operands ``segments`` reports as the
+    declaration's arguments.
+    """
     for assign in decl.assigns or []:
-        report.add(indent, f"assign: {decl.variant} {_assign_text(assign)}")
-        if assign.value:
-            _render_word_subs([assign.value], indent, report)
+        text = _assign_text(assign)
+        if text:
+            report.add(indent, f"assign: {decl.variant} {text}")
+        _render_assign_subs(assign, indent, report)
+
+
+def _render_assign_subs(assign: Assign, indent: int, report: _Report) -> None:
+    """Render commands nested in substitutions inside an assignment.
+
+    Covers the subscript, the plain value, and every array element's value and
+    subscript, so ``A=($(cmd))`` surfaces ``cmd`` just as ``A=$(cmd)`` does.
+    The node owning the assignment is a renderable leaf, so the generic child
+    descent does not visit these words again and nothing is rendered twice.
+    """
+    words: list[Word] = []
+    if isinstance(assign.index, Word):
+        words.append(assign.index)
+    if assign.value is not None:
+        words.append(assign.value)
+    if isinstance(assign.array, ArrayExpr):
+        for elem in assign.array.elems:
+            if isinstance(elem, ArrayElem):
+                if isinstance(elem.index, Word):
+                    words.append(elem.index)
+                if elem.value is not None:
+                    words.append(elem.value)
+    _render_word_subs(words, indent, report)
 
 
 def _render_redirs(redirs: list[Redir], indent: int, report: _Report) -> None:
