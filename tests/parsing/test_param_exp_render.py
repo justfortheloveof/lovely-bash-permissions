@@ -8,12 +8,22 @@ tests pin the operator/operand text back on - in the raw ``arguments`` form
 and in the quote/backslash-normalized ``normalized_arguments`` form - while
 keeping the two invariants intact: a ``$(...)`` operand stays the literal
 opaque placeholder, and nested expansions terminate.
+
+Two further fidelity gaps are pinned here because they share the same
+rendering code and the same matcher:
+
+* A ``DblQuoted`` used to render from its lossy ``value`` field, which splices
+  every expansion out (``"pre${x}y"`` became the string ``"prey"`` - text the
+  user never wrote).  ``"..."`` regions now render from their parts.
+* ``ParamExp.length`` (``${#x}``) was never rendered, so ``${#x}`` reached the
+  matcher as ``$x`` - a *different* expression with a different meaning.
 """
 
 from typing import Any, cast
 
-from lovely_bash_permissions.ast import Lit, ParamExp, ParamExpExp, ParamExpSlice, Word
-from lovely_bash_permissions.inspect import _word_value
+from lovely_bash_permissions.ast import DblQuoted, Lit, ParamExp, ParamExpExp, ParamExpSlice, Word
+from lovely_bash_permissions.evaluate import evaluate_bash_command
+from lovely_bash_permissions.inspect import _word_exec, _word_raw, _word_value
 from lovely_bash_permissions.segments import parse_segments
 
 
@@ -166,9 +176,44 @@ class TestUnchangedSimpleForms:
     def test_normalized_simple_form_unchanged(self) -> None:
         assert _normalized("echo $HOME") == ["$HOME"]
 
-    def test_length_expansion_unchanged(self) -> None:
-        # `${#x}` populates no operand field, so it keeps rendering as `$x`.
-        assert _args("echo ${#x}") == ["$x"]
+
+class TestLengthExpansion:
+    """``${#x}`` keeps its ``#``: it is a *different* expression from ``${x}``.
+
+    ``ParamExp.length`` is populated by shfmt (``"Length": true``) but used to
+    go unrendered, so ``echo ${#x}`` reached the matcher as ``echo $x`` - the
+    string length being talked about as if it were the variable's value.
+    """
+
+    def test_simple_length_expansion(self) -> None:
+        assert _args("echo ${#x}") == ["${#x}"]
+
+    def test_length_expansion_is_not_the_bare_param(self) -> None:
+        arg = _args("echo ${#x}")[0]
+        assert arg != "$x"
+        assert arg.startswith("${#")
+
+    def test_length_expansion_normalized_form(self) -> None:
+        assert _normalized("echo ${#x}") == ["${#x}"]
+
+    def test_array_length_expansion(self) -> None:
+        assert _args("echo ${#arr[@]}") == ["${#arr[@]}"]
+
+    def test_length_expansion_hand_built_node(self) -> None:
+        # The bare `${#x}` spelling has no operator, so it exercises the
+        # simple-form branch rather than the operator/suffix branch.
+        node = ParamExp(param="x", length=True)
+        assert _word_value(Word(parts=[node])) == "${#x}"
+
+    def test_non_length_expansion_has_no_sigil(self) -> None:
+        node = ParamExp(param="x")
+        assert _word_value(Word(parts=[node])) == "$x"
+
+    def test_length_expansion_keeps_operator_text(self) -> None:
+        # `${#x}` and `${x}` differ only in the sigil; with an operator present
+        # both the sigil and the operator must survive.
+        node = ParamExp(param="x", length=True, exp=ParamExpExp(op=":-", word=Word(parts=[Lit(value="d")])))
+        assert _word_value(Word(parts=[node])) == "${#x:-d}"
 
 
 class TestNesting:
@@ -223,20 +268,97 @@ class TestQuotedVariants:
     def test_single_quoted_normalized_form(self) -> None:
         assert _normalized("echo '${BAR:-/etc/passwd}'") == ["${BAR:-/etc/passwd}"]
 
-    def test_double_quoted_raw_form_keeps_quotes(self) -> None:
-        # A "..." region renders as one quoted region from DblQuoted's lossy
-        # ``value`` field, so the expansion text is *not* in the raw form. That
-        # is a DblQuoted-fidelity gap separate from this ParamExp fix; the
-        # faithful expansion is available in the executed form (next test) and
-        # is what the blocked/allowed matchers normalize to.
-        assert _args('echo "${BAR:-/etc/passwd}"') == ['""']
-
     def test_double_quoted_expands_in_normalized_form(self) -> None:
         assert _normalized('echo "${BAR:-/etc/passwd}"') == ["${BAR:-/etc/passwd}"]
 
-    def test_double_quoted_with_literal_prefix(self) -> None:
-        assert _args('echo "pre${x:-/etc/passwd}"') == ['"pre"']
-        assert _normalized('echo "pre${x:-/etc/passwd}"') == ["pre${x:-/etc/passwd}"]
+
+class TestDoubleQuotedFidelity:
+    """A ``"..."`` region renders from its parts, not from its lossy ``value``.
+
+    ``DblQuoted.value`` is built by ``converter._convert_dbl_quoted`` from only
+    the ``Lit``/``SglQuoted`` children, substituting ``""`` for everything
+    else - so ``"pre${x:-/etc/passwd}post"`` used to render as ``"prepost"``,
+    a literal string the user never wrote.  A restrictive allowed pattern can
+    be satisfied by text that was dropped, so the raw form must keep the
+    expansion visible.
+    """
+
+    def test_bare_expansion_in_quotes_is_kept(self) -> None:
+        assert _args('echo "$HOME"') == ['"$HOME"']
+        assert _args('echo "${x}"') == ['"$x"']
+
+    def test_expansion_with_literal_prefix_and_suffix(self) -> None:
+        # The exact string that used to come out as "prepost".
+        assert _args('echo "pre${x:-/etc/passwd}post"') == ['"pre${x:-/etc/passwd}post"']
+
+    def test_plain_quoted_literal_unchanged(self) -> None:
+        # A "..." region with no expansion never touched the lossy path.
+        assert _args('echo "plain"') == ['"plain"']
+
+    def test_empty_quoted_region_unchanged(self) -> None:
+        # shfmt emits no parts at all for `""`, so the stored-value fallback
+        # applies and the word contributes nothing.
+        assert _args('echo ""') == [""]
+
+    def test_quoted_path_operator_stays_visible(self) -> None:
+        assert _args('echo "${BAR:-/etc/passwd}"') == ['"${BAR:-/etc/passwd}"']
+
+    def test_single_quoted_expansion_unchanged(self) -> None:
+        # Single quotes are verbatim, so the expansion text is already there.
+        assert _args("echo '${x}'") == ["'${x}'"]
+
+    def test_mixed_literal_and_expansion(self) -> None:
+        assert _args('echo "a${x}b$c"') == ['"a$xb$c"']
+
+    def test_adjacent_quoted_and_bare_regions(self) -> None:
+        # The "a"b"c" shape: a bare Lit, then two "..." regions in one word.
+        assert _args('echo a"b"c') == ['a"b"c']
+
+    def test_backslash_kept_in_raw_form(self) -> None:
+        # The raw form is the text as written; unescaping is the exec form's
+        # job, so the backslash must survive here.
+        assert _args('echo "\\$x"') == ['"\\$x"']
+
+    def test_nested_dbl_quoted_renders_recursively(self) -> None:
+        # True nesting (a DblQuoted inside a DblQuoted) is not reachable from
+        # bash source - adjacent regions are separate parts - so it is built by
+        # hand.  Both renderers recurse and terminate.
+        inner = DblQuoted(parts=[Lit(value="in")])
+        region = DblQuoted(parts=[Lit(value="a"), inner, ParamExp(param="x")], value=None)
+        word = Word(parts=[Lit(value="pre"), region])
+        assert _word_raw(word) == 'pre"a"in"$x"'
+        assert _word_value(word) == "preain$x"
+
+    def test_nested_dbl_quoted_exec_form_unchanged(self) -> None:
+        inner = DblQuoted(parts=[Lit(value="in")])
+        region = DblQuoted(parts=[Lit(value="a"), inner, ParamExp(param="x")], value=None)
+        word = Word(parts=[Lit(value="pre"), region])
+        assert _word_exec(word) == "preain$x"
+
+
+class TestDoubleQuotedOpaquePlaceholder:
+    """``$(...)`` inside ``"..."`` must still render as the opaque placeholder.
+
+    ``evaluate._command_string`` and ``_opaque_match_unreliable`` key off the
+    literal string ``$(...)`` to decide that a pattern match is unreliable, so
+    recursing into a ``DblQuoted`` must not replace it with the substitution's
+    own text.  The lossy ``value`` field dropped it outright (``"a$(cmd)b"``
+    became ``"ab"``), which is exactly the signal the guard needs.
+    """
+
+    def test_cmd_subst_inside_quotes_keeps_placeholder(self) -> None:
+        arg = _args('echo "a$(cmd)b"')[0]
+        assert arg == '"a$(...)b"'
+        assert "$(...)" in arg
+
+    def test_cmd_subst_inside_quotes_normalized_form(self) -> None:
+        assert _normalized('echo "a$(cmd)b"') == ["a$(...)b"]
+
+    def test_cmd_subst_inside_quotes_with_expansion(self) -> None:
+        arg = _args('echo "nested $(cmd ${x})"')[0]
+        assert arg == '"nested $(...)"'
+        assert "$(...)" in arg
+        assert "${x}" not in arg
 
 
 class TestEscapedOperands:
@@ -251,3 +373,99 @@ class TestEscapedOperands:
         assert r"\/" not in arg
         assert "/etc" in arg
         assert "passwd" in arg
+
+
+class TestExecFormUnchanged:
+    """The executed form is a byte-for-byte regression pin.
+
+    The raw renderers changed; ``normalized_arguments`` (the executed form
+    ``evaluate`` matches on first) must not have.  Every expectation here is
+    the value that renderer produced *before* the ``DblQuoted`` fix.  The one
+    deliberate exception is ``${#x}``, whose ``#`` is the second finding and is
+    shared by both renderers through ``_param_exp_text``.
+    """
+
+    def test_exec_form_unchanged_for_every_quoted_case(self) -> None:
+        cases = {
+            'echo "$HOME"': ["$HOME"],
+            'echo "pre${x:-/etc/passwd}post"': ["pre${x:-/etc/passwd}post"],
+            'echo "plain"': ["plain"],
+            'echo "pre${x:-/etc/passwd}"': ["pre${x:-/etc/passwd}"],
+            'echo "${BAR:-/etc/passwd}"': ["${BAR:-/etc/passwd}"],
+            "echo '${x}'": ["${x}"],
+            'echo "a$(cmd)b"': ["a$(...)b"],
+            'echo "a${x}b$c"': ["a$xb$c"],
+            'echo a"b"c': ["abc"],
+            'echo ""': [""],
+            'echo "\\$x"': ["$x"],
+            'echo "${x}"': ["$x"],
+            'echo "${A:-${B:-/x}}"': ["${A:-${B:-/x}}"],
+            'echo "${x//a/b}"': ["${x//a/b}"],
+            "echo '${BAR:-/etc/passwd}'": ["${BAR:-/etc/passwd}"],
+        }
+        for command, expected in cases.items():
+            assert _normalized(command) == expected, command
+
+
+class TestAllowSideQuotedFidelity:
+    """Allow-side regressions for the raw ``arguments`` text.
+
+    ``allowed_cmds_regex`` matches the joined segment text, and
+    ``evaluate._texts_for`` tries the executed form first with the raw form as a
+    fallback.  While a ``"..."`` region rendered from its lossy ``value``, that
+    fallback text was text the user never wrote, so a restrictive guard could be
+    satisfied by dropped content.  ``evaluate._command_string`` also applies
+    ``_strip_quotes`` to every argument, so a pattern written with explicit
+    quote characters never matches either form - these tests use the
+    quote-stripped spelling, which is the one a pattern must be written in.
+    """
+
+    def test_expansion_text_is_visible_to_an_allowed_pattern(self) -> None:
+        result = evaluate_bash_command(
+            'echo "${BAR:-/etc/passwd}"', {"*": "ask", "allowed_cmds_regex": [r"^echo\s+\S+$"]}
+        )
+        assert result["status"] == "allow"
+
+    def test_opaque_expansion_does_not_satisfy_a_slash_free_guard(self) -> None:
+        # `[^/]*` means "no slash in the argument".  The expansion carries a
+        # literal path, so the guard must not approve it - previously the raw
+        # fallback was the empty string `""` and matched.
+        result = evaluate_bash_command(
+            'echo "${BAR:-/etc/passwd}"', {"*": "ask", "allowed_cmds_regex": [r"^echo\s+[^/]*$"]}
+        )
+        assert result["status"] == "ask"
+
+    def test_opaque_expansion_does_not_satisfy_a_quoted_slash_free_guard(self) -> None:
+        result = evaluate_bash_command('echo "$X"', {"*": "ask", "allowed_cmds_regex": [r'^echo\s+"[^/]*"$']})
+        assert result["status"] == "ask"
+
+    def test_quoted_literal_still_satisfies_a_slash_free_guard(self) -> None:
+        result = evaluate_bash_command('echo "plain"', {"*": "ask", "allowed_cmds_regex": [r"^echo\s+[^/]*$"]})
+        assert result["status"] == "allow"
+
+    def test_bare_expansion_pattern_matches(self) -> None:
+        # `${x}` renders in its historical short `$x` spelling, so the matching
+        # pattern is written that way.
+        result = evaluate_bash_command('echo "${x}"', {"*": "ask", "allowed_cmds_regex": [r"^echo\s+\$x$"]})
+        assert result["status"] == "allow"
+
+    def test_pattern_with_literal_quotes_never_matches(self) -> None:
+        # Documented consequence of `_command_string` stripping outer quotes
+        # from every argument: a quote-preserving pattern cannot match, so
+        # this stays `ask` (it also stayed `ask` before the fix).
+        result = evaluate_bash_command('echo "${x}"', {"*": "ask", "allowed_cmds_regex": [r'^echo\s+"\$\{x\}\"$']})
+        assert result["status"] == "ask"
+
+    def test_length_expansion_matches_its_own_pattern(self) -> None:
+        result = evaluate_bash_command("echo ${#x}", {"*": "ask", "allowed_cmds_regex": [r"^echo\s+\$\{#x\}$"]})
+        assert result["status"] == "allow"
+
+    def test_length_expansion_does_not_match_the_bare_param_pattern(self) -> None:
+        # `${#x}` is a different expression from `$x`; an allow pattern written
+        # for `$x` must not auto-approve it.
+        result = evaluate_bash_command("echo ${#x}", {"*": "ask", "allowed_cmds_regex": [r"^echo\s+\$x$"]})
+        assert result["status"] == "ask"
+
+    def test_blocked_pattern_sees_the_length_sigil(self) -> None:
+        result = evaluate_bash_command("echo ${#x}", {"*": "allow", "blocked_cmds_regex": [r"^echo\s+\$\{#x\}$"]})
+        assert result["status"] == "deny"

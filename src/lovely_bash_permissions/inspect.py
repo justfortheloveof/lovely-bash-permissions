@@ -185,7 +185,16 @@ def _param_exp_text(part: ParamExp, render_word: Callable[[Word], str]) -> str:
     other form keeps its full text so a pattern matching the argument still
     sees the whole expansion (e.g. ``${BAR:-/etc/passwd}`` rather than
     ``$BAR``, which would hide the literal path from the matcher).
+
+    ``${#VAR}`` keeps its ``#`` sigil, which makes it a braced form even
+    though it has no operator - the length of ``$x`` is a different
+    expression from ``$x`` itself, and rendering it as ``$x`` would hand the
+    matcher the wrong one.
     """
+    # `${#x}` (string length) and `${#arr[@]}` (element count) are a *different*
+    # expression from `${x}`: dropping the `#` hands the matcher a different
+    # expansion than the user wrote, so the sigil must survive rendering.
+    sigil = "#" if part.length else ""
     op_text = ""
     exp = part.exp
     if exp is not None and exp.op:
@@ -208,38 +217,56 @@ def _param_exp_text(part: ParamExp, render_word: Callable[[Word], str]) -> str:
         # An absent length is the offset-only spelling `${var:offset}`.
         suffix += f":{offset}:{length}" if part.slice.length is not None else f":{offset}"
     if not op_text and not suffix:
+        if sigil:
+            return "${" + sigil + part.param + "}"
         return f"${part.param}"
-    return "${" + part.param + op_text + suffix + "}"
+    return "${" + sigil + part.param + op_text + suffix + "}"
+
+
+def _value_part(part: Node) -> str:
+    """Render one word part in best-effort *value* form (quotes removed).
+
+    Split out of :func:`_word_value` so that the per-part dispatch can be
+    reused when recursing into a ``"..."`` region's parts.
+
+    :class:`DblQuoted` deliberately does *not* short-circuit on its own
+    ``value`` field: that field is lossy (``converter._convert_dbl_quoted``
+    splices every non-literal part out of it), so ``"pre${x}y"`` would render as
+    the string ``"prey"`` - text the user never typed, which a restrictive
+    allowed pattern could then be fooled by.  Recursing keeps the expansion
+    visible.  ``DblQuoted.parts`` is a strict sub-tree, so the recursion is
+    finite.
+    """
+    if isinstance(part, (Lit, SglQuoted)):
+        return part.value
+    if isinstance(part, DblQuoted):
+        if part.parts:
+            return "".join(_value_part(p) for p in part.parts)
+        # No parts (shfmt produced none): fall back to the stored value.
+        return part.value or ""
+    if isinstance(part, ParamExp):
+        return _param_exp_text(part, _word_value)
+    if isinstance(part, CmdSubst):
+        return "$(...)"
+    if isinstance(part, ArithmExp):
+        return "$(( ... ))"
+    if isinstance(part, ExtGlob):
+        return f"{part.op}{part.pattern.value if part.pattern else ''})"
+    if isinstance(part, BraceExp):
+        return "{...}"
+    if isinstance(part, ProcSubst):
+        return f"{part.op}...)"
+    return ""
 
 
 def _word_value(word: Word) -> str:
     """Get the best-effort string value of a word (concatenating all parts).
 
     Handles Lit, SglQuoted, DblQuoted, ParamExp, CmdSubst, ArithmExp,
-    ExtGlob, BraceExp, and ProcSubst parts explicitly.  Unknown part
-    types are silently skipped.
+    ExtGlob, BraceExp, and ProcSubst parts explicitly (see
+    :func:`_value_part`).  Unknown part types render as the empty string.
     """
-    parts: list[str] = []
-    for part in word.parts:
-        if isinstance(part, (Lit, SglQuoted)):
-            parts.append(part.value)
-        elif isinstance(part, DblQuoted):
-            if part.value is not None:
-                parts.append(part.value)
-        elif isinstance(part, ParamExp):
-            parts.append(_param_exp_text(part, _word_value))
-        elif isinstance(part, CmdSubst):
-            parts.append("$(...)")
-        elif isinstance(part, ArithmExp):
-            parts.append("$(( ... ))")
-        elif isinstance(part, ExtGlob):
-            pattern = part.pattern.value if part.pattern else ""
-            parts.append(f"{part.op}{pattern})")
-        elif isinstance(part, BraceExp):
-            parts.append("{...}")
-        elif isinstance(part, ProcSubst):
-            parts.append(f"{part.op}...)")
-    return "".join(parts)
+    return "".join(_value_part(part) for part in word.parts)
 
 
 _UNESCAPE_UNQUOTED = re.compile(r"\\([^\n])")
@@ -258,35 +285,55 @@ def _unescape_lit(value: str, *, in_double_quotes: bool) -> str:
     return _UNESCAPE_UNQUOTED.sub(r"\1", value)
 
 
+def _raw_part(part: Node) -> str:
+    """Render one word part in its *raw* form, preserving quote characters.
+
+    Split out of :func:`_word_raw` so that the per-part dispatch can be
+    reused when recursing into a ``"..."`` region's parts.
+
+    A ``DblQuoted`` recurses into its parts for the same fidelity reason as
+    :func:`_value_part` (``DblQuoted.value`` is lossy), wrapping the result in
+    the quote characters so the region still reads as quoted - a
+    quote-preserving pattern like ``^echo\\s+"\\$\\{x\\}"$`` can then match it.
+
+    Unlike :func:`_exec_part` this does *not* switch backslash handling for
+    parts inside ``"..."``: the raw form is the text as written, and
+    unescaping is the executed form's job.  A nested ``"..."`` region is just
+    another ``DblQuoted``, so it renders recursively and terminates.
+    """
+    if isinstance(part, Lit):
+        return part.value
+    if isinstance(part, SglQuoted):
+        return f"'{part.value}'"
+    if isinstance(part, DblQuoted):
+        if part.parts:
+            return '"' + "".join(_raw_part(p) for p in part.parts) + '"'
+        # No parts (shfmt produced none): fall back to the stored value.
+        return f'"{part.value}"' if part.value is not None else ""
+    if isinstance(part, ParamExp):
+        return _param_exp_text(part, _word_raw)
+    if isinstance(part, CmdSubst):
+        return "$(...)"
+    if isinstance(part, ArithmExp):
+        return "$(( ... ))"
+    if isinstance(part, ExtGlob):
+        return f"{part.op}{part.pattern.value if part.pattern else ''})"
+    if isinstance(part, BraceExp):
+        return "{...}"
+    if isinstance(part, ProcSubst):
+        return f"{part.op}...)"
+    return ""
+
+
 def _word_raw(word: Word) -> str:
     """Get the raw text of a word, preserving quotes.
 
-    Unlike _word_value, this includes quote characters for quoted parts,
-    so patterns like ^echo\\s+'hello' can match quoted arguments.
+    Unlike :func:`_word_value`, this includes quote characters for quoted
+    parts, so patterns like ``^echo\\s+'hello'`` can match quoted arguments.
+    A ``DblQuoted`` containing an expansion still keeps its quotes *and* the
+    expansion text (see :func:`_raw_part`).
     """
-    parts: list[str] = []
-    for part in word.parts:
-        if isinstance(part, Lit):
-            parts.append(part.value)
-        elif isinstance(part, SglQuoted):
-            parts.append(f"'{part.value}'")
-        elif isinstance(part, DblQuoted):
-            if part.value is not None:
-                parts.append(f'"{part.value}"')
-        elif isinstance(part, ParamExp):
-            parts.append(_param_exp_text(part, _word_raw))
-        elif isinstance(part, CmdSubst):
-            parts.append("$(...)")
-        elif isinstance(part, ArithmExp):
-            parts.append("$(( ... ))")
-        elif isinstance(part, ExtGlob):
-            pattern = part.pattern.value if part.pattern else ""
-            parts.append(f"{part.op}{pattern})")
-        elif isinstance(part, BraceExp):
-            parts.append("{...}")
-        elif isinstance(part, ProcSubst):
-            parts.append(f"{part.op}...)")
-    return "".join(parts)
+    return "".join(_raw_part(part) for part in word.parts)
 
 
 def _exec_part(part: Node, in_double_quotes: bool) -> str:
