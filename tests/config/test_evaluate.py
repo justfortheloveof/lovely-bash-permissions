@@ -298,6 +298,111 @@ class TestBlockedJoinedLineSemantics:
         assert result["status"] == "allow"
 
 
+class TestWholeCommandBlockedScan:
+    """`blocked_cmds_regex` is matched against the WHOLE raw command string.
+
+    The per-segment checks only see a segment's *executed* command line, so
+    text that never becomes an argument - an expansion default, an array
+    assignment, a `[[ -f ... ]]` test operand, a comment, a quoted mention -
+    was invisible to them. The whole-command scan matches the command as
+    written, which is what "block on mention" has always meant.
+
+    Consequences pinned here: comments and quoted text are IN scope, and
+    anchoring is honored literally against the whole command, so `\\.env$`
+    only fires when the command actually ends in `.env`.
+    """
+
+    BLOCK_ETC: ClassVar[dict[str, str | list[str]]] = {"*": "allow", "blocked_cmds_regex": [r"/etc"]}
+
+    def test_param_expansion_default_denied(self) -> None:
+        """`${BAR:-/etc/passwd}` never reaches the argument list but still denies."""
+        result = evaluate_bash_command("echo ${BAR:-/etc/passwd}", {"*": "ask", "blocked_cmds_regex": [r"/etc"]})
+        assert result["status"] == "deny"
+
+    @pytest.mark.parametrize("wildcard", ["ask", "allow"])
+    def test_array_assignment_denied(self, wildcard: str) -> None:
+        """`A=(/etc/passwd)` denies under both the ask and allow wildcards."""
+        result = evaluate_bash_command("A=(/etc/passwd)", {"*": wildcard, "blocked_cmds_regex": [r"/etc"]})
+        assert result["status"] == "deny"
+
+    @pytest.mark.parametrize("wildcard", ["ask", "allow"])
+    def test_test_expression_denied(self, wildcard: str) -> None:
+        """`[[ -f /etc/passwd ]]` produces no exec segment but still denies."""
+        result = evaluate_bash_command("[[ -f /etc/passwd ]]", {"*": wildcard, "blocked_cmds_regex": [r"/etc"]})
+        assert result["status"] == "deny"
+
+    def test_reason_reports_whole_command(self) -> None:
+        """The deny reason quotes the whole raw command, not a segment line."""
+        result = evaluate_bash_command("A=(/etc/passwd)", self.BLOCK_ETC)
+        assert result["status"] == "deny"
+        assert '"A=(/etc/passwd)"' in result["reason"]
+
+    def test_return_shape_preserved(self) -> None:
+        """A whole-command deny does not early-return: `segments` is still present."""
+        result = evaluate_bash_command("[[ -f /etc/passwd ]]", self.BLOCK_ETC)
+        assert "segments" in result
+        assert result["segments"] == []
+
+    def test_comment_mention_denied(self) -> None:
+        """A blocked path inside a comment is in scope and denies."""
+        result = evaluate_bash_command("echo hi # /etc/passwd", self.BLOCK_ETC)
+        assert result["status"] == "deny"
+
+    def test_quoted_mention_denied(self) -> None:
+        """A blocked path inside a quoted string is in scope and denies."""
+        result = evaluate_bash_command('echo "see /etc/passwd docs"', self.BLOCK_ETC)
+        assert result["status"] == "deny"
+
+    def test_quote_split_still_denied_via_segment(self) -> None:
+        """The per-segment executed form still carries the quote-split path."""
+        result = evaluate_bash_command('cat /e"tc"/passwd', {"*": "allow", "blocked_cmds_regex": [r"\/etc"]})
+        assert result["status"] == "deny"
+        assert '"cat /etc/passwd"' in result["reason"]
+
+    # Anchoring contract: `\.env$` is literal against the WHOLE command, so a
+    # trailing `}` or `; do :; done` defeats it. Pinning this is the point:
+    # it is the difference between "ends in .env" and "mentions .env".
+    ENV_CFG: ClassVar[dict[str, str | list[str]]] = {
+        "*": "allow",
+        "blocked_cmds_regex": [r"\.env$"],
+        "allowed_cmds_regex": [r"^echo(\s+.*)?$"],
+    }
+
+    def test_anchor_not_matched_by_trailing_brace(self) -> None:
+        """`echo ${BAR:-foo.env}` ends in `}`, not `.env` → not denied."""
+        assert evaluate_bash_command("echo ${BAR:-foo.env}", self.ENV_CFG)["status"] == "allow"
+
+    def test_anchor_matched_when_command_ends_in_env(self) -> None:
+        """`echo foo.env` genuinely ends in `.env` → denied."""
+        assert evaluate_bash_command("echo foo.env", self.ENV_CFG)["status"] == "deny"
+
+    def test_anchor_not_matched_mid_compound_command(self) -> None:
+        """`for f in foo.env; ...` mentions `.env` but does not end in it."""
+        result = evaluate_bash_command(
+            "for f in foo.env; do :; done", {"*": "allow", "blocked_cmds_regex": [r"\.env$"]}
+        )
+        assert result["status"] == "allow"
+
+    def test_hook_label_round_trip_not_denied_by_its_own_text(self) -> None:
+        """A rewritten command whose *label* matches a blocked pattern is not denied.
+
+        The hook embeds the verdict reason in its `: '[♡ perms: ...]'` label,
+        and that text is ours, not the user's command. Scanning it would make
+        a deny reason quoting a path deny the very command it describes.
+        """
+        config = {"*": "allow", "allowed_cmds_regex": [r"^echo(\s+.*)?$"], "blocked_cmds_regex": ["perms"]}
+        rewritten = _hook_command("allow", "command matches allowed pattern: ^echo(\\s+.*)?$", "echo hi")
+        assert "perms" in rewritten
+        result = evaluate_bash_command(rewritten, config)
+        assert result["status"] == "allow"
+
+    def test_hook_label_payload_blocked_still_denied(self) -> None:
+        """Stripping the label never waives a blocked payload behind the `;`."""
+        rewritten = _hook_command("allow", "command matches allowed pattern: ^echo", "cat /etc/passwd")
+        result = evaluate_bash_command(rewritten, {"*": "allow", "blocked_cmds_regex": [r"/etc"]})
+        assert result["status"] == "deny"
+
+
 class TestWildcardIsBaseline:
     """The wildcard is the per-command baseline; specific policies add constraints only.
 
@@ -307,13 +412,19 @@ class TestWildcardIsBaseline:
     allow-listed nor wildcard-allowed - bug #7 and the broader fail-open class.
     """
 
-    def test_blocked_only_config_asks_param_expansion_repro(self) -> None:
-        """bug #7 repro: `${x%@/etc/*}` with blocked-only + ask now asks."""
+    def test_blocked_only_config_denies_param_expansion_pattern(self) -> None:
+        """`${x%@/etc/*}` mentions a blocked pattern in the raw string → deny.
+
+        The whole-command blocked scan covers text a segment's executed
+        arguments never show (here `${x%@/etc/*}` collapses to `$x`), so the
+        original bug #7 verdict is no longer "ask".
+        """
         result = evaluate_bash_command(
             "echo ${x%@/etc/*}",
             {"*": "ask", "blocked_cmds_regex": [r"/etc"]},
         )
-        assert result["status"] == "ask"
+        assert result["status"] == "deny"
+        assert "matches blocked pattern /etc" in result["reason"]
 
     def test_blocked_only_config_asks_plain_command(self) -> None:
         """Blocked-only config under ask wildcard no longer auto-allows."""

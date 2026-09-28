@@ -13,7 +13,7 @@ import re
 from collections.abc import Sequence
 from typing import Any, Literal
 
-from .ast import CallExpr, CmdSubst, Node, ProcSubst, Subshell
+from .ast import CallExpr, CmdSubst, File, Node, ProcSubst, Subshell
 from .converter import node_from_json
 from .inspect import _traverse, _word_exec, _word_raw, _word_value, iter_children
 from .parser import parse
@@ -378,6 +378,39 @@ def _resolve_level(config: dict[str, Any], key: str) -> Any:  # noqa: ANN401
     return value if value is not None else config.get("*", "ask")
 
 
+def _whole_command_scan_text(command: str, raw_tree: dict[str, Any]) -> str:
+    """Return the command text used for the whole-command blocked scan.
+
+    Normally that is *command* as written. The hook rewrites verdicts as
+    ``: '<label>' <emoji> ; <command>``, and Devin feeds that string back for
+    re-evaluation; the label is our own text, not the user's, so a blocked
+    pattern matching the *reason* (e.g. a deny reason quoting a path) must not
+    deny the payload it describes. The wrapper is recognized structurally via
+    AST offsets (never by regex - a user command may legitimately begin with
+    ``:``) and stripped, leaving the payload command as the scanned text.
+    """
+    file_node = node_from_json(raw_tree)
+    if isinstance(file_node, File) and file_node.stmts:
+        first = file_node.stmts[0]
+        if first.end is not None and isinstance(first.cmd, CallExpr) and first.cmd.args:
+            name0 = _word_value(first.cmd.args[0])
+            args0 = [_word_raw(a) for a in first.cmd.args[1:]]
+            if _is_hook_label_segment(name0, args0):
+                # shfmt reports offsets in bytes, so slice the encoded form:
+                # the label itself is multi-byte (emoji).
+                encoded = command.encode("utf-8")
+                return encoded[first.end.offset :].decode("utf-8", errors="replace").lstrip("; \t")
+    return command
+
+
+def _blocked_reason(snippet_text: str, pattern: str) -> str:
+    """Build the deny reason for a blocked hit, truncating a long snippet."""
+    snippet = snippet_text.strip()
+    if len(snippet) > 80:
+        snippet = snippet[:77] + "..."
+    return f'Blocked by bash permissions: Argument "{snippet}" matches blocked pattern {pattern}. The tool has not been run'
+
+
 def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any]:
     """Evaluate a bash command against a permission configuration.
 
@@ -435,6 +468,19 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     # instead of silently falling back to the wildcard (bug #2).
     raw_tree = parse(command)
 
+    # Whole-command blocked scan. The per-segment checks below only ever see a
+    # segment's *executed* command line, so a blocked token that never reaches
+    # one - an expansion default (`echo ${BAR:-/etc/passwd}`), an array
+    # assignment (`A=(/etc/passwd)`), a `[[ -f ... ]]` test, a comment or a
+    # quoted mention - would slip through entirely. Matching the raw string as
+    # written closes that gap and keeps the established "block on mention"
+    # posture. It is purely additive: a hit here only ever forces a deny.
+    whole_command_hits: list[tuple[str, str]] = []
+    if blocked_patterns:
+        whole_command_hits = _match_texts(
+            [_whole_command_scan_text(command, raw_tree)], blocked_patterns, raw_fallback="always"
+        )
+
     subst_flags = _subst_flags(raw_tree)
     has_cmd_subst = subst_flags["command_substitution"]
     has_proc_subst = subst_flags["process_substitution"]
@@ -475,6 +521,9 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                             f"matching blocked pattern {pattern}. The tool has not been run"
                         )
                         break
+        for _pattern, _text in whole_command_hits:
+            _empty_status = "deny"
+            _empty_reasons.append(_blocked_reason(_text, _pattern))
         if _empty_reasons:
             _empty_status = "deny"
             _empty_reason = "; ".join(dict.fromkeys(_empty_reasons))
@@ -608,8 +657,13 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                 segment_result["allowed"] = False
                 any_segment_not_allowed = True
 
-        # Check blocked patterns
-        if blocked_patterns:
+        # Check blocked patterns. The hook's own inert `:` label is skipped for
+        # the same reason it is skipped for allowed patterns: the `:` builtin
+        # ignores its arguments, so the label text is ours, not the user's
+        # command, and scanning it would let a blocked pattern matching the
+        # verdict *reason* deny the very command that reason describes. The
+        # payload after `;` is scanned per-segment and as a whole command.
+        if blocked_patterns and not _is_hook_label_segment(cmd_name, args):
             norm_args = segment.get("normalized_arguments")
             matched, pattern, value = _match_blocked_patterns(cmd_name, args, blocked_patterns, norm_args)
             if matched:
@@ -646,6 +700,15 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
                         f"matching blocked pattern {pattern}. The tool has not been run"
                     )
                     break
+
+    # Apply the whole-command blocked scan computed before the segment loop.
+    # Done here (not as an early return) so the documented return shape - the
+    # `segments` key - is always present, and so a deny recorded below can
+    # never overwrite this one.
+    if whole_command_hits:
+        for _pattern, _text in whole_command_hits:
+            overall_status = "deny"
+            reasons.append(_blocked_reason(_text, _pattern))
 
     # Collect matched patterns as approval reasons (only shown when status is allow).
     # NOTE: approval_reason must be built AFTER _walk() so it includes nested command matches.
