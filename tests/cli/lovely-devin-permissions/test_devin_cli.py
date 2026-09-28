@@ -516,6 +516,13 @@ class TestCliTestNodeCoverage(_NodeCoverageBase):
         result = self._test("export FOO=$(cat x)", tmp_project, global_dir)
         label = self._label(result)
         assert '"cat"' in label
+        # The substituted command is a segment of its own, and the declaration
+        # still splits into an assignment segment plus the `export` keyword, so
+        # `export FOO=$(cat x)` yields three segments: ("", ["FOO=$(...)"]),
+        # ("export", []) and ("cat", ["x"]).  Asserting only `"cat" in label`
+        # would not notice the split being undone.
+        assert '"", "export", "cat" commands do not match allowed patterns' in label
+        assert "variable assignment requires approval: ['FOO=$(...)']" in label
 
     def test_if_then_and_cond_segments(self, tmp_project: Path, tmp_path: Path) -> None:
         """/-t: if cond; then ls; fi extracts both the cond and then-branch ls."""

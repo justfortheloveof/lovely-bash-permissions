@@ -202,11 +202,10 @@ def _param_exp_text(part: ParamExp, render_word: Callable[[Word], str]) -> str:
     # it - and a sigil of either kind forces the braced spelling, because a bare
     # ``$x`` can carry neither.
     #
-    # Known limitation: for the prefix-expansion form ``${!prefix*}`` shfmt puts
-    # the ``*`` in a sibling ``Names`` key that ``converter._convert_param_exp``
-    # does not read (only ``Excl`` survives the boundary), so this renders the
-    # input as ``${!prefix}``.  The ``*`` is not reconstructed - it is pinned by a
-    # test so the truncation stays visible rather than surprising.
+    # A prefix expansion's glob (``${!prefix*}``) travels in its own ``Names``
+    # key rather than in the parameter name, so it is appended after the sigil
+    # and the name.  Only the prefix form sets it: ``${!x}`` has no glob, and in
+    # ``${!arr[*]}`` the star is part of the index and is rendered from there.
     if part.length:
         sigil = "#"
     elif part.excl:
@@ -234,11 +233,14 @@ def _param_exp_text(part: ParamExp, render_word: Callable[[Word], str]) -> str:
         length = _slice_operand_text(part.slice.length, render_word)
         # An absent length is the offset-only spelling `${var:offset}`.
         suffix += f":{offset}:{length}" if part.slice.length is not None else f":{offset}"
+    # A prefix expansion's glob rides on the parameter name (`${!prefix*}`), so
+    # it is folded in before deciding whether the braced spelling is needed.
+    name_text = part.param + part.names
     if not op_text and not suffix:
         if sigil:
-            return "${" + sigil + part.param + "}"
-        return f"${part.param}"
-    return "${" + sigil + part.param + op_text + suffix + "}"
+            return "${" + sigil + name_text + "}"
+        return f"${name_text}"
+    return "${" + sigil + name_text + op_text + suffix + "}"
 
 
 def _value_part(part: Node) -> str:

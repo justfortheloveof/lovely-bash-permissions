@@ -315,45 +315,44 @@ class TestIndirectExpansion:
         assert _normalized('echo "${!x}"') == ["${!x}"]
 
 
-class TestIndirectPrefixExpansionLimitation:
-    """``${!prefix*}`` renders as ``${!prefix}`` - a known truncation.
+class TestIndirectPrefixExpansion:
+    """``${!prefix*}`` renders whole, glob included.
 
     The prefix/indirect *name-list* form is the one shape shfmt does not hand
-    back whole.  Its JSON keeps ``Param.Value == "prefix"`` and parks the ``*``
-    in a sibling ``Names`` key on the same ParamExp node; ``_convert_param_exp``
-    reads neither ``Names`` nor the original source text, so the ``*`` is
-    already lost by the time the renderer sees the node.  Only ``Excl``
-    survives the converter boundary, so the rendered argument is
-    ``${!prefix}`` - still a distinct expansion from ``$prefix``, but not the
-    one the user wrote.
+    back inside ``Param``: it keeps ``Param.Value == "prefix"`` and parks the
+    ``*`` in a sibling ``Names`` key on the same ParamExp node.  Reading that
+    key is what keeps the rendered argument the expansion the user wrote
+    instead of the different ``${!prefix}``.
 
-    This test pins the *current* behaviour so the truncation stays visible.  It
-    is a fidelity gap in the safe direction only in the sense that the argument
-    is still opaque to the matcher; it is NOT reconstructed, and if shfmt ever
-    stops dropping the information this test is the one that should change.
+    ``Names`` is set only for this form: ``${!x}`` has no glob, and in
+    ``${!arr[*]}`` the star is part of the index and renders from there.
     """
 
-    def test_prefix_expansion_renders_without_the_star(self) -> None:
-        assert _args("echo ${!prefix*}") == ["${!prefix}"]
+    def test_prefix_expansion_keeps_the_star(self) -> None:
+        assert _args("echo ${!prefix*}") == ["${!prefix*}"]
 
     def test_prefix_expansion_normalized_form(self) -> None:
-        assert _normalized("echo ${!prefix*}") == ["${!prefix}"]
+        assert _normalized("echo ${!prefix*}") == ["${!prefix*}"]
 
     def test_prefix_expansion_value_form(self) -> None:
-        assert _value("echo ${!prefix*}") == ["${!prefix}"]
+        assert _value("echo ${!prefix*}") == ["${!prefix*}"]
 
-    def test_prefix_expansion_is_distinguishable_from_the_plain_param(self) -> None:
-        # Even truncated, `${!prefix}` is not `$prefix`: the indirection is
-        # still visible, so the expansion is not silently collapsed.
-        arg = _args("echo ${!prefix*}")[0]
-        assert arg != "$prefix"
-        assert arg == _args("echo ${!prefix}")[0]
+    def test_prefix_expansion_is_distinct_from_the_other_forms(self) -> None:
+        # All three are different bash expansions; none may collapse together.
+        assert _args("echo ${!prefix*}") != _args("echo ${!prefix}")
+        assert _args("echo ${!prefix*}") != _args("echo $prefix")
+        assert _args("echo ${!x}") == ["${!x}"]
 
-    def test_star_is_not_reconstructed_from_the_surrounding_word(self) -> None:
+    def test_star_is_rendered_from_names_not_the_surrounding_word(self) -> None:
         # A `*` written as a *separate* word part is untouched, which shows the
-        # loss above is specific to the `${!...*}` subscript spelling rather
-        # than a general dropping of `*`.
-        assert _args("echo ${!prefix*} *") == ["${!prefix}", "*"]
+        # star above comes from the Names key rather than being concatenated
+        # from neighbours.
+        assert _args("echo ${!prefix*} *") == ["${!prefix*}", "*"]
+
+    def test_index_star_is_still_rendered_from_the_index(self) -> None:
+        # `${!arr[*]}` carries its star as an index, never as Names.
+        assert _args("echo ${!arr[*]}") == ["${!arr[*]}"]
+        assert _args("echo ${!arr[*]}") != _args("echo ${!arr}")
 
 
 class TestUnchangedOperatorForms:

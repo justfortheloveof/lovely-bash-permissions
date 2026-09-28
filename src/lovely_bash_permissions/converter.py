@@ -158,6 +158,7 @@ def _convert_param_exp(data: dict[str, Any]) -> ParamExp:
         index=index_node,
         length=data.get("Length", False),
         excl=data.get("Excl", False),
+        names=data.get("Names") or "",
         all=repl_all,
         orig=repl_orig,
         replacement=repl_with,

@@ -12,7 +12,10 @@ Segment extraction handles:
     - Background (&): the command before & is extracted
     - Statements: each sequential command becomes a segment
 
-If parsing fails, an empty list is returned.
+If parsing fails, an empty list is returned - so an empty list is ambiguous:
+it means either "the command genuinely contains no commands" or "the command
+could not be parsed".  See :func:`parse_segments` for why no in-tree caller is
+exposed to that, and what a direct caller should do instead.
 """
 
 from __future__ import annotations

@@ -139,6 +139,10 @@ class ParamExp(Node):
             and ``${!prefix*}`` reads every variable starting with ``prefix``,
             so both are different expressions from the ``${x}`` / ``${prefix}``
             they would render as if this flag were dropped.
+        names: The trailing glob of a prefix expansion (${!prefix*}), or "".
+            shfmt carries it in a ``Names`` key beside ``Param``/``Excl``; it is
+            only set for the prefix form, never for ${!x} or ${!arr[*]} (where
+            the star is part of the index instead).
         all: True for ${var//pat/rep} (replace all matches), False for ${var/pat}
         orig: The pattern part of ${var/pat/rep} (Repl.Orig), or None
         replacement: The replacement part of ${var/pat/rep} (Repl.With), or None
@@ -152,6 +156,7 @@ class ParamExp(Node):
     index: Word | None = None
     length: bool = False
     excl: bool = False
+    names: str = ""
     all: bool = False
     orig: Word | None = None
     replacement: Word | None = None
