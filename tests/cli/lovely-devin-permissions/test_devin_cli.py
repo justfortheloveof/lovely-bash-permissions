@@ -586,18 +586,18 @@ class TestCliTestRemainingNodes(_NodeCoverageBase):
         assert '"ls"' in label
 
     def test_binary_test_right_operand(self, tmp_project: Path, tmp_path: Path) -> None:
-        """/--test: BinaryTest - the right operand of && inside [[ ]] is extracted."""
+        """/--test: BinaryTest - only substitutions in the && right operand inside [[ ]] run."""
         global_dir = self._setup(tmp_project, tmp_path)
-        result = self._test("[[ -d /tmp && cat ]]", tmp_project, global_dir)
+        result = self._test("[[ -d /tmp && $(rm) ]]", tmp_project, global_dir)
         label = self._label(result)
-        assert '"cat"' in label
+        assert '"rm"' in label
 
     def test_parenthesized_test_extracted(self, tmp_project: Path, tmp_path: Path) -> None:
-        """/-t: ParenTest - commands reachable through a parenthesized test are extracted."""
+        """/-t: ParenTest - only substitutions inside a parenthesized test are extracted."""
         global_dir = self._setup(tmp_project, tmp_path)
-        result = self._test("[[ ( -d /tmp ) && ls ]]", tmp_project, global_dir, flag="-t")
+        result = self._test("[[ ( -d /tmp ) && $(rm) ]]", tmp_project, global_dir, flag="-t")
         label = self._label(result)
-        assert '"ls"' in label
+        assert '"rm"' in label
 
     def test_time_clause_command_extracted(self, tmp_project: Path, tmp_path: Path) -> None:
         """/--test: TimeClause - the timed command is extracted."""

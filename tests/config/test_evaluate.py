@@ -1751,15 +1751,28 @@ class TestResultStructure:
         )
         assert result["status"] == "allow"  # both commands match patterns
 
-    def test_testclause_extracted(self) -> None:
-        """TestClause ([[ ]]) body commands are extracted."""
+    def test_testclause_operands_are_not_commands(self) -> None:
+        """TestClause ([[ ]]) operands are values, not commands.
+
+        bash never executes a ``[[ ]]`` operand - `[[ -d /tmp && ls ]]` only
+        tests whether the string "ls" is non-empty - so nothing is extracted
+        and the wildcard decides.
+        """
         result = evaluate_bash_command(
             "[[ -d /tmp && ls ]]",
             make_config(allowed=["^ls$"]),
         )
+        assert [s["command"] for s in result["segments"]] == []
+        assert result["status"] == "ask"
+
+    def test_testclause_substitution_is_extracted(self) -> None:
+        """Only substitutions inside [[ ]] actually run, so they are extracted."""
+        result = evaluate_bash_command(
+            "[[ -d /tmp && $(ls) ]]",
+            make_config(allowed=["^ls$"], command_substitution="allow"),
+        )
+        assert [s["command"] for s in result["segments"]] == ["ls"]
         assert result["status"] == "allow"
-        commands = [s["command"] for s in result["segments"]]
-        assert "ls" in commands  # 'ls' inside [[ ]] is extracted
 
     def test_time_clause_extracted(self) -> None:
         """time <cmd> extracts the command from inside."""

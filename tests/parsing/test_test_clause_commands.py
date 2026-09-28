@@ -1,21 +1,33 @@
 """
 Tests for which literals inside ``[[ ]]`` are commands and which are values.
 
-Only the right operand of ``&&``/``||`` inside a test body is a command.
-Every other literal in a test body is the value under test, so it must not
-be emitted as a command name - otherwise a path like ``/etc/passwd`` shows
-up as a bogus ``"/etc/passwd" command does not match allowed patterns``.
+Bash's ``[[ ]]`` never executes its operands.  A canary proves it::
+
+    [[ -n x && canary ]]      exit=0  canary ran: NO
+    [[ -d /tmp && canary ]]   exit=0  canary ran: NO
+    [[ -n x && $(canary) ]]   exit=1  canary ran: YES
+
+So *every* operand of a test is a value: the right operand of ``&&``/``||``
+included.  Treating that operand as a command was wrong twice over - it
+invented commands that never run (``[[ -d /tmp && /etc/passwd ]]`` reported a
+``/etc/passwd`` *command*) and it hid the ones that do run, because suppressing
+expansion traversal inside the test body meant a substitution in a
+``${...}`` default produced no segments at all and the empty-segment fallback
+approved the whole command.
+
+The only real executions inside ``[[ ]]`` come from substitutions, which the
+generic traversal finds on its own.
 
 The invariants pinned here are:
 
-1. ``[[ -d /tmp && ls ]]``  -> ``ls`` is still emitted.
+1. ``[[ -d /tmp && ls ]]``  -> no segments.
 2. ``[[ -d /tmp ]]``        -> no segments.
 3. ``[[ ( /etc/passwd ) ]]``-> no segments.
 4. ``[[ /etc/passwd ]]``    -> no segments.
 5. ``[[ $var =~ pat ]]``    -> no segments.
-6. ``[[ -d /tmp && ls && pwd ]]`` -> characterization test, see below.
-7. ``[[ $(cat /etc/passwd) == x ]]`` -> the inner ``cat`` is a real command.
-8. UnaryTest / BinaryTest LEFT operands never emit commands.
+6. ``[[ -d /tmp && ls && pwd ]]`` -> no segments (both operands are values).
+7. ``[[ ${x:-$(cmd)} ]]``   -> ``cmd``: substitutions run in every position.
+8. No test operand is a command, left or right, in any operator position.
 """
 
 from lovely_bash_permissions.segments import parse_segments
@@ -26,29 +38,36 @@ def _commands(command: str) -> list[str]:
     return [s["command"] for s in parse_segments(command)]
 
 
-class TestLogicalOperandIsACommand:
-    """Invariant 1: the right operand of ``&&``/``||`` is a command."""
+class TestTestOperandsAreValues:
+    """Invariant 1: no ``&&``/``||`` operand is a command."""
 
-    def test_and_right_operand(self) -> None:
-        assert _commands("[[ -d /tmp && ls ]]") == ["ls"]
+    def test_and_right_operand_is_a_value(self) -> None:
+        assert _commands("[[ -d /tmp && ls ]]") == []
 
-    def test_or_right_operand(self) -> None:
-        assert "cat" in _commands("[[ -d /tmp || cat ]]")
+    def test_or_right_operand_is_a_value(self) -> None:
+        assert _commands("[[ -d /tmp || cat ]]") == []
 
     def test_logical_right_operand_inside_paren_test(self) -> None:
-        assert _commands("[[ ( -d /tmp ) && ls ]]") == ["ls"]
+        assert _commands("[[ ( -d /tmp ) && ls ]]") == []
 
     def test_logical_right_operand_quoted_literal(self) -> None:
-        assert _commands('[[ cond && "ls" ]]') == ["ls"]
+        assert _commands('[[ cond && "ls" ]]') == []
 
     def test_logical_right_operand_single_quoted_literal(self) -> None:
-        assert _commands("[[ cond && 'ls' ]]") == ["ls"]
+        assert _commands("[[ cond && 'ls' ]]") == []
 
-    def test_logical_right_operand_substitution(self) -> None:
-        assert _commands("[[ -f x && $(c2) ]] && echo and") == ["c2", "echo"]
+    def test_chained_and_emits_nothing(self) -> None:
+        assert _commands("[[ -d /tmp && ls && pwd ]]") == []
 
-    def test_logical_right_operand_quoted_substitution(self) -> None:
-        assert _commands('[[ cond && "$(cmd)" ]]') == ["cmd"]
+    def test_chained_or_emits_nothing(self) -> None:
+        assert _commands("[[ -d /tmp || ls || pwd ]]") == []
+
+    def test_path_in_logical_right_operand_is_not_a_command(self) -> None:
+        """The old ``&&`` heuristic reported a path as a command name."""
+        assert _commands("[[ -d /tmp && /etc/passwd ]]") == []
+
+    def test_bare_logical_operands_emit_nothing(self) -> None:
+        assert _commands("[[ a && b || c ]]") == []
 
 
 class TestBareValueOperandsAreNotCommands:
@@ -62,6 +81,9 @@ class TestBareValueOperandsAreNotCommands:
 
     def test_bare_literal_operand_no_phantom_command(self) -> None:
         assert parse_segments("[[ /etc/passwd ]]") == []
+
+    def test_bare_literal_under_test_no_phantom_command(self) -> None:
+        assert parse_segments("[[ foo ]]") == []
 
     def test_bare_path_operand_after_paren_test(self) -> None:
         assert _commands("[[ ( -d /tmp ) ]]") == []
@@ -81,29 +103,36 @@ class TestBareValueOperandsAreNotCommands:
         assert _commands("[[ /etc/passwd && -d /tmp ]]") == []
 
 
-class TestChainedLogicalOperands:
-    """Invariant 6: characterization of ``[[ -d /tmp && ls && pwd ]]``.
+class TestSubstitutionsInsideTestBodiesExecute:
+    """Invariant 7: a substitution runs wherever it appears in the test."""
 
-    shfmt nests ``&&`` right-associatively, so the node is
-    ``&&(-d /tmp, &&(ls, pwd))``: ``pwd`` is the right operand of a logical
-    operator (a command) while ``ls`` is the *left* operand of the inner
-    one, i.e. a comparison subject, which invariant 8 forbids from being
-    emitted.  Only ``pwd`` is emitted - before and after the two-flag split.
-    """
+    def test_logical_right_operand_substitution(self) -> None:
+        assert _commands("[[ -f x && $(c2) ]] && echo and") == ["c2", "echo"]
 
-    def test_chained_and_emits_only_the_outer_right_operand(self) -> None:
-        assert _commands("[[ -d /tmp && ls && pwd ]]") == ["pwd"]
+    def test_logical_right_operand_quoted_substitution(self) -> None:
+        assert _commands('[[ cond && "$(cmd)" ]]') == ["cmd"]
 
-    def test_chained_or_emits_only_the_outer_right_operand(self) -> None:
-        assert _commands("[[ -d /tmp || ls || pwd ]]") == ["pwd"]
+    def test_chained_and_with_substitution_operands(self) -> None:
+        # shfmt nests `&&` right-associatively, so both operands are reached.
+        assert _commands("[[ -f x && $(a) && $(b) ]]") == ["a", "b"]
 
-    def test_chained_and_with_substitution_right_operands(self) -> None:
-        # Both right operands run substitutions, so both surface.
-        assert _commands("[[ -d /tmp && $(a) && $(b) ]]") == ["a", "b"]
+    def test_unary_operand_cmdsubst(self) -> None:
+        assert _commands("[[ -d $(pwd) ]]") == ["pwd"]
 
+    def test_param_exp_default_substitution(self) -> None:
+        """Regression: `${x:-$(cmd)}` in a test body used to yield no segments.
 
-class TestNestedSubstitutionsAreRealCommands:
-    """Invariant 7: substitutions inside test operands are real commands."""
+        The traversal into parameter expansions was suppressed inside a test,
+        so the inner command vanished; with zero segments the empty-segment
+        fallback applied the wildcard and approved the whole command.
+        """
+        assert _commands("[[ ${x:-$(cmd)} ]]") == ["cmd"]
+
+    def test_equality_rhs_cmdsubst(self) -> None:
+        assert _commands("[[ ${x} == $(cmd) ]]") == ["cmd"]
+
+    def test_arithmetic_substitution_inside_test(self) -> None:
+        assert _commands("[[ -d $((1+$(cmd))) ]]") == ["cmd"]
 
     def test_left_operand_cmdsubst(self) -> None:
         assert _commands("[[ $(cat /etc/passwd) == x ]]") == ["cat"]
@@ -111,44 +140,26 @@ class TestNestedSubstitutionsAreRealCommands:
     def test_both_sides_cmdsubst(self) -> None:
         assert _commands("[[ $(a) == $(b) ]]") == ["a", "b"]
 
-    def test_unary_operand_cmdsubst(self) -> None:
-        assert _commands("[[ -d $(pwd) ]]") == ["pwd"]
-
     def test_regex_rhs_cmdsubst(self) -> None:
         assert _commands("[[ $var =~ $(cmd) ]]") == ["cmd"]
 
-    def test_equality_rhs_cmdsubst(self) -> None:
-        assert _commands("[[ a == $(cmd) ]]") == ["cmd"]
 
+class TestNoTestOperandIsACommand:
+    """Invariant 8: no operand position emits, whatever the operator."""
 
-class TestLeftOperandsNeverCommands:
-    """Invariant 8: only a logical right operand is command position."""
-
-    def test_literal_left_operand_not_emitted(self) -> None:
-        commands = _commands("[[ -d /tmp && ls ]]")
-        assert "ls" in commands
-        assert "d" not in commands and "tmp" not in commands
+    def test_literal_operands_not_emitted(self) -> None:
+        assert _commands("[[ -d /tmp && ls ]]") == []
+        assert _commands("[[ -d /tmp && ls && pwd ]]") == []
 
     def test_unary_test_operand_not_emitted(self) -> None:
         assert "passwd" not in _commands("[[ -d /etc/passwd ]]")
 
-    def test_left_operand_of_chained_and_not_emitted(self) -> None:
-        assert "ls" not in _commands("[[ -d /tmp && ls && pwd ]]")
-
     def test_left_operand_of_equality_not_emitted(self) -> None:
         assert _commands("[[ /etc/passwd == other ]]") == []
 
-    def test_logical_left_operands_not_emitted(self) -> None:
-        assert _commands("[[ a && -d b || c ]]") == ["c"]
-
-    def test_known_limitation_path_as_and_right_operand(self) -> None:
-        """The ``&&`` heuristic has no way to tell a command from a value.
-
-        A path sitting in the right operand of ``&&`` (``[[ -d /tmp &&
-        /etc/passwd ]]``) is still reported as a command - that is the
-        documented cost of invariant 1 and is unchanged here.
-        """
-        assert _commands("[[ -d /tmp && /etc/passwd ]]") == ["/etc/passwd"]
+    def test_quoted_operands_not_emitted(self) -> None:
+        assert _commands('[[ cond && "ls" ]]') == []
+        assert _commands("[[ cond && 'ls' ]]") == []
 
 
 class TestTestClauseRedirectionsUnaffected:
@@ -160,12 +171,20 @@ class TestTestClauseRedirectionsUnaffected:
         assert segs[0]["command"] == "[["
         assert segs[0]["redirections"][0]["Op"] == ">"
 
-    def test_redirection_not_scattered_onto_inner_command(self) -> None:
+    def test_redirection_not_scattered_onto_test_operands(self) -> None:
+        # The test body yields no segments at all now, so the only thing that
+        # can carry the statement redirection is the synthetic `[[` segment.
         segs = parse_segments("[[ -d /tmp && ls ]] > /tmp/out")
         carrying = [s for s in segs if s["redirections"]]
         assert len(carrying) == 1
         assert carrying[0]["command"] == "[["
-        assert any(s["command"] == "ls" and s["redirections"] == [] for s in segs)
+        assert carrying[0]["redirections"][0]["Op"] == ">"
+
+    def test_redirection_with_nested_substitution(self) -> None:
+        segs = parse_segments("[[ -d $(pwd) ]] > /tmp/out")
+        assert _commands("[[ -d $(pwd) ]] > /tmp/out") == ["pwd", "[["]
+        assert any(s["command"] == "[[" and s["redirections"] for s in segs)
+        assert all(s["redirections"] == [] for s in segs if s["command"] == "pwd")
 
     def test_regex_rhs_redirection_no_phantom(self) -> None:
         segs = parse_segments("[[ $var =~ pat ]] > /tmp/out")

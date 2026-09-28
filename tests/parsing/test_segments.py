@@ -361,9 +361,10 @@ class TestTestClauses:
     def test_unary_test_cmdsubst_extracted(self) -> None:
         assert any(s["command"] == "pwd" for s in parse_segments("[[ -d $(pwd) ]]"))
 
-    def test_binary_test_right_operand_extracted(self) -> None:
-        commands = [s["command"] for s in parse_segments("[[ -d /tmp && ls ]]")]
-        assert "ls" in commands
+    def test_binary_test_operands_are_values_not_commands(self) -> None:
+        # `[[ ]]` never executes its operands, so neither the left nor the
+        # `&&` right operand is a command - only substitutions inside them run.
+        assert parse_segments("[[ -d /tmp && ls ]]") == []
 
 
 class TestTestClauseRedirections:
@@ -384,12 +385,13 @@ class TestTestClauseRedirections:
 
     def test_testclause_redir_with_command_body_keeps_single_redir(self) -> None:
         # The statement redirection must appear exactly once, on the synthetic
-        # segment, and not be scattered onto the inner pseudo-command.
+        # segment. The test body itself yields no segments any more (its
+        # operands are values), so nothing else could carry it.
         segs = parse_segments("[[ -d /tmp && ls ]] > /tmp/out")
         carrying = [s for s in segs if s["redirections"]]
         assert len(carrying) == 1
         assert carrying[0]["command"] == "[["
-        assert any(s["command"] == "ls" and s["redirections"] == [] for s in segs)
+        assert carrying[0]["redirections"][0]["Op"] == ">"
 
     def test_testclause_redir_with_nested_cmdsubst(self) -> None:
         segs = parse_segments("[[ -d $(pwd) ]] > /tmp/out")
@@ -431,9 +433,9 @@ class TestTestClauseRegexOperands:
         segs = parse_segments("[[ $var =~ $(cmd) ]]")
         assert [s["command"] for s in segs] == ["cmd"]
 
-    def test_logical_rhs_still_extracted(self) -> None:
-        commands = [s["command"] for s in parse_segments("[[ -d /tmp && ls ]]")]
-        assert "ls" in commands
+    def test_logical_rhs_operand_not_extracted(self) -> None:
+        # The `&&` right operand is a value, not a command.
+        assert [s["command"] for s in parse_segments("[[ -d /tmp && ls ]]")] == []
 
     def test_regex_rhs_with_redirection_no_phantom(self) -> None:
         segs = parse_segments("[[ $var =~ pat ]] > /tmp/out")
@@ -630,9 +632,8 @@ class TestBinaryTestLeftOperand:
         assert [s["command"] for s in parse_segments("[[ $(a) == $(b) ]]")] == ["a", "b"]
 
     def test_literal_left_operand_still_no_phantom(self) -> None:
-        commands = [s["command"] for s in parse_segments("[[ -d /tmp && ls ]]")]
-        assert "ls" in commands
-        assert "d" not in commands and "tmp" not in commands
+        # Neither side of a `&&` inside `[[ ]]` is a command.
+        assert [s["command"] for s in parse_segments("[[ -d /tmp && ls ]]")] == []
 
 
 class TestNoPhantomTestCommands:
@@ -653,9 +654,9 @@ class TestNoPhantomTestCommands:
     def test_quoted_param_exp_not_a_command(self) -> None:
         assert parse_segments('[[ "$var" ]]') == []
 
-    def test_logical_and_literal_operand_still_extracted(self) -> None:
-        commands = [s["command"] for s in parse_segments("[[ -d /tmp && ls ]]")]
-        assert "ls" in commands
+    def test_logical_and_literal_operand_not_extracted(self) -> None:
+        # A literal in any test operand position is a value, not a command.
+        assert [s["command"] for s in parse_segments("[[ -d /tmp && ls ]]")] == []
 
     def test_bare_literal_operand_not_a_command(self) -> None:
         # A bare literal in a test body is the value under test, not a
