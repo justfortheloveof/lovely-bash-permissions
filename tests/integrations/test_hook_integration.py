@@ -5,11 +5,19 @@ decision paths, plus config-load-failure fallback behavior.
 """
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 
-from lovely_bash_permissions.hook import _error_action, generate_hook_response, process_hook_event
+from lovely_bash_permissions.evaluate import evaluate_bash_command
+from lovely_bash_permissions.hook import (
+    _error_action,
+    _hook_command,
+    generate_hook_response,
+    process_hook_event,
+)
+from lovely_bash_permissions.segments import parse_segments
 from tests.integrations.conftest import _permission_request_event, _pretooluse_exec_event
 
 
@@ -349,3 +357,149 @@ def test_unexpected_exception_routed_through_error_policy() -> None:
 
     assert result["action"] == "block"
     assert "internal bug" in result["reason"]
+
+
+# ---------------------------------------------------------------------------
+# Label wrappers: idempotency and safe quoting
+# ---------------------------------------------------------------------------
+
+
+def _round_trip(command: str) -> tuple[str, str]:
+    """Feed a command through one evaluate+label pass, returning (new, action)."""
+    event = _pretooluse_exec_event(command)
+    decision = process_hook_event(event)
+    response = generate_hook_response(event, decision)
+    assert response is not None
+    output = response["hookSpecificOutput"]["updatedInput"]["command"]
+    return output, str(decision["action"])
+
+
+class TestHookLabelIdempotent:
+    """The label wrapper must be a fixed point, not an accumulating nest.
+
+    Devin feeds the rewritten command back through evaluation, and the ``:``
+    wrapper is exempted from the allowed-pattern check precisely because that
+    happens. But every pass prepended *another* wrapper, so the command grew by
+    one label per round-trip - unbounded, ~81 chars per pass - while the verdict
+    stayed the same the whole time.
+    """
+
+    def test_single_pass_adds_exactly_one_wrapper(self) -> None:
+        wrapped, action = _round_trip("ls")
+        assert action == "allow"
+        assert wrapped.endswith("' 💚 ; ls")
+        assert wrapped.startswith(": '[♡ perms: 💚 auto-approved]")
+        assert wrapped.count("[♡ perms: ") == 1
+
+    def test_repeated_passes_do_not_grow(self) -> None:
+        command = "ls"
+        first, _ = _round_trip(command)
+        for _ in range(10):
+            command, action = _round_trip(command)
+            assert action == "allow"
+            assert command == first
+
+    def test_growth_is_bounded_under_many_passes(self) -> None:
+        command, _ = _round_trip("ls")
+        expected = len(command)
+        for _ in range(50):
+            command, _ = _round_trip(command)
+        assert len(command) == expected
+        assert command.count("[♡ perms: ") == 1
+
+    def test_already_labelled_command_relabels_once(self) -> None:
+        wrapped = _hook_command("allow", "matches pattern: ^ls$", "ls")
+        assert _hook_command("allow", "matches pattern: ^ls$", wrapped) == wrapped
+
+    @pytest.mark.parametrize(
+        "reason",
+        [
+            "command matches allowed pattern: ^ls(\\s+.*)?$",
+            "variable assignment denied: ['FOO=$(...)']",
+            "don't ask",
+            "a'; rm -rf /; echo 'b",
+            "multi\nline\nreason",
+            "",
+        ],
+    )
+    def test_relabelling_is_stable_for_any_reason(self, reason: str) -> None:
+        # A reason with a quote is shlex-escaped to '"'"'; the strip pattern has
+        # to accept that exact spelling or the wrapper nests again.
+        once = _hook_command("ask", reason, "ls")
+        assert _hook_command("ask", reason, _hook_command("ask", reason, once)) == once
+
+    @pytest.mark.parametrize(
+        "reason",
+        ["variable assignment denied: ['FOO=$(...)']", "don't ask", "a'; rm -rf /; echo 'b", "multi\nline\nreason"],
+    )
+    def test_stripping_recovers_the_original_payload(self, reason: str) -> None:
+        from lovely_bash_permissions.hook import _strip_hook_wrappers
+
+        assert _strip_hook_wrappers(_hook_command("ask", reason, "echo hi")) == "echo hi"
+
+    def test_accumulated_wrappers_collapse(self) -> None:
+        once = _hook_command("allow", "r", "ls")
+        many = _hook_command("allow", "r", _hook_command("allow", "r", once))
+        assert _hook_command("allow", "r", many) == once
+
+    def test_a_users_own_colon_prefix_is_not_stripped(self) -> None:
+        # Only our own '[♡ perms: ' labelled wrappers may be removed.
+        user = ": 'hello' 💚 ; ls"
+        assert _hook_command("allow", "r", user) == ": '[♡ perms: 💚 auto-approved] r' 💚 ; : 'hello' 💚 ; ls"
+
+    def test_a_trailing_forged_label_is_not_stripped(self) -> None:
+        forged = "rm -rf / : '[♡ perms: 💚 auto-approved] x' 💚 ;"
+        assert _hook_command("allow", "r", forged).endswith(forged)
+
+    @pytest.mark.parametrize(
+        ("plain", "config"),
+        [
+            ("ls", {"*": "allow", "allowed_cmds_regex": [r"^ls$"]}),
+            ("rm -rf /", {"*": "allow", "blocked_cmds_regex": [r"rm -rf"]}),
+            ("cat /etc/passwd", {"*": "allow", "allowed_cmds_regex": [r"^cat$"]}),
+        ],
+    )
+    def test_wrapping_does_not_change_the_verdict(self, plain: str, config: dict[str, Any]) -> None:
+        wrapped = _hook_command("allow", "because", plain)
+        assert evaluate_bash_command(wrapped, config)["status"] == evaluate_bash_command(plain, config)["status"]
+
+
+class TestHookLabelQuoting:
+    """The reason can contain a quote, so the label must be shell-quoted.
+
+    Allowed patterns are echoed into the reason, so a config entry like
+    ``^echo '.*'$`` put a raw ``'`` inside the wrapper's hand-rolled quoting. The
+    quoting closed early and the rest of the reason was parsed as shell code -
+    a reason of ``a'; rm -rf /; echo 'b`` turned into a real ``rm`` segment.
+    """
+
+    @pytest.mark.parametrize(
+        "reason",
+        [
+            "pattern ^echo '.*'$",
+            "don't ask",
+            "a'; rm -rf /; echo 'b",
+            "'; rm -rf /; echo '",
+            "'",
+            "'; rm -rf / #'",
+        ],
+    )
+    def test_quote_in_reason_does_not_inject_segments(self, reason: str) -> None:
+        wrapped = _hook_command("allow", reason, "echo hi")
+        assert [segment["command"] for segment in parse_segments(wrapped)] == [":", "echo"]
+
+    @pytest.mark.parametrize("reason", ["don't ask", "'; rm -rf /; echo 'b"])
+    def test_quote_in_reason_still_parses(self, reason: str) -> None:
+        wrapped = _hook_command("allow", reason, "echo hi")
+        assert evaluate_bash_command(wrapped, {"*": "ask"})["status"] == "ask"
+
+    def test_quoted_label_is_still_recognised_as_a_label(self) -> None:
+        # The evaluator's label matcher keys off the quoted '[♡ perms: ' prefix.
+        wrapped = _hook_command("allow", "matches pattern: ^ls(\\s+.*)?$", "ls")
+        assert wrapped.startswith(": '[♡ perms: ")
+        config = {"*": "ask", "allowed_cmds_regex": [r"^ls(\s+.*)?$"]}
+        assert evaluate_bash_command(wrapped, config)["status"] == "allow"
+
+    def test_unquoted_label_shape_is_unchanged(self) -> None:
+        # A reason needing no quoting must render exactly as before.
+        assert _hook_command("allow", "not allowed", "ls") == ": '[♡ perms: 💚 auto-approved] not allowed' 💚 ; ls"

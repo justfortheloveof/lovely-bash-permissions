@@ -4,6 +4,8 @@ Processes hook events from agent tools to decide whether to allow,
 ask, block, or skip command execution.
 """
 
+import re
+import shlex
 from typing import Any
 
 from .config.effective_bash import get_effective_bash_config
@@ -21,6 +23,38 @@ HOOK_STATUS = {
 }
 
 
+#: The quoting shlex.quote() emits for an embedded single quote, so the
+#: wrapper-matching regex below has to accept that exact spelling.
+_SHLEX_QUOTE_ESCAPE = "'\"'\"'"
+
+#: Matches a leading ``: '<label>' <emoji> ; `` wrapper previously emitted by
+#: :func:`_hook_command`. The label is a shlex-quoted string, so an embedded
+#: quote appears as the 4-character sequence ``'"'"'`` rather than a bare
+#: ``'``. Requires the ``[♡ perms: `` marker so a user's own ``: 'x' 💚 ; cmd``
+#: is left alone, and anchors at the start so a trailing forged label is not
+#: stripped.
+_HOOK_LABEL_WRAPPER_RE = re.compile(
+    r"^:\s*'\[♡ perms: (?:[^']|" + _SHLEX_QUOTE_ESCAPE + r")*'\s*(?:💚|💛|❤️)\s*;\s*",
+    re.DOTALL,
+)
+
+
+def _strip_hook_wrappers(command: str) -> str:
+    """Remove leading hook label wrappers so labelling stays idempotent.
+
+    Devin feeds the rewritten command back through evaluation, and each pass
+    labelled it again, so the command grew by one wrapper every round-trip
+    (unbounded, ~81 chars per pass) even though the verdict never changed.
+    Stripping first makes re-labelling a fixed point: wrapping a command that
+    is already labelled returns the same string.
+    """
+    previous = None
+    while previous != command:
+        previous = command
+        command = _HOOK_LABEL_WRAPPER_RE.sub("", command, count=1)
+    return command
+
+
 def _hook_label(action: str, reason: str) -> str:
     """Build e.g. '[♡ perms: 💚 auto-approved] reason'."""
     emoji, status = HOOK_STATUS[action]
@@ -29,9 +63,15 @@ def _hook_label(action: str, reason: str) -> str:
 
 
 def _hook_command(action: str, reason: str, command: str) -> str:
-    """Wrap a command: ': '<label>' <emoji> ; <command>'."""
+    """Wrap a command: ``: '<label>' <emoji> ; <command>``.
+
+    The label is shlex-quoted because the reason can contain a single quote -
+    allowed patterns are echoed into it, so a config pattern like
+    ``^echo '.*'$`` would otherwise terminate the wrapper's quoting early and
+    leave the remainder of the reason to be parsed as shell code.
+    """
     emoji, _ = HOOK_STATUS[action]
-    return f": '{_hook_label(action, reason)}' {emoji} ; {command}"
+    return f": {shlex.quote(_hook_label(action, reason))} {emoji} ; {_strip_hook_wrappers(command)}"
 
 
 def generate_hook_response(event: dict[str, Any], decision: dict[str, Any]) -> dict[str, Any] | None:

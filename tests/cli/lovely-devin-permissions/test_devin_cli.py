@@ -16,6 +16,17 @@ from typing import Any, ClassVar
 import pytest
 
 
+def _in_label(reason: str) -> str:
+    """`reason` as it appears inside the hook's label.
+
+    The label is embedded in the rewritten command as a shlex-quoted string, so
+    a reason containing an apostrophe (these are Python list reprs, so
+    ``['FOO=bar']``) has it shell-escaped to ``'"'"'`` there. Reasons read
+    straight off the JSON response are not escaped.
+    """
+    return reason.replace("'", "'\"'\"'")
+
+
 def run_cli(
     *args: object,
     input_data: str | None = None,
@@ -472,7 +483,7 @@ class TestCliTestNodeCoverage(_NodeCoverageBase):
         assert '"", "export" commands do not match allowed patterns' in label
         # Half 2 - the operands are attributed to the variable-assignment segment (both the
         # NAME=value word and the bare word), which is what the policy keys on.
-        assert "variable assignment requires approval: ['FOO=bar', 'x']" in label
+        assert _in_label("variable assignment requires approval: ['FOO=bar', 'x']") in label
         # the operand is an assignment, not a command of its own
         assert '"FOO=bar"' not in label
 
@@ -481,7 +492,7 @@ class TestCliTestNodeCoverage(_NodeCoverageBase):
         global_dir = self._setup(tmp_project, tmp_path)
         result = self._test("export FOO=bar", tmp_project, global_dir)
         label = self._label(result)
-        assert "variable assignment requires approval: ['FOO=bar']" in label
+        assert _in_label("variable assignment requires approval: ['FOO=bar']") in label
         assert '"", "export" commands do not match allowed patterns' in label
         assert "no parseable segments" not in label
 
@@ -495,7 +506,7 @@ class TestCliTestNodeCoverage(_NodeCoverageBase):
         response = json.loads(result.stdout)
         assert response["decision"] == "block"
         assert "variable assignment denied: ['FOO=bar']" in response["reason"]
-        assert "variable assignment denied: ['FOO=bar']" in self._label(result)
+        assert _in_label("variable assignment denied: ['FOO=bar']") in self._label(result)
         # the export keyword segment is allowed by the wildcard and contributes no reason
         assert '"export"' not in response["reason"]
 
@@ -508,7 +519,7 @@ class TestCliTestNodeCoverage(_NodeCoverageBase):
         assert result.returncode == 0
         response = json.loads(result.stdout)
         assert response["decision"] == "approve"
-        assert "variable assignment allowed: ['FOO=bar']" in self._label(result)
+        assert _in_label("variable assignment allowed: ['FOO=bar']") in self._label(result)
 
     def test_declclause_cmdsubst_extracted(self, tmp_project: Path, tmp_path: Path) -> None:
         """/--test: command substitution inside an assignment value is extracted."""
@@ -522,7 +533,7 @@ class TestCliTestNodeCoverage(_NodeCoverageBase):
         # ("export", []) and ("cat", ["x"]).  Asserting only `"cat" in label`
         # would not notice the split being undone.
         assert '"", "export", "cat" commands do not match allowed patterns' in label
-        assert "variable assignment requires approval: ['FOO=$(...)']" in label
+        assert _in_label("variable assignment requires approval: ['FOO=$(...)']") in label
 
     def test_if_then_and_cond_segments(self, tmp_project: Path, tmp_path: Path) -> None:
         """/-t: if cond; then ls; fi extracts both the cond and then-branch ls."""
