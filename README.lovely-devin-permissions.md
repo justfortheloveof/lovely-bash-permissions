@@ -99,6 +99,7 @@ If either source approves the command, the hook lets it run. If neither matches,
 - `allowed_cmds_regex` is matched **per segment**, against the executed form of that segment's command line (quotes removed, backslash escapes resolved). Anchoring is literal there too, so `^git\s+log$` approves `git log` and not `git log --oneline`.
 - Allowed matching is deliberately **not** done against the whole command string. We measured that whole-string matching for `allowed_cmds_regex` defeats both guard patterns the per-segment matcher exists for: the negative-lookahead guards stop working (e.g. `^find(?!.*\s-(exec|delete|ok)\b).*$` no longer catches `find /tmp -"exec" rm`, because the raw string still shows the quotes the executed form would have removed), and a prefix pattern approves an entire compound line (`^ls` would approve `ls && rm -rf /`). Per-segment granularity is what prevents both. Do not "simplify" this to a single whole-command match.
 - Guard patterns (negative lookaheads, e.g. `^find(?!.*\s-(exec|delete|ok)\b)`) are matched against the **executed** form of the command, where quotes are removed and backslash escapes are resolved — so write them in executed form, as you would write the command unquoted. Flags that may be quote- or backslash-split (e.g. `find -exec` as `-e"x"ec` / `-ex\ec`) must be covered with a character class such as `-e["x]ec` or a plain executed-form token — a guard with a **literal** quote character (e.g. `(?!.*-e"xec)`) can never trip, because the executed form contains no quotes.
+- **Nothing is auto-approved by default, and that includes bash's own conditionals.** `[` (and its `test` spelling), `true`, `false` and `:` do no work — `[ -f x ]` compares strings, it never runs anything — but bash implements them as real builtins, so the evaluator reports them as commands and they must be allow-listed like any other. So `[ -n "$p" ] && ls`, `if true; then ...; fi` and `while false; do ...; done` all prompt until the builtin itself is listed. This is deliberate: an allow-list you did not write is not a decision you made. See [Shell conditionals and status builtins](#shell-conditionals-and-status-builtins) for the patterns to add. The asymmetry with `[[ ... ]]` and `(( ... ))` is real but not a hole — those are parsed as expressions rather than commands, so they produce no command segment at all and never appear in an allow-list. All of these are still fully checked by `blocked_cmds_regex`: `[ -f /etc/passwd ]` is denied by a `\/etc` pattern whether or not `[` is allow-listed.
 - This is a policy layer, not a sandbox. It statically analyzes the command as written: backtick and `$(...)` command substitutions, process substitutions, brace groups (`{ ...; }`), subshells, functions, loops, conditionals, and heredoc bodies are all walked and their inner commands checked, so no syntax form silently skips evaluation. Environment assignment prefixes like `a=1 rm -rf /` are detected and evaluated separately via the `variable_assignment` policy. It is still best-effort static analysis, not a runtime boundary: things bash only reveals at runtime (expansion results, substitution output) cannot be verified, and anything the parser cannot analyze falls through to the `error` policy. Use it as guard-rails against accidental execution, not as a security boundary around untrusted input.
 
 ## Configuration files
@@ -154,6 +155,37 @@ The `bash` config key supports these keys:
 | `blocked_cmds_regex`                    | `string[]`                             | General regexes that deny a command when matched against the **whole raw command string** as well as **each segment's joined line** — the same matcher as `allowed_cmds_regex`, a wider scope. Not path-specific; write your own path patterns. Unanchored substrings — anchor with `^`/`$`/`\b` as needed, and note anchoring is literal against the whole command (`\.env$` only denies a command that ends in `.env`). Comments and quoted text are in scope. Also applied to redirection targets, substitution contents, and heredoc bodies. |
 
 >`error` covers commands the parser cannot handle (e.g. `echo "unclosed`, `(((invalid`). Because both `allowed_cmds_regex` and `blocked_cmds_regex` are skipped for such input, the `error` policy decides the outcome - defaulting to the bash `*` wildcard. Set it to `"ask"` (recommended) or `"deny"` so malformed but bash-accepted syntax is never silently auto-approved under `"*": "allow"`.
+
+### Shell conditionals and status builtins
+
+`[`, `test`, `true`, `false` and `:` are part of the shell language, but they are commands as far as bash is concerned — `[` is a builtin binary and `/usr/bin/[` exists on most systems — so the evaluator reports each of them as a command segment. None of them is auto-approved; that is the point, since an allow-list you did not write is not a decision you made. The practical consequence is that ordinary shell control flow prompts until you list the builtin:
+
+```bash
+[ -n "$p" ] && ls                 # -> asks:  "[" does not match allowed patterns
+if true; then ls; fi              # -> asks:  "true" does not match allowed patterns
+while false; do ls; done          # -> asks:  "false" does not match allowed patterns
+ls                                # -> allowed (if ^ls is listed)
+```
+
+Add the ones you actually use, anchored like any other command:
+
+```jsonc
+"allowed_cmds_regex": [
+  "^\\[(\\s+.*)?$",   // [ -n "$p" ] && ...
+  "^test(\\s+.*)?$",  // test -f file && ...
+  "^true(\\s.*)?$",   // if true; then ...; fi
+  "^false(\\s.*)?$",  // while false; do ...; done
+  "^:(\\s.*)?$"       // the : no-op
+]
+```
+
+The `\\[` and `\\s` are double-escaped because these are JSON strings. Note the trailing `.*` on `[` and `test`: their arguments (`-n`, `-f`, the closing `]`) are ordinary operands, so the pattern must tolerate them. `true`, `false` and `:` take no useful arguments, hence `(\\s.*)?$`.
+
+Listing a builtin only approves *it*. Everything the conditional guards still has to earn its own pattern, so with the list above `[ -n "$p" ] && rm -rf /` still asks for `rm`, and `if true; then rm -rf /; fi` still asks too.
+
+Two things this does **not** weaken. Blocked patterns are checked independently and still reach these segments — `[ -f /etc/passwd ]` is denied by a `\/etc` pattern whether or not `[` is allow-listed. And substitutions nested inside a conditional are still extracted as the commands they run: `[ "$(cat secret)" = x ]` reports `cat`, which is checked on its own.
+
+For contrast, `[[ ... ]]` and `(( ... ))` are parsed as bash *expressions* rather than commands, so they produce no command segment and never need allow-listing. Only the single-bracket `[ ... ]` form — which really is a command — appears in an allow-list. If a command using `[ ... ]` or `if true; ...` prompts unexpectedly, that is this policy working as intended, not a misparse.
 
 ### Devin config
 
