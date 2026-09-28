@@ -319,19 +319,26 @@ class TestDeclClause:
         assert [(s["command"], s["arguments"]) for s in segs] == [("", ["FOO", "bar"]), ("export", [])]
 
     def test_export_value_cmdsubst_extracted(self) -> None:
-        # Command substitution in an assignment value is a real execution, and
-        # `export FOO=$(rm x)` captures its output rather than assigning a
-        # literal - so no variable-assignment segment is emitted, exactly as
-        # for `FOO=$(rm x) ls`.  That makes the substitution policies, not
-        # `variable_assignment`, the thing that decides this form.
+        # `export FOO=$(rm x)` is a real execution *and* a real assignment, so
+        # it yields both: the variable-assignment segment (which the
+        # `variable_assignment` policy gates) and the substituted command
+        # itself (which the substitution policies gate).
         segs = parse_segments("export FOO=$(rm x)")
-        assert [(s["command"], s["arguments"]) for s in segs] == [("export", []), ("rm", ["x"])]
+        assert [(s["command"], s["arguments"]) for s in segs] == [
+            ("", ["FOO=$(...)"]),
+            ("export", []),
+            ("rm", ["x"]),
+        ]
 
     def test_export_bare_substitution_operand(self) -> None:
-        # `export $(cmd)` - the whole operand is a substitution, and the same
-        # carve-out covers it.
+        # `export $(cmd)` - the whole operand is a substitution, and it is still
+        # reported as an assignment alongside the command it runs.
         segs = parse_segments("export $(cmd)")
-        assert [(s["command"], s["arguments"]) for s in segs] == [("export", []), ("cmd", [])]
+        assert [(s["command"], s["arguments"]) for s in segs] == [
+            ("", ["$(...)"]),
+            ("export", []),
+            ("cmd", []),
+        ]
 
     def test_export_flag_operands(self) -> None:
         segs = parse_segments("export -f foo")

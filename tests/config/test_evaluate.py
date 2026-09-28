@@ -2146,18 +2146,18 @@ class TestDeclarationOperandsAreVariableAssignments:
         assert [(s["command"], s["arguments"]) for s in result["segments"]] == [("", ["x=1"]), ("local", [])]
 
 
-class TestDeclarationSubstitutionCarveOut:
-    """A declaration operand whose value expands `$( )` is capture-output.
+class TestCaptureOutputIsAlsoAVariableAssignment:
+    """`x=$(cmd)` is an assignment *and* a substitution - both policies apply.
 
-    ``export FOO=$(cmd)`` captures command output, so it belongs to the
-    ``command_substitution`` policy rather than ``variable_assignment`` - the
-    same carve-out that already applied to ``FOO=$(rm x) ls``.  No
-    variable-assignment segment is emitted for it, so a denying
-    ``variable_assignment`` never reaches the form.
-
-    The carve-out only inspects the assignment's ``value``, not its array
-    *elements*, so ``export A=($(cmd))`` keeps its variable-assignment segment -
-    matching the pre-existing CallExpr behaviour for ``A=($(cmd))``.
+    There used to be a carve-out that withheld the variable-assignment segment
+    when the value captured command output, on the theory that the operation
+    belonged to ``command_substitution`` alone.  It was applied inconsistently
+    (only on the assigns-alongside-a-command path, never for a standalone
+    assignment or a declaration operand), so two spellings of the same shell
+    operation got different verdicts - `FOO=$(rm -rf /) ls` was allowed while
+    `FOO=$(rm -rf /)` was denied.  The carve-out is gone: every assignment
+    yields a variable-assignment segment, and the substitution policies are
+    applied on top of it by the evaluator, so both gates fire.
     """
 
     _CONFIG: ClassVar[dict[str, str]] = {
@@ -2168,22 +2168,33 @@ class TestDeclarationSubstitutionCarveOut:
 
     @pytest.mark.parametrize(
         "source",
-        ["FOO=$(cmd) ls", "export FOO=$(cmd)", "export $(cmd)"],
+        ["FOO=$(cmd) ls", "FOO=$(cmd)", "export FOO=$(cmd)", "export $(cmd)"],
     )
-    def test_capture_output_operand_is_not_a_variable_assignment(self, source: str) -> None:
+    def test_capture_output_still_emits_a_variable_assignment(self, source: str) -> None:
         result = evaluate_bash_command(source, self._CONFIG)
-        assert "" not in [segment["command"] for segment in result["segments"]], source
-        assert result["status"] == "allow", source
+        assert "" in [segment["command"] for segment in result["segments"]], source
+        assert result["status"] == "deny", source
+        assert "variable assignment denied" in result["reason"], source
 
-    def test_declared_capture_output_is_the_substitution_policys_job(self) -> None:
-        assert evaluate_bash_command("export FOO=$(rm -rf /)", self._CONFIG)["status"] == "allow"
-        denied = evaluate_bash_command("export FOO=$(rm -rf /)", {**self._CONFIG, "command_substitution": "deny"})
+    def test_every_spelling_of_the_same_operation_agrees(self) -> None:
+        # The bug this replaces: the `ls` variant slipped through while the
+        # bare one did not.
+        for source in ("FOO=$(rm -rf /) ls", "FOO=$(rm -rf /)", "export FOO=$(rm -rf /)"):
+            assert evaluate_bash_command(source, self._CONFIG)["status"] == "deny", source
+
+    def test_substitution_policy_still_applies_on_top(self) -> None:
+        # With the assignment gate satisfied, command_substitution is the one
+        # that denies - proving both gates are live rather than one masking
+        # the other.
+        permissive = {**self._CONFIG, "variable_assignment": "allow"}
+        assert evaluate_bash_command("export FOO=$(rm -rf /)", permissive)["status"] == "allow"
+        denied = evaluate_bash_command("export FOO=$(rm -rf /)", {**permissive, "command_substitution": "deny"})
         assert denied["status"] == "deny"
+        assert "command substitution" in denied["reason"]
 
     def test_array_element_substitution_keeps_the_variable_assignment(self) -> None:
-        # `A=($(cmd))` was never covered by the carve-out, and a declared array
-        # is treated the same way: the operand is still an assignment, so the
-        # denying variable_assignment policy still denies it.
+        # `A=($(cmd))` puts the substitution in an array *element*, and is
+        # reported identically to the value form now that no carve-out exists.
         result = evaluate_bash_command("export A=($(cmd))", self._CONFIG)
         assert [(s["command"], s["arguments"]) for s in result["segments"]] == [
             ("", ["A=($(...))"]),

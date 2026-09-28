@@ -87,26 +87,6 @@ def _part_value(p: object) -> str:
     return ""
 
 
-def _assigns_have_substitution(assigns: list[Assign]) -> bool:
-    """True when any assignment's value expands a command or process substitution.
-
-    ``x=$(cmd)`` is a capture-output operation, which bash evaluates through
-    the substitution policies rather than ``variable_assignment`` - so an
-    assignment carrying one must not become a variable-assignment segment.
-    A substitution can also hide inside double quotes (``x="$(cmd)"``), which
-    is why the inner parts are inspected too.
-    """
-    for assign in assigns:
-        if assign.value is None:
-            continue
-        for part in assign.value.parts:
-            if isinstance(part, (CmdSubst, ProcSubst)):
-                return True
-            if isinstance(part, DblQuoted) and any(isinstance(inner, (CmdSubst, ProcSubst)) for inner in part.parts):
-                return True
-    return False
-
-
 def _array_text(assign: Assign) -> str:
     """Render an array assignment's elements, e.g. ``(a b c)``.
 
@@ -310,13 +290,14 @@ def _extract_segments(
     elif isinstance(node, CallExpr):
         # Simple command: extract command, arguments, and inherited redirections
         if node.args:
-            # Check for variable assignments alongside the command (FOO=bar ls)
-            # But NOT if the assignment value contains a command substitution (x=$(cmd)).
-            # Those are "capture output" operations, evaluated via the
-            # substitution policies (command_substitution / process_substitution), not
-            # variable_assignment. Only pure variable assignments (plain literal values)
-            # should be extracted as separate variable assignment segments.
-            if node.assigns and not _assigns_have_substitution(node.assigns):
+            # Variable assignments alongside a command (FOO=bar ls) become
+            # their own segment, so the `variable_assignment` policy reaches
+            # them. This applies to EVERY assignment, including one whose
+            # value captures a command's output (`FOO=$(cmd) ls`): it is still
+            # an assignment, and the `command_substitution` policy is applied
+            # on top of it by the evaluator, so both gates fire rather than
+            # one silently standing in for the other.
+            if node.assigns:
                 var_assign_args = [_assign_operand_text(a) for a in node.assigns]
                 var_assign_args = [arg for arg in var_assign_args if arg]
                 if var_assign_args:
@@ -381,8 +362,7 @@ def _extract_segments(
 
         operands: list[str] = [operand for operand in (_assign_operand_text(assign) for assign in declares) if operand]
         if operands:
-            if not _assigns_have_substitution(declares):
-                segments.append({"command": "", "arguments": operands, "redirections": []})
+            segments.append({"command": "", "arguments": operands, "redirections": []})
             segments.append({"command": node.variant, "arguments": [], "redirections": redir_dicts})
         # Recurse into redirection target words so nested command/process
         # substitutions are extracted (e.g. `export F=$(generate_name)`).
