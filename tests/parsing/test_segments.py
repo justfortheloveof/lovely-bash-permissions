@@ -2,6 +2,9 @@
 Comprehensive tests for the bash command segment parser.
 """
 
+from typing import Any, ClassVar
+
+from lovely_bash_permissions.evaluate import evaluate_bash_command
 from lovely_bash_permissions.segments import parse_segments
 
 
@@ -652,6 +655,66 @@ class TestForLoopListSegments:
 
     def test_literal_loop_list_unchanged(self) -> None:
         assert [s["command"] for s in parse_segments("for i in 1 2 3; do echo hi; done")] == ["echo"]
+
+
+class TestArithmeticCommandSubstitutions:
+    """``(( expr ))`` runs no command, but still evaluates substitutions.
+
+    The ``ArithmCmd`` handler used to ``pass``, so a command substitution
+    inside ``(( ... ))`` produced no segment at all.  Zero segments fall
+    through the empty-segment path to the wildcard, so under
+    ``{"*": "allow", "command_substitution": "allow"}``
+    ``(( x=$(rm -rf /) ))`` was auto-approved with nothing having inspected the
+    ``rm``.  Every sibling spelling already recursed; this brings ``(( ... ))``
+    in line.  The arithmetic itself must still produce no segment.
+    """
+
+    CONFIG: ClassVar[dict[str, Any]] = {
+        "*": "ask",
+        "command_substitution": "allow",
+        "allowed_cmds_regex": [r"^ls$"],
+    }
+
+    def test_cmdsubst_in_arithmetic_command_extracted(self) -> None:
+        assert [s["command"] for s in parse_segments("(( x=$(rm -rf /) ))")] == ["rm"]
+
+    def test_arithmetic_only_produces_no_segments(self) -> None:
+        # Nothing here is a command; the walk must not invent one.
+        for source in ("(( y=1 ))", "(( x=1+2 ))", "(( arr[i]=0 ))", "(( i<n ))", "(( x=0x10 ))"):
+            assert parse_segments(source) == [], source
+
+    def test_nested_substitutions_in_arithmetic_extracted(self) -> None:
+        assert [s["command"] for s in parse_segments("(( x=$(( $(n) + 1 )) ))")] == ["n"]
+        assert [s["command"] for s in parse_segments("(( y=${a:-$(cmd)} ))")] == ["cmd"]
+
+    def test_hidden_command_is_gated_by_the_allowlist(self) -> None:
+        # The regression that mattered: this used to report "produced no
+        # parseable segments" and fall to the wildcard instead of naming rm.
+        result = evaluate_bash_command("(( x=$(rm -rf /) ))", self.CONFIG)
+        assert result["status"] == "ask"
+        assert '"rm" command does not match allowed patterns' in result["reason"]
+        assert "produced no parseable segments" not in result["reason"]
+
+    def test_agrees_with_sibling_spellings(self) -> None:
+        # All five spellings of the same substitution must now be gated alike.
+        for source in (
+            "(( x=$(rm -rf /) ))",
+            "x=$(rm -rf /)",
+            "let x=$(rm -rf /)",
+            "[[ -n $(rm -rf /) ]]",
+            "$(( $(rm -rf /) ))",
+        ):
+            assert evaluate_bash_command(source, self.CONFIG)["status"] == "ask", source
+
+    def test_arithmetic_only_still_falls_to_the_wildcard(self) -> None:
+        # No command means nothing to allow-list, so the wildcard still decides.
+        result = evaluate_bash_command("(( y=1 ))", self.CONFIG)
+        assert result["segments"] == []
+        assert result["status"] == "ask"
+
+    def test_blocked_scan_reaches_the_hidden_command(self) -> None:
+        result = evaluate_bash_command("(( x=$(cat /etc/passwd) ))", {"*": "ask", "blocked_cmds_regex": [r"\/etc"]})
+        assert result["status"] == "deny"
 
 
 class TestCStyleLoopSegments:

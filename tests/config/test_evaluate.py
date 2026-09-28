@@ -2796,16 +2796,34 @@ class TestAdvancedBashConstructs:
         assert result["status"] == "ask"
 
 
-class TestEmptySegmentSubshellPolicy:
-    """standalone (( ... $(...) )) is gated by the command_substitution policy."""
+class TestArithmeticCommandSubstitutionPolicy:
+    """`(( ... $(...) ))` is gated by the command_substitution policy.
+
+    This command used to yield *zero* segments, so it took the empty-segment
+    path - which applies the substitution policy directly, and downgrades an
+    inherited `allow` to `ask` because nothing could be analysed. The
+    ``ArithmCmd`` handler now recurses, so the substituted command is a real
+    segment and the command is judged like its five sibling spellings
+    (``x=$(cmd)``, ``let x=$(cmd)``, ``[[ -n $(cmd) ]]``, ``$(( $(cmd) ))``,
+    ``$(cmd)``) - verified to agree on every combination below. What changes is
+    the verdict for two combinations, both a consequence of that consistency:
+    under ``"*": "allow"`` the substituted command is now visible and the
+    wildcard genuinely approves it, and under ``"*": "ask"`` the verdict is
+    `ask` (as it is for every sibling) rather than the substitution policy's
+    `deny`.
+    """
 
     CMD = "(( x[$(rm -rf /etc/x)] ))"
 
     def test_allow_wildcard_deny_subshell(self) -> None:
         assert evaluate_bash_command(self.CMD, {"*": "allow", "command_substitution": "deny"})["status"] == "deny"
 
-    def test_allow_wildcard_default_subshell_asks(self) -> None:
-        assert evaluate_bash_command(self.CMD, {"*": "allow"})["status"] == "ask"
+    def test_allow_wildcard_inherited_substitution_allow(self) -> None:
+        # The substituted command is a real segment now, so the wildcard's
+        # inherited allow is honoured instead of being downgraded.
+        result = evaluate_bash_command(self.CMD, {"*": "allow"})
+        assert result["status"] == "allow"
+        assert "rm" in [s["command"] for s in result["segments"]]
 
     def test_allow_wildcard_explicit_ask(self) -> None:
         assert evaluate_bash_command(self.CMD, {"*": "allow", "command_substitution": "ask"})["status"] == "ask"
@@ -2814,7 +2832,10 @@ class TestEmptySegmentSubshellPolicy:
         assert evaluate_bash_command(self.CMD, {"*": "allow", "command_substitution": "allow"})["status"] == "allow"
 
     def test_ask_wildcard_deny_subshell(self) -> None:
-        assert evaluate_bash_command(self.CMD, {"*": "ask", "command_substitution": "deny"})["status"] == "deny"
+        # `ask` for every sibling spelling too: a substitution policy only
+        # downgrades an otherwise-`allow` verdict, and here the wildcard has
+        # already produced `ask`.
+        assert evaluate_bash_command(self.CMD, {"*": "ask", "command_substitution": "deny"})["status"] == "ask"
 
     def test_deny_wildcard_allow_subshell(self) -> None:
         assert evaluate_bash_command(self.CMD, {"*": "deny", "command_substitution": "allow"})["status"] == "deny"
@@ -3026,8 +3047,8 @@ class TestSubstitutionKeySplit:
         allow_cfg = {"*": "allow", "subshell": "deny", "allowed_cmds_regex": allow_list}
         assert evaluate_bash_command("echo <(true)", allow_cfg)["status"] == "allow"
 
-    def test_zero_segment_arithmetic_cmdsubst_inherited_allow_asks(self) -> None:
-        """Zero-segment `(( x[$(rm)] ))`: command_substitution=deny denies."""
+    def test_arithmetic_cmdsubst_inherited_allow_asks(self) -> None:
+        """`(( x[$(rm)] ))`: command_substitution=deny denies."""
         result = evaluate_bash_command(
             "(( x[$(rm)] ))",
             {"*": "allow", "command_substitution": "deny"},
@@ -3035,9 +3056,16 @@ class TestSubstitutionKeySplit:
         assert result["status"] == "deny"
         assert "command substitution requires approval" in result["reason"]
 
-    def test_zero_segment_arithmetic_inherited_allow_downgrades_to_ask(self) -> None:
-        """Zero-segment arithmetic with only `*`: `allow`: the inherited (not
-        explicit) allow on command_substitution is downgraded to fail-closed ask."""
+    def test_arithmetic_cmdsubst_inherited_allow_is_honoured(self) -> None:
+        """`(( x[$(rm)] ))` is no longer zero-segment.
+
+        The substituted command is extracted now, so with only `"*": "allow"`
+        there is something to analyse and the wildcard genuinely approves it.
+        Previously the empty-segment path downgraded the inherited allow to
+        `ask` precisely *because* it could not see what ran; that reasoning no
+        longer applies, and this is the fail-open the recursion closed. Every
+        sibling spelling of the same substitution behaves the same way.
+        """
         result = evaluate_bash_command("(( x[$(rm)] ))", {"*": "allow"})
-        assert result["status"] == "ask"
-        assert "command substitution requires approval" in result["reason"]
+        assert result["status"] == "allow"
+        assert [s["command"] for s in result["segments"]] == ["rm"]

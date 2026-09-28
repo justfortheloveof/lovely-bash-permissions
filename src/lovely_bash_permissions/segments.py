@@ -466,8 +466,17 @@ def _extract_segments(
             segments.extend(_extract_segments(node.stmt))
 
     elif isinstance(node, ArithmCmd):
-        # (( expr )) - arithmetic-only, skip (no real command)
-        pass
+        # `(( expr ))` runs no command of its own, so nothing is emitted for the
+        # arithmetic.  But bash still evaluates substitutions inside it -
+        # `(( x=$(cmd) ))` really does run `cmd` - so the body is walked to
+        # surface them.  Skipping it (as this handler used to) hid the command
+        # entirely: `(( x=$(rm -rf /) ))` produced zero segments and so fell
+        # through the empty-segment path to the wildcard, which under
+        # `"*": "allow"` auto-approved a command nothing had inspected.  Every
+        # sibling spelling already recursed (`x=$(cmd)`, `let x=$(cmd)`,
+        # `[[ -n $(cmd) ]]`, `$(( $(cmd) ))`); this brings `(( ... ))` in line.
+        if node.body is not None:
+            segments.extend(_extract_segments(node.body))
     elif isinstance(node, LetClause):
         # let - variable assignment with arithmetic
         # Extract as variable assignment segment, capturing expressions as args.
