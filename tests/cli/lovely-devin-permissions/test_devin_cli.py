@@ -462,20 +462,53 @@ class TestCliTestNodeCoverage(_NodeCoverageBase):
     """Exercise AST node handlers (DeclClause, conditionals, tests) via --test/-t."""
 
     def test_declclause_export_is_a_command(self, tmp_project: Path, tmp_path: Path) -> None:
-        """/-t: export FOO=bar x is evaluated as the export command."""
+        """/-t: export FOO=bar x is a bare export command segment plus a separate assignment segment."""
         global_dir = self._setup(tmp_project, tmp_path)
         result = self._test("export FOO=bar x", tmp_project, global_dir, flag="-t")
         label = self._label(result)
-        assert '"export"' in label
-        assert '"bar"' not in label
+        # Half 1 - the keyword is its own command segment, so exactly two segments are
+        # reported and the first is the "" (variable-assignment) one. Folding the operands
+        # back into export's arguments would collapse this to a single '"export"' entry.
+        assert '"", "export" commands do not match allowed patterns' in label
+        # Half 2 - the operands are attributed to the variable-assignment segment (both the
+        # NAME=value word and the bare word), which is what the policy keys on.
+        assert "variable assignment requires approval: ['FOO=bar', 'x']" in label
+        # the operand is an assignment, not a command of its own
+        assert '"FOO=bar"' not in label
 
-    def test_declclause_assignment_is_an_operand(self, tmp_project: Path, tmp_path: Path) -> None:
-        """/--test: export FOO=bar is a segment with the export command."""
+    def test_declclause_operand_is_a_variable_assignment_segment(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/--test: export FOO=bar names both the export command and its FOO=bar assignment segment."""
         global_dir = self._setup(tmp_project, tmp_path)
         result = self._test("export FOO=bar", tmp_project, global_dir)
         label = self._label(result)
-        assert '"export"' in label
+        assert "variable assignment requires approval: ['FOO=bar']" in label
+        assert '"", "export" commands do not match allowed patterns' in label
         assert "no parseable segments" not in label
+
+    def test_declclause_export_denied_by_variable_assignment_policy(self, tmp_project: Path, tmp_path: Path) -> None:
+        """/--test: variable_assignment=deny blocks export FOO=bar despite a wildcard allow."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        self._write_config(tmp_project, {"bash": {"*": "allow", "variable_assignment": "deny"}})
+        result = self._test("export FOO=bar", tmp_project, global_dir)
+
+        assert result.returncode == 2
+        response = json.loads(result.stdout)
+        assert response["decision"] == "block"
+        assert "variable assignment denied: ['FOO=bar']" in response["reason"]
+        assert "variable assignment denied: ['FOO=bar']" in self._label(result)
+        # the export keyword segment is allowed by the wildcard and contributes no reason
+        assert '"export"' not in response["reason"]
+
+    def test_declclause_export_allowed_by_wildcard_alone(self, tmp_project: Path, tmp_path: Path) -> None:
+        """Control for the deny test: the same command passes when only '*' is set."""
+        global_dir = self._setup(tmp_project, tmp_path)
+        self._write_config(tmp_project, {"bash": {"*": "allow"}})
+        result = self._test("export FOO=bar", tmp_project, global_dir)
+
+        assert result.returncode == 0
+        response = json.loads(result.stdout)
+        assert response["decision"] == "approve"
+        assert "variable assignment allowed: ['FOO=bar']" in self._label(result)
 
     def test_declclause_cmdsubst_extracted(self, tmp_project: Path, tmp_path: Path) -> None:
         """/--test: command substitution inside an assignment value is extracted."""
