@@ -10,7 +10,8 @@ allow, ask for approval, or deny the command.
 from __future__ import annotations
 
 import re
-from typing import Any
+from collections.abc import Sequence
+from typing import Any, Literal
 
 from .ast import CallExpr, CmdSubst, Node, ProcSubst, Subshell
 from .converter import node_from_json
@@ -230,42 +231,114 @@ def _opaque_match_unreliable(pattern: str) -> bool:
     return not _BARE_NAME_META.search(body) if body else False
 
 
+def _texts_for(name: str, args: list[str], normalized_args: list[str] | None) -> list[str]:
+    """Build the ordered candidate texts a command segment is matched against.
+
+    The EXECUTED / quote-normalized join comes first (when *normalized_args*
+    is given) so negative lookaheads in guard patterns are evaluated on the
+    text bash actually runs; the raw join follows it. A nameless segment
+    (a bare assignment or pseudo-command) is joined with a leading space by
+    :func:`_command_string`, so that space is stripped from each candidate.
+
+    Returns:
+        Deduplicated candidate texts in match-priority order; the raw join
+        alone when *normalized_args* is ``None``.
+    """
+    candidates: list[str] = []
+    if normalized_args is not None:
+        candidates.append(_command_string(name, normalized_args))
+    candidates.append(_command_string(name, args))
+    texts: list[str] = []
+    for text in candidates:
+        if not name and text.startswith(" "):
+            text = text[1:]
+        if text not in texts:
+            texts.append(text)
+    return texts
+
+
+def _match_texts(
+    texts: Sequence[str],
+    patterns: Sequence[str],
+    *,
+    opaque_guard: bool = False,
+    raw_fallback: Literal["always", "only-if-no-lookahead"] = "always",
+    has_opaque: bool = False,
+) -> list[tuple[str, str]]:
+    """Match *patterns* against *texts* - the single core behind both regex lists.
+
+    Iteration is pattern-major (outer loop over patterns, inner over texts),
+    so results come back in pattern order and at most one entry per pattern.
+    ``texts[0]`` is the executed / normalized form and is always tried;
+    ``texts[1:]`` is the raw form and is tried per *raw_fallback*:
+
+    - ``"always"``: both forms are tried (OR semantics - a hit on either
+      counts, which is what the denied direction wants).
+    - ``"only-if-no-lookahead"``: the raw form is a fallback only for patterns
+      that contain no ``(?!`` guard, because a quote-split spelling can fake
+      the text a lookahead scans but cannot change a lookahead's own verdict.
+
+    Args:
+        texts: Candidate texts in match-priority order (see :func:`_texts_for`).
+        patterns: Regex patterns to try, in list order.
+        opaque_guard: Drop matches whose pattern is unsafe to trust when the
+            command hides arguments behind ``$(...)`` (see
+            :func:`_opaque_match_unreliable`).
+        raw_fallback: Whether and when the raw-form texts are tried.
+        has_opaque: Whether the command actually holds a ``$(...)`` argument
+            (only then can *opaque_guard* fire).
+
+    Returns:
+        ``(pattern, text_that_hit)`` pairs in pattern order. Invalid patterns
+        are skipped rather than raised, so one bad regex can neither crash
+        evaluation nor silently approve a command.
+    """
+    if not texts:
+        return []
+    matches: list[tuple[str, str]] = []
+    for pattern in patterns:
+        try:
+            compiled = _compile_pattern(pattern)
+        except ValueError:
+            continue
+        candidates = texts[:1] if raw_fallback == "only-if-no-lookahead" and "(?!" in pattern else texts
+        hit = next((text for text in candidates if compiled.search(text)), None)
+        if hit is None:
+            continue
+        # The guard shape's verdict depends on tokens a substitution can hide,
+        # so a match here must not stand in for approval.
+        if opaque_guard and has_opaque and _opaque_match_unreliable(pattern):
+            continue
+        matches.append((pattern, hit))
+    return matches
+
+
 def _match_allowed_patterns(
     name: str, args: list[str], allowed_patterns: list[str], normalized_args: list[str] | None = None
 ) -> list[str]:
     """Return the allowed patterns matched by this command (name + args).
 
-    Executed-form matching: when *normalized_args* is given the pattern is
-    matched against the quote-normalized "executed" command string first, so
-    the negative lookaheads (``(?!...``) in guard patterns are evaluated on
-    the text bash actually runs - interior quote splits / backslash escapes
-    (``-e"x"ec``) therefore cannot dodge them. A raw-only match is honored
-    ONLY when the pattern contains no negative lookahead (the only shape a
-    split text can fake), preserving patterns written with explicit quotes.
+    Thin wrapper over :func:`_match_texts` with approval-shaped settings: the
+    executed form is tried first, the raw form only as a fallback for patterns
+    carrying no ``(?!`` guard (the only shape a split text can fake), which
+    preserves patterns written with explicit quotes.
 
     Matches are rejected when opaque ``$(...)`` arguments could change the
     pattern's verdict - see :func:`_opaque_match_unreliable`.  Such commands
     are treated as not allowed, requesting approval instead of auto-approving.
+
+    Returns:
+        Every matching pattern, in list order.
     """
-    full = _command_string(name, args)
-    norm_full = _command_string(name, normalized_args) if normalized_args is not None else None
     has_opaque = any("$(...)" in a for a in args)
-    matched: list[str] = []
-    for pattern in allowed_patterns:
-        if norm_full is not None:
-            hit = re.search(pattern, norm_full) is not None
-            if not hit and "(?!" not in pattern:
-                # Executed form missed but no guard could be faked - honor
-                # a raw-form match (quoted-pattern compatibility).
-                hit = re.search(pattern, full) is not None
-        else:
-            hit = re.search(pattern, full) is not None
-        if not hit:
-            continue
-        if has_opaque and _opaque_match_unreliable(pattern):
-            continue
-        matched.append(pattern)
-    return matched
+    matches = _match_texts(
+        _texts_for(name, args, normalized_args),
+        allowed_patterns,
+        opaque_guard=True,
+        raw_fallback="only-if-no-lookahead",
+        has_opaque=has_opaque,
+    )
+    return [pattern for pattern, _text in matches]
 
 
 def _match_blocked_patterns(
@@ -273,46 +346,22 @@ def _match_blocked_patterns(
 ) -> tuple[bool, str | None, str | None]:
     """Return whether a joined command line matches blocked patterns.
 
-    Uses the same joined-line logic as allowed patterns
-    (:func:`_command_string`): the segment is joined to a single
-    ``"name arg1 arg2"`` string (raw args and quote-normalized
-    ``normalized_args`` / executed form) and each pattern is run with
-    ``re.search``. Anchoring is honored literally.
+    Thin wrapper over :func:`_match_texts` with denial-shaped settings: both
+    the executed and the raw join are always tried (OR semantics - a hit on
+    either denies), and no opaque-argument guard applies because an unsafe
+    denial needs none. Invalid patterns never hit (mirrors
+    :func:`rules._match_pattern`).
 
-    Unlike allowed matching, both forms are always tried (OR semantics):
-    a hit on either the executed or the raw form denies. Invalid
-    patterns never hit (mirrors :func:`rules._match_pattern`).
-    No ``(?!``-conditional fallback and no ``_opaque_match_unreliable``
-    exclusion — unsafe denial needs no such guard.
-
-    Returns ``(True, pattern, value)`` on the first hit where ``value``
-    is the joined line that hit (``norm_full`` preferred), else
-    ``(False, None, None)``.
+    Returns:
+        ``(True, pattern, value)`` for the first hit, where ``value`` is the
+        joined line that hit (the normalized form preferred), else
+        ``(False, None, None)``.
     """
-    full = _command_string(name, args)
-    if not name and full.startswith(" "):
-        full = full[1:]
-    norm_full: str | None = None
-    if normalized_args is not None:
-        norm_full = _command_string(name, normalized_args)
-        if not name and norm_full.startswith(" "):
-            norm_full = norm_full[1:]
-    for pattern in blocked_patterns:
-        hit_on_norm = False
-        if norm_full is not None:
-            try:
-                hit_on_norm = bool(_compile_pattern(pattern).search(norm_full))
-            except ValueError:
-                hit_on_norm = False
-        if hit_on_norm:
-            return True, pattern, norm_full
-        try:
-            hit_on_full = bool(_compile_pattern(pattern).search(full))
-        except ValueError:
-            hit_on_full = False
-        if hit_on_full:
-            return True, pattern, full
-    return False, None, None
+    matches = _match_texts(_texts_for(name, args, normalized_args), blocked_patterns, raw_fallback="always")
+    if not matches:
+        return False, None, None
+    pattern, text = matches[0]
+    return True, pattern, text
 
 
 def _resolve_level(config: dict[str, Any], key: str) -> Any:  # noqa: ANN401

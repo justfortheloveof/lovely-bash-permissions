@@ -2,7 +2,13 @@
 
 import pytest
 
-from lovely_bash_permissions.evaluate import _match_blocked_patterns, evaluate_bash_command
+from lovely_bash_permissions.evaluate import (
+    _match_allowed_patterns,
+    _match_blocked_patterns,
+    _match_texts,
+    _texts_for,
+    evaluate_bash_command,
+)
 from lovely_bash_permissions.parser import parse
 from lovely_bash_permissions.rules import (
     _compile_pattern,
@@ -157,6 +163,146 @@ def test_blocked_first_matching_pattern_wins() -> None:
     args, norm = ['/e"tc"/passwd'], ["/etc/passwd"]
     assert _match_blocked_patterns("cat", args, ["cat", r"\/etc"], norm)[1] == "cat"
     assert _match_blocked_patterns("cat", args, [r"\/etc", "cat"], norm)[1] == r"\/etc"
+
+
+# Tests for _texts_for (the shared candidate-text builder)
+
+
+def test_texts_for_normalized_first_then_raw() -> None:
+    """The executed join is the priority text; the raw join is the fallback."""
+    assert _texts_for("cat", ['/e"tc"/passwd'], ["/etc/passwd"]) == ["cat /etc/passwd", 'cat /e"tc"/passwd']
+
+
+def test_texts_for_dedupes_identical_forms() -> None:
+    """Identical raw and normalized joins collapse to one candidate text."""
+    assert _texts_for("ls", ["-la"], ["-la"]) == ["ls -la"]
+
+
+def test_texts_for_no_normalized_args_is_raw_only() -> None:
+    """Without normalized args the raw join is the sole candidate."""
+    assert _texts_for("cat", ['/e"tc"/passwd'], None) == ['cat /e"tc"/passwd']
+
+
+def test_texts_for_strips_join_space_of_nameless_segment() -> None:
+    """A nameless segment is joined with a leading space; it is stripped."""
+    assert _texts_for("", ["/etc/passwd"], None) == ["/etc/passwd"]
+    assert _texts_for("", ["A=(...)"], ["A=(/etc/passwd)"]) == ["A=(/etc/passwd)", "A=(...)"]
+
+
+# Tests for _match_texts (the shared core behind allowed_cmds_regex and
+# blocked_cmds_regex - both lists differ only in the flags they pass in)
+
+
+def test_core_single_text_shape() -> None:
+    """A one-element text list is the plain search shape."""
+    assert _match_texts(["cat /etc/passwd"], [r"\/etc"]) == [(r"\/etc", "cat /etc/passwd")]
+    assert _match_texts(["cat /etc/passwd"], [r"^/etc"]) == []
+
+
+def test_core_two_text_shape_prefers_first_text() -> None:
+    """With two texts, the first (executed) form wins and is reported."""
+    texts = ["cat /etc/passwd", 'cat /e"tc"/passwd']
+    assert _match_texts(texts, ["cat"]) == [("cat", "cat /etc/passwd")]
+
+
+def test_core_reports_the_text_that_hit() -> None:
+    """A pattern matching only the second text reports that text."""
+    texts = ["cat /etc/passwd", 'cat /e"tc"/passwd']
+    assert _match_texts(texts, [r'/e"tc"']) == [(r'/e"tc"', 'cat /e"tc"/passwd')]
+
+
+def test_core_is_pattern_major_not_text_major() -> None:
+    """Results follow pattern order, and each pattern reports at most one hit."""
+    assert _match_texts(["ab", "ab"], ["b", "a"]) == [("b", "ab"), ("a", "ab")]
+
+
+def test_core_raw_fallback_always_uses_second_text() -> None:
+    """`raw_fallback="always"`: both texts are tried, even for a guard pattern."""
+    texts = ["find /tmp -exec rm", 'find /tmp -"exec" rm']
+    assert _match_texts(texts, [r"^find(?!.*\s-exec).*$"], raw_fallback="always") == [
+        (r"^find(?!.*\s-exec).*$", 'find /tmp -"exec" rm')
+    ]
+
+
+def test_core_raw_fallback_only_if_no_lookahead_skips_raw_for_guards() -> None:
+    """A `(?!` pattern never sees the raw form, so a quoted flag cannot fake it."""
+    texts = ["find /tmp -exec rm", 'find /tmp -"exec" rm']
+    assert _match_texts(texts, [r"^find(?!.*\s-exec).*$"], raw_fallback="only-if-no-lookahead") == []
+
+
+def test_core_raw_fallback_only_if_no_lookahead_honors_plain_patterns() -> None:
+    """A pattern with no guard still gets its raw-form fallback."""
+    texts = ["cat /etc/passwd", 'cat /e"tc"/passwd']
+    assert _match_texts(texts, [r'/e"tc"'], raw_fallback="only-if-no-lookahead") == [(r'/e"tc"', 'cat /e"tc"/passwd')]
+
+
+def test_core_opaque_guard_drops_bare_name_anchor_match() -> None:
+    """`opaque_guard` + `has_opaque`: `^true$` cannot approve a `$(...)` command."""
+    assert _match_texts(["true"], ["^true$"], opaque_guard=True, has_opaque=True) == []
+    assert _match_texts(["true"], ["^true$"], opaque_guard=True, has_opaque=False) == [("^true$", "true")]
+
+
+def test_core_opaque_guard_drops_lookahead_match() -> None:
+    """The guard also drops a line-spanning-lookahead match under `$(...)`."""
+    pattern = r"^find(?!.*\s-(exec|delete|ok)\b).*$"
+    assert _match_texts(["find . -name x"], [pattern], opaque_guard=True, has_opaque=True) == []
+
+
+def test_core_opaque_guard_off_by_default() -> None:
+    """`has_opaque` alone never suppresses a match; the guard flag is required."""
+    assert _match_texts(["true"], ["^true$"], has_opaque=True) == [("^true$", "true")]
+
+
+def test_core_opaque_guard_keeps_free_tail_patterns() -> None:
+    """A pattern that accepts arbitrary arguments survives the opaque guard."""
+    pattern = r"^echo(\s+.*)?$"
+    assert _match_texts(["echo hi"], [pattern], opaque_guard=True, has_opaque=True) == [(pattern, "echo hi")]
+
+
+def test_core_invalid_pattern_is_skipped_not_raised() -> None:
+    """A bad regex is treated as "no match"; later patterns still run."""
+    assert _match_texts(["cat /etc"], ["[invalid", r"\/etc"]) == [(r"\/etc", "cat /etc")]
+
+
+def test_core_no_texts_returns_no_matches() -> None:
+    """An empty text list can never match."""
+    assert _match_texts([], ["^cat"]) == []
+
+
+def test_core_no_patterns_returns_no_matches() -> None:
+    """An empty pattern list returns nothing."""
+    assert _match_texts(["cat /etc"], []) == []
+
+
+def test_allowed_invalid_pattern_skipped_does_not_raise() -> None:
+    """An invalid allowed regex is "no match" rather than a re.error."""
+    assert _match_allowed_patterns("cat", ["/etc/passwd"], ["[invalid"]) == []
+    assert _match_allowed_patterns("cat", ["/etc/passwd"], ["[invalid", "^cat"]) == ["^cat"]
+
+
+def test_blocked_invalid_pattern_skipped_does_not_raise() -> None:
+    """An invalid blocked regex is "no match" rather than a ValueError."""
+    assert _match_blocked_patterns("cat", ["/etc/passwd"], ["[invalid"]) == (False, None, None)
+    assert _match_blocked_patterns("cat", ["/etc/passwd"], ["[invalid", r"\/etc"])[1] == r"\/etc"
+
+
+def test_both_wrappers_share_the_core_shape() -> None:
+    """Both public wrappers are thin views over the same pattern-major core."""
+    texts = ["cat /etc/passwd", 'cat /e"tc"/passwd']
+    assert _match_texts(texts, [r"\/etc", r'/e"tc"']) == [
+        (r"\/etc", "cat /etc/passwd"),
+        (r'/e"tc"', 'cat /e"tc"/passwd'),
+    ]
+    # allowed reports every match; blocked reports only the first.
+    assert _match_allowed_patterns("cat", ['/e"tc"/passwd'], [r"\/etc", r'/e"tc"'], ["/etc/passwd"]) == [
+        r"\/etc",
+        r'/e"tc"',
+    ]
+    assert _match_blocked_patterns("cat", ['/e"tc"/passwd'], [r"\/etc", r'/e"tc"'], ["/etc/passwd"]) == (
+        True,
+        r"\/etc",
+        "cat /etc/passwd",
+    )
 
 
 # Tests for check_output_redirection
