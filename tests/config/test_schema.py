@@ -393,3 +393,76 @@ class TestMalformedRegexListCannotInvertPolicy:
         result = evaluate_bash_command("ls", {"*": "deny", "allowed_cmds_regex": ["l", "s"]})
         assert result["status"] == "allow"
         assert "l" in result["reason"]
+
+
+# ---------------------------------------------------------------------------
+# Every declared key is a key the evaluator enforces
+# ---------------------------------------------------------------------------
+
+#: Each construct the evaluator can gate, with a command that contains it.
+#: A new policy key must be added here together with a probe showing it changes
+#: a verdict; :func:`test_every_declared_key_is_enforced` fails until it is.
+#: That is the whole point - a key added to the schema and nowhere else is
+#: accepted by the config and silently changes no verdict.
+POLICY_PROBES: list[tuple[str, str]] = [
+    ("output_redirection", "ls > /tmp/f"),
+    ("input_redirection", "cat < /etc/hostname"),
+    ("background_execution", "sleep 1 &"),
+    ("command_substitution", "echo $(id)"),
+    ("process_substitution", "ls <(id)"),
+    ("subshell", "( id )"),
+    ("variable_assignment", "X=1 ls"),
+]
+
+#: Config keys that are not per-construct policies: the two regex lists, the
+#: wildcard, and ``error`` - which is resolved here but read by the hook when a
+#: command cannot be analysed at all, not by the evaluator.
+NON_POLICY_KEYS = frozenset({"allowed_cmds_regex", "blocked_cmds_regex", "wildcard", "error"})
+
+
+@pytest.mark.parametrize(("key", "probe"), POLICY_PROBES)
+def test_declared_policy_key_changes_a_verdict(key: str, probe: str) -> None:
+    """A declared policy key must be load-bearing, not merely accepted.
+
+    The probe has to be permitted by the wildcard on its own, so a flip to
+    ``deny`` can only be the key acting.
+    """
+    from lovely_bash_permissions.evaluate import evaluate_bash_command
+
+    permissive = {"*": "allow"}
+    assert evaluate_bash_command(probe, dict(permissive))["status"] == "allow", (
+        f"probe for {key!r} is not allowed by the wildcard, so it proves nothing"
+    )
+    result = evaluate_bash_command(probe, {**permissive, key: "deny"})
+    assert result["status"] == "deny", f"{key!r} did not deny {probe!r}: {result['reason']}"
+
+
+def test_every_declared_key_is_enforced() -> None:
+    """The probe table must cover every policy key the schema declares.
+
+    Without this, a key could be dropped from the table to silence the test
+    above. It also catches the reverse drift: a key the evaluator gates but the
+    schema does not accept, which would be a key nobody can set.
+    """
+    declared = set(ToolConfig.model_fields) - NON_POLICY_KEYS
+    probed = {key for key, _ in POLICY_PROBES}
+    assert probed == declared, f"policy keys and probes disagree: {probed ^ declared}"
+
+
+class TestDenyIsAbsoluteOnEveryKey:
+    """`deny` blocks regardless of what the wildcard already decided.
+
+    ``test_evaluate.TestDenyIsAbsolute`` covers the three construct keys, which
+    are the three that were the bug. These cover all seven, because the docs
+    promise absoluteness for every level-bearing key and a `deny` that only
+    applies while the verdict is still ``allow`` is inert under the default
+    ``"*"``: "ask"``.
+    """
+
+    @pytest.mark.parametrize(("key", "probe"), POLICY_PROBES)
+    def test_deny_blocks_under_both_permissive_wildcards(self, key: str, probe: str) -> None:
+        from lovely_bash_permissions.evaluate import evaluate_bash_command
+
+        for wildcard in ("ask", "allow"):
+            result = evaluate_bash_command(probe, {"*": wildcard, key: "deny"})
+            assert result["status"] == "deny", (key, wildcard, result["reason"])
