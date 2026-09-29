@@ -33,7 +33,13 @@ LABEL_EXEC_NAME = "Exec(:)"
 
 
 def with_error_prefix(message: str) -> str:
-    return f"{HOOK_LABEL_PREFIX} ERROR] {message}"
+    """Prefix a fatal error with the same label shape the hook emits.
+
+    ``HOOK_LABEL_PREFIX`` already ends in a space, so no separator is added
+    here - doing so rendered ``[♡ perms:  ERROR]`` with a doubled space, unlike
+    every label :func:`hook._hook_label` produces.
+    """
+    return f"{HOOK_LABEL_PREFIX}ERROR] {message}"
 
 
 def emit_block(reason: str) -> NoReturn:
