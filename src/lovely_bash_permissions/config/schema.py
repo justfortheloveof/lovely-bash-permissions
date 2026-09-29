@@ -33,19 +33,35 @@ class OutputRedirectionPolicy(BaseModel):
     stderr_to_stdout: PermissionLevel | None = None
 
 
+#: Keys a tool config must not carry, mapped to the key that replaced them.
+#:
+#: These are rejected outright rather than warned about, because a key that
+#: looks like it sets a policy but is read by nothing is worse than a typo: it
+#: reads as "this is configured" while the wildcard quietly decides the real
+#: outcome.  ``allow`` / ``deny`` were per-command booleans, now the
+#: ``allowed_cmds_regex`` / ``blocked_cmds_regex`` pattern lists.
+#:
+#: ``permission`` is the one that survived longest as a declared field.  It
+#: never had a reader - not :func:`get_effective_bash_config`, not the
+#: evaluator - so ``"bash": {"permission": "allow"}`` validated cleanly and
+#: then did nothing at all.  A per-tool default level is the wildcard ``*``,
+#: which is inherited and does take effect, so that is where the message points.
+_REPLACED_KEYS = {
+    "allow": "allowed_cmds_regex",
+    "deny": "blocked_cmds_regex",
+    "permission": "*",
+}
+
+
 class ToolConfig(BaseModel):
     model_config = {"extra": "allow"}
-
-    permission: PermissionLevel | None = None
 
     @model_validator(mode="after")
     def _warn_extra_fields(self) -> ToolConfig:
         for key in self.model_extra or {}:
-            if key in ("allow", "deny"):
-                raise ValueError(
-                    f"config key '{key}' is not supported - "
-                    f"use {('allowed_cmds_regex' if key == 'allow' else 'blocked_cmds_regex')} instead"
-                )
+            replacement = _REPLACED_KEYS.get(key)
+            if replacement is not None:
+                raise ValueError(f"config key '{key}' is not supported - use {replacement} instead")
             log.warning("unknown config key '%s' - unrecognized tool field or typo?", key)
         return self
 
