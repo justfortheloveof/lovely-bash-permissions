@@ -56,6 +56,11 @@ OUTPUT_REDIRECTION_KINDS: Final[tuple[str, ...]] = (
     "stdout_to_dev_null",
 )
 
-#: Config keys that are not level-bearing policies: the two pattern lists and
-#: the wildcard, which need no per-construct resolution.
-NON_POLICY_CONFIG_KEYS: Final[frozenset[str]] = frozenset({"allowed_cmds_regex", "blocked_cmds_regex", "wildcard"})
+#: Config keys that are not level-bearing policies, spelled **as they appear in a
+#: config file** - ``*``, not the ``wildcard`` field name.
+#:
+#: The wire spelling is what a ``mode="before"`` validator sees when it checks a raw
+#: dict for unknown keys, so the wire spelling is what must be declared here. The
+#: field name (``wildcard``) is only the *alias* for ``*``; every consumer in this
+#: package compares against aliases, never against field names. See D11.
+WIRE_NON_POLICY_CONFIG_KEYS: Final[frozenset[str]] = frozenset({"allowed_cmds_regex", "blocked_cmds_regex", "*"})

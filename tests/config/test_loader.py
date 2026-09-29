@@ -422,10 +422,10 @@ class TestLoadPermissionsConfig:
         assert len(warnings) >= 1
         assert any("alow" in w.lower() for w in warnings)
 
-    def test_permission_key_becomes_validation_error(
+    def test_unknown_bash_key_becomes_validation_error(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
     ) -> None:
-        """A `permission` key in a real config file surfaces as a validation error.
+        """An unreadable key in a real config file surfaces as a validation error.
 
         The loader validates the merged config, so rejecting the key at schema
         level reaches users as a named error rather than a silent no-op: the
@@ -445,7 +445,7 @@ class TestLoadPermissionsConfig:
         merged, _warnings, errors = load_permissions_config(str(temp_project[0]))
 
         assert len(errors) == 1
-        assert "config key 'permission' is not supported - use * instead" in errors[0]
+        assert "unknown bash config key 'permission'" in errors[0]
         # The raw merge is unchanged - only validation flags it.
         assert merged == {"bash": {"permission": "allow"}}
 

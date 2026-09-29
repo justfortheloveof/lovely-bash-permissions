@@ -1,12 +1,16 @@
+import re
+
 import pytest
 from pydantic import ValidationError
 
 from lovely_bash_permissions.config.schema import (
+    VALID_BASH_CONFIG_KEYS,
     OutputRedirectionPolicy,
     PermissionLevel,
     PermissionsConfig,
     ToolConfig,
 )
+from lovely_bash_permissions.policy import NON_CONSTRUCT_KEYS, WIRE_NON_POLICY_CONFIG_KEYS
 
 
 def test_valid_config() -> None:
@@ -187,12 +191,17 @@ def test_tool_config_error_invalid_rejected() -> None:
         assert "allow" in errors[0]["msg"]
 
 
-def test_unrecognized_tool_field_warns(caplog: pytest.LogCaptureFixture) -> None:
+def test_unrecognized_tool_field_rejected() -> None:
+    """A typo *inside* a bash block is a hard error, not a warning.
+
+    The root config stays permissive (a Pi mode legitimately carries
+    read/write/edit blocks Python never sees), but a bash block is validated
+    against the full declared vocabulary: a misspelled key there reads as
+    "this is configured" while the wildcard quietly decides the outcome.
+    """
     config = {"bash": {"blocked_path_regex": ["^/tmp/"]}}  # typo: missing s
-    result = PermissionsConfig.model_validate(config)
-    assert result is not None
-    assert len(caplog.record_tuples) == 1
-    assert "unknown config key 'blocked_path_regex'" in caplog.text
+    with pytest.raises(ValidationError, match="unknown bash config key 'blocked_path_regex'"):
+        PermissionsConfig.model_validate(config)
 
 
 def test_tool_config_output_redirection_string() -> None:
@@ -233,44 +242,41 @@ def test_tool_config_output_redirection_dict() -> None:
 
 
 def test_allow_deny_shorthand_rejected() -> None:
-    """The allow/deny shortcut fields are rejected as config errors."""
-    with pytest.raises(ValueError, match="config key 'allow' is not supported.*allowed_cmds_regex"):
+    """The allow/deny shortcuts are rejected as unknown keys.
+
+    They were per-command booleans; the pattern lists replaced them. Nothing
+    enumerates which replacement a given key had any more - one rule over the
+    declared vocabulary covers every key the product cannot read, present and
+    future alike, where a per-key table grew an entry per reported mistake.
+    """
+    with pytest.raises(ValueError, match="unknown bash config key 'allow'"):
         PermissionsConfig.model_validate({"bash": {"allow": ["git"]}})
-    with pytest.raises(ValueError, match="config key 'deny' is not supported.*blocked_cmds_regex"):
+    with pytest.raises(ValueError, match="unknown bash config key 'deny'"):
         PermissionsConfig.model_validate({"bash": {"deny": ["rm"]}})
 
 
-def test_permission_key_rejected() -> None:
-    """`permission` is rejected: it is validated but never read.
+@pytest.mark.parametrize("level", ["allow", "deny", "ask", "bogus", None, True])
+def test_permission_key_rejected_at_every_level(level: object) -> None:
+    """`permission` is refused whatever its value: the rejection is about the key.
 
-    It looks like it sets the tool's default level, but nothing consults it:
-    `{"bash": {"permission": "allow"}}` must not validate, because a
-    ``"bash"`` block whose wildcard is absent has nothing that could set a
-    per-tool default.  A key that reads as "configured" while
-    changing nothing is worse than an unknown key, which at least warns, so it
-    joins `allow` / `deny` in the rejection list.  The message points at `*`,
-    the wildcard that does set a per-tool default and is inherited.
+    It looks like it sets the tool's default level, but nothing consults it -
+    `{"bash": {"permission": "allow"}}` must not validate, because a ``bash``
+    block whose wildcard is absent has nothing that could set a per-tool
+    default. The message lists the real keys, ``*`` among them.
     """
-    with pytest.raises(ValueError, match=r"config key 'permission' is not supported - use \* instead"):
-        PermissionsConfig.model_validate({"bash": {"permission": "allow"}})
+    with pytest.raises(ValueError, match="unknown bash config key 'permission'"):
+        PermissionsConfig.model_validate({"bash": {"permission": level}})
 
 
-def test_permission_key_rejected_at_every_level() -> None:
-    """The rejection is about the key, not the value - any level is refused."""
-    for level in ("allow", "deny", "ask", "bogus", None, True):
-        with pytest.raises(ValueError, match="config key 'permission' is not supported"):
-            PermissionsConfig.model_validate({"bash": {"permission": level}})
+def test_star_key_is_not_rejected() -> None:
+    """Guard against over-rejection: `*` is the level-setting key and still works.
 
-
-def test_permission_key_rejection_precedes_unknown_key_warning(caplog: pytest.LogCaptureFixture) -> None:
-    """`permission` raises; it must not fall through to the unknown-key warning path."""
-    with pytest.raises(ValueError, match="config key 'permission' is not supported"):
-        PermissionsConfig.model_validate({"bash": {"permission": "allow"}})
-    assert not [r for r in caplog.record_tuples if "unknown config key 'permission'" in r[2]]
-
-
-def test_wildcard_is_not_rejected() -> None:
-    """Guard against over-rejection: `*` is the documented replacement and still works."""
+    Regression guard for the namespace split. The unknown-key check runs on raw
+    dict keys (the wire spelling `*`) while the model field is `wildcard`; a
+    vocabulary that mixed the two rejects every bash block that sets a level,
+    which is a total failure of the primary feature and invisible on review
+    because the vocabulary looks right where it is read.
+    """
     config = PermissionsConfig.model_validate({"bash": {"*": "allow"}})
     assert config.bash is not None
     assert config.bash.wildcard == PermissionLevel.allow
@@ -304,12 +310,17 @@ def test_typo_key_logs_warning(caplog: pytest.LogCaptureFixture) -> None:
     assert any("unknown config key 'blocked_path_regex'" in m for m in warnings)
 
 
-def test_renamed_blocked_key_ignored_with_warning(caplog: pytest.LogCaptureFixture) -> None:
-    """The old `blocked_paths_regex` key is an ordinary unknown key: warned, not read."""
-    config = ToolConfig.model_validate({"blocked_paths_regex": ["^/etc"]})
-    assert config.blocked_cmds_regex == []
-    warnings = [r[2] for r in caplog.record_tuples]
-    assert any("unknown config key 'blocked_paths_regex'" in m for m in warnings)
+def test_renamed_blocked_key_rejected() -> None:
+    """`blocked_paths_regex` is a bash-block key, so it is now refused.
+
+    The assertion inverts deliberately. This used to *pass* on the exact
+    fail-open the strict vocabulary exists to close: a key that looks like it
+    blocks paths was warned about, ignored, and left `blocked_cmds_regex` empty
+    - so a shell was configured to refuse `/etc` and permitted it. (It remains
+    a valid key on *non-bash* tools, which this package never validates.)
+    """
+    with pytest.raises(ValidationError, match="unknown bash config key 'blocked_paths_regex'"):
+        ToolConfig.model_validate({"blocked_paths_regex": ["^/etc"]})
 
 
 def test_known_tool_bash_accepted() -> None:
@@ -415,9 +426,12 @@ POLICY_PROBES: list[tuple[str, str]] = [
 ]
 
 #: Config keys that are not per-construct policies: the two regex lists, the
-#: wildcard, and ``error`` - which is resolved here but read by the hook when a
-#: command cannot be analysed at all, not by the evaluator.
-NON_POLICY_KEYS = frozenset({"allowed_cmds_regex", "blocked_cmds_regex", "wildcard", "error"})
+#: wildcard, and ``error`` - which is resolved here but read when a command
+#: cannot be analysed at all, not by the evaluator. Imported rather than
+#: restated: a third hand-written copy of the key list is the exact drift this
+#: module exists to prevent, and a stale copy would silently stop covering a
+#: newly declared key.
+NON_POLICY_KEYS = set(WIRE_NON_POLICY_CONFIG_KEYS) | set(NON_CONSTRUCT_KEYS)
 
 
 @pytest.mark.parametrize(("key", "probe"), POLICY_PROBES)
@@ -443,8 +457,11 @@ def test_every_declared_key_is_enforced() -> None:
     Without this, a key could be dropped from the table to silence the test
     above. It also catches the reverse drift: a key the evaluator gates but the
     schema does not accept, which would be a key nobody can set.
+
+    Compared by alias for the same reason the schema's own vocabulary check is:
+    the field is ``wildcard``, the config key is ``*``.
     """
-    declared = set(ToolConfig.model_fields) - NON_POLICY_KEYS
+    declared = {f.alias or name for name, f in ToolConfig.model_fields.items()} - NON_POLICY_KEYS
     probed = {key for key, _ in POLICY_PROBES}
     assert probed == declared, f"policy keys and probes disagree: {probed ^ declared}"
 
@@ -506,3 +523,93 @@ class TestOutputRedirectionKindsMustExist:
             )["status"]
             == "deny"
         )
+
+
+# ---------------------------------------------------------------------------
+# The unknown-key message and the vocabulary check that backs it
+# ---------------------------------------------------------------------------
+
+
+def _unknown_key_message() -> str:
+    """The validator's message for a block whose only unknown key is ``nope``."""
+    with pytest.raises(ValidationError) as exc:
+        PermissionsConfig.model_validate({"bash": {"nope": 1}})
+    return exc.value.errors()[0]["msg"]
+
+
+class TestUnknownKeyMessage:
+    """The message is a contract, so it is pinned from both ends.
+
+    A message that lists keys the validator would then reject sends the reader
+    to fix a config that is already correct; one that omits the key it accepts
+    (``*``) sends them to look for a ``wildcard`` key that does not exist.
+    """
+
+    def test_names_the_offending_key(self) -> None:
+        assert "unknown bash config key 'nope'" in _unknown_key_message()
+
+    def test_lists_star_and_never_the_field_name(self) -> None:
+        message = _unknown_key_message()
+        assert "'*'" in message
+        assert "wildcard" not in message
+
+    @pytest.mark.parametrize("key", sorted(VALID_BASH_CONFIG_KEYS))
+    def test_every_key_it_advertises_is_accepted(self, key: str) -> None:
+        """Parametrised over the message's own contents, so it cannot drift.
+
+        Deriving the parameter list from what the message actually prints would
+        be stronger still, but that couples the test to its own subject; the
+        set is the one the message is built from, so this fails if the two
+        ever diverge.
+        """
+        value: object = "deny" if key not in ("allowed_cmds_regex", "blocked_cmds_regex") else ["^ls"]
+        PermissionsConfig.model_validate({"bash": {key: value}})
+
+    def test_the_set_it_advertises_is_the_set_it_accepts(self) -> None:
+        """The message is built from the vocabulary, so the two cannot disagree."""
+        advertised = set(re.findall(r"'([^']+)'", _unknown_key_message().split("valid keys are ")[1]))
+        assert advertised == VALID_BASH_CONFIG_KEYS
+
+
+class TestVocabularyCheckComparesAliases:
+    """``_fields_match_the_policy_vocabulary`` must survive the namespace split.
+
+    It compares declared fields against :mod:`lovely_bash_permissions.policy`.
+    If it compares *field names* the field is ``wildcard`` while the vocabulary
+    holds ``*``, so the check is vacuously satisfied by nothing and - worse -
+    a real drift would be reported as a disagreement on two phantom keys. These
+    pin the comparison, not the message.
+    """
+
+    def test_declared_aliases_equal_the_wire_vocabulary(self) -> None:
+        declared = {f.alias or name for name, f in ToolConfig.model_fields.items()}
+        assert declared == set(VALID_BASH_CONFIG_KEYS)
+
+    def test_field_names_alone_would_disagree(self) -> None:
+        """The reason the alias comparison exists, asserted rather than assumed."""
+        assert set(ToolConfig.model_fields) != set(VALID_BASH_CONFIG_KEYS)
+        assert "wildcard" in ToolConfig.model_fields
+        assert "wildcard" not in VALID_BASH_CONFIG_KEYS
+
+    def test_a_renamed_field_fails_the_check(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        class Renamed(ToolConfig):
+            pass
+
+        # Declare a field under a name the vocabulary does not hold, and one it
+        # holds under a name the schema does not, and require the check to fire.
+        Renamed.__annotations__ = dict(ToolConfig.__annotations__)
+        original = ToolConfig._fields_match_the_policy_vocabulary
+        assert callable(original)
+        fields = dict(ToolConfig.model_fields)
+        fields["nonsense"] = fields.pop("subshell")
+        monkeypatch.setattr(type(fields["nonsense"]), "alias", "nonsense", raising=False)
+        monkeypatch.setattr(ToolConfig, "model_fields", fields)
+        with pytest.raises(ValidationError, match="policy vocabulary disagree"):
+            ToolConfig.model_validate({"*": "ask"})
+
+    def test_an_extra_unread_field_fails_the_check(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        fields = dict(ToolConfig.model_fields)
+        fields["dead"] = fields["subshell"]
+        monkeypatch.setattr(ToolConfig, "model_fields", fields)
+        with pytest.raises(ValidationError, match="declared but unread: \\['dead'\\]"):
+            ToolConfig.model_validate({"*": "ask"})

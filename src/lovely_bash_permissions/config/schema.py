@@ -6,7 +6,12 @@ from enum import Enum
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
-from ..policy import NON_CONSTRUCT_KEYS, NON_POLICY_CONFIG_KEYS, OUTPUT_REDIRECTION_KINDS, POLICY_KEYS
+from ..policy import (
+    NON_CONSTRUCT_KEYS,
+    OUTPUT_REDIRECTION_KINDS,
+    POLICY_KEYS,
+    WIRE_NON_POLICY_CONFIG_KEYS,
+)
 
 log = logging.getLogger(__name__)
 
@@ -66,37 +71,41 @@ class OutputRedirectionPolicy(BaseModel):
         return data
 
 
-#: Keys a tool config must not carry, mapped to the key that replaced them.
-#:
-#: These are rejected outright rather than warned about, because a key that
-#: looks like it sets a policy but is read by nothing is worse than a typo: it
-#: reads as "this is configured" while the wildcard quietly decides the real
-#: outcome.  ``allow`` / ``deny`` were per-command booleans, now the
-#: ``allowed_cmds_regex`` / ``blocked_cmds_regex`` pattern lists.
-#:
-#: ``permission`` is the one that survived longest as a declared field.  It
-#: never had a reader - not :func:`get_effective_bash_config`, not the
-#: evaluator - so ``"bash": {"permission": "allow"}`` validated cleanly and
-#: then did nothing at all.  A per-tool default level is the wildcard ``*``,
-#: which is inherited and does take effect, so that is where the message points.
-_REPLACED_KEYS = {
-    "allow": "allowed_cmds_regex",
-    "deny": "blocked_cmds_regex",
-    "permission": "*",
-}
+#: Every key a ``bash`` block may legally carry, spelled as it appears in a config
+#: file.  Derived from the one declared vocabulary rather than restated, so a key
+#: added to :mod:`lovely_bash_permissions.policy` is accepted here automatically
+#: and a key the evaluator never reads cannot slip in.
+VALID_BASH_CONFIG_KEYS: frozenset[str] = frozenset(POLICY_KEYS) | set(NON_CONSTRUCT_KEYS) | WIRE_NON_POLICY_CONFIG_KEYS
 
 
 class ToolConfig(BaseModel):
-    model_config = {"extra": "allow"}
+    # A bash block is strict: a key the product cannot read must not validate.
+    # `permission`, `allow`/`deny` and `blocked_paths_regex` all used to be
+    # accepted here and change no verdict - a key that reads as "configured"
+    # while governing nothing is worse than a typo, because the wildcard quietly
+    # decides the real outcome. The root PermissionsConfig stays permissive
+    # instead: a Pi mode legitimately carries read/write/edit blocks that Python
+    # never sees, and this package is not the only writer of that file.
+    model_config = {"extra": "forbid"}
 
-    @model_validator(mode="after")
-    def _warn_extra_fields(self) -> ToolConfig:
-        for key in self.model_extra or {}:
-            replacement = _REPLACED_KEYS.get(key)
-            if replacement is not None:
-                raise ValueError(f"config key '{key}' is not supported - use {replacement} instead")
-            log.warning("unknown config key '%s' - unrecognized tool field or typo?", key)
-        return self
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_unknown_keys(cls, data: object) -> object:
+        """Refuse any key outside the declared vocabulary.
+
+        One rule over a declared set, rather than a table of keys we happen to
+        have heard of being mis-spelled: the table grows a new entry every time
+        someone guesses a name, and every unlisted guess still validates.
+        """
+        if not isinstance(data, dict):
+            return data
+        unknown = sorted(str(key) for key in set(data) - VALID_BASH_CONFIG_KEYS)
+        if unknown:
+            valid = ", ".join(f"'{key}'" for key in sorted(VALID_BASH_CONFIG_KEYS))
+            raise ValueError(
+                f"unknown bash config key {', '.join(repr(key) for key in unknown)}; valid keys are {valid}"
+            )
+        return data
 
     @model_validator(mode="after")
     def _fields_match_the_policy_vocabulary(self) -> ToolConfig:
@@ -106,9 +115,15 @@ class ToolConfig(BaseModel):
         documented as if it did something, and it changes no verdict. The
         vocabulary lives in :mod:`lovely_bash_permissions.policy` because the
         evaluator and the effective-config builder both resolve from it.
+
+        Compared by **alias**, not by field name, so this agrees with the wire
+        set :data:`VALID_BASH_CONFIG_KEYS` is built from. The two namespaces
+        differ in exactly one place - the field is ``wildcard``, the config key
+        is ``*`` - and comparing field names here would make the check disagree
+        with the validator that enforces the same vocabulary. See D11.
         """
-        expected = set(POLICY_KEYS) | set(NON_CONSTRUCT_KEYS) | NON_POLICY_CONFIG_KEYS
-        declared = set(type(self).model_fields)
+        expected = set(POLICY_KEYS) | set(NON_CONSTRUCT_KEYS) | WIRE_NON_POLICY_CONFIG_KEYS
+        declared = {field.alias or name for name, field in type(self).model_fields.items()}
         if declared != expected:
             undeclared = sorted(declared - expected)
             missing = sorted(expected - declared)
