@@ -253,3 +253,62 @@ def _site_packages(executable: str) -> Iterator[str]:
     path = result.stdout.strip()
     if path:
         yield path
+
+
+class TestTheClientGoesAway:
+    """A client that disappears mid-session is a normal end, not a crash.
+
+    This is not hypothetical: the client kills the child on a request timeout
+    and again on `session_shutdown`, and either can land while a response is
+    being written. The write then fails with EPIPE, and an unhandled one ends
+    the process with a traceback on stderr and a non-zero exit - which the
+    client is holding a 10 s timeout on, and which is the one moment a traceback
+    would be reported as a server fault.
+
+    Two things have to be true, and the second is the easy one to forget: the
+    `BrokenPipeError` is caught, *and* the interpreter's exit-time flush of
+    `sys.stdout` is silenced, or it prints "Exception ignored" and a non-zero
+    exit after `serve` has already returned.
+    """
+
+    def _server(self) -> subprocess.Popen[str]:
+        return subprocess.Popen(
+            COMMAND,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+
+    def test_a_closed_client_does_not_produce_a_traceback(self) -> None:
+        process = self._server()
+        assert process.stdin is not None and process.stdout is not None
+        process.stdin.write(_request(op="evaluate", command="ls", config={"*": "ask"}, top_level="ask") + "\n")
+        process.stdin.flush()
+        first = process.stdout.readline()
+        assert json.loads(first)["action"] == "ask"
+
+        # Close the read end. The child's next write now has nowhere to go.
+        process.stdout.close()
+        try:
+            process.stdin.write(_request(op="evaluate", command="ls", config={"*": "deny"}, top_level="deny") + "\n")
+            process.stdin.flush()
+        except (BrokenPipeError, OSError):
+            pass  # the write itself failing is the same condition
+
+        process.stdin.close()
+        stderr = process.stderr.read() if process.stderr else ""
+        returncode = process.wait(timeout=30)
+
+        assert "Traceback" not in stderr, stderr
+        assert "Exception ignored" not in stderr, stderr
+        assert "BrokenPipeError" not in stderr, stderr
+        assert returncode == 0, f"exit {returncode}\n{stderr}"
+
+    def test_a_client_that_closes_stdin_ends_cleanly(self) -> None:
+        # The ordinary shutdown: EOF on stdin, which is not an error at all.
+        process = self._server()
+        assert process.stdin is not None
+        process.stdin.close()
+        assert process.wait(timeout=30) == 0

@@ -3763,3 +3763,90 @@ class TestReasonsList:
         """
         with pytest.raises(ShfmtError):
             evaluate_bash_command("'unterminated", make_config())
+
+
+class TestReasonStringsAreReadByHumans:
+    """A reason is rendered into a prompt a person reads, and several of these
+    were not readable.
+
+    All three came from one command the user ran, and all three were in the
+    message rather than in the verdict - the verdict was `ask` and correct, so
+    nothing was functionally wrong and every one of them shipped.
+    """
+
+    def _reasons(self, command: str, config: dict[str, Any]) -> list[str]:
+        from lovely_bash_permissions.evaluate import evaluate_bash_command
+
+        return list(evaluate_bash_command(command, config)["reasons"])
+
+    def test_a_pseudo_command_name_is_never_rendered(self) -> None:
+        # `export FOO=bar echo $(echo hi)` produces a segment whose `command` is
+        # "" by design - a bare assignment or declaration operand has no
+        # executable name. Rendering it gave:
+        #   "" , "export" commands do not match allowed patterns
+        # which is both meaningless and a double mention: that same segment
+        # already has its own, better reason below.
+        reasons = self._reasons(
+            "export FOO=bar echo $(echo hi) 2> /dev/null",
+            {"*": "ask", "allowed_cmds_regex": ["^echo(\\s+.*)?$"], "variable_assignment": "ask"},
+        )
+        rendered = " ".join(reasons)
+        assert '""' not in rendered
+        assert not any(r.strip().startswith('"",') for r in reasons)
+
+    def test_a_bare_assignment_is_reported_once_and_by_its_own_reason(self) -> None:
+        reasons = self._reasons(
+            "export FOO=bar echo $(echo hi) 2> /dev/null",
+            {"*": "ask", "allowed_cmds_regex": ["^echo(\\s+.*)?$"], "variable_assignment": "ask"},
+        )
+        # "does not match" (singular), matching the one-command wording.
+        mismatches = [r for r in reasons if "not match allowed patterns" in r]
+        assert len(mismatches) == 1
+        assert mismatches[0] == '"export" command does not match allowed patterns'
+
+    def test_the_assignment_reason_names_only_assignments(self) -> None:
+        # `export FOO=bar echo $(echo hi)` has ONE assignment and two ordinary
+        # operands. The reason said all three were variable assignments, which
+        # is how a user ends up looking for a `variable_assignment` rule about
+        # `echo`.
+        reason = self._reasons("export FOO=bar echo $(echo hi)", {"*": "ask", "variable_assignment": "ask"})[0]
+        assert reason == "variable assignment requires approval: ['FOO=bar']"
+
+    def test_an_array_assignment_still_counts_as_one(self) -> None:
+        # `B=(c)` is an assignment with an array value, and `-a` is a flag. The
+        # prefix test has to see through the value without eating the flag.
+        reason = self._reasons("declare -a B=(c)", {"*": "allow", "variable_assignment": "deny"})[0]
+        assert reason == "variable assignment denied: ['B=(c)']"
+
+    def test_several_assignments_are_all_named(self) -> None:
+        reason = self._reasons("x=1 y=2", {"*": "allow", "variable_assignment": "deny"})[0]
+        assert reason == "variable assignment denied: ['x=1', 'y=2']"
+
+    def test_an_operand_that_only_looks_like_one_is_fallible_not_wrong(self) -> None:
+        # Nothing here is an assignment, so the full list is shown rather than
+        # an empty one. The `variable_assignment` policy still gates the
+        # construct, which is what `export A=1 B` needs.
+        reason = self._reasons("declare -a B", {"*": "allow", "variable_assignment": "deny"})[0]
+        assert reason == "variable assignment denied: ['-a', 'B']"
+
+    def test_a_redirection_only_segment_says_so(self) -> None:
+        # There is no command name for a name-based allow-list to match, and a
+        # reason saying "does not match allowed patterns" implies a pattern
+        # could. The consequence is the actionable part.
+        reasons = self._reasons(
+            "> /etc/x && cat f", {"*": "ask", "allowed_cmds_regex": ["^cat(\\s|$)"], "output_redirection": "deny"}
+        )
+        assert any('a redirection to "/etc/x" has no command name' in r for r in reasons)
+
+    def test_the_wildcard_form_names_the_policy_that_decided_it(self) -> None:
+        # Not reasons[0]: the redirection policy speaks first, and it is a
+        # separate finding from the segment having no name to judge.
+        reasons = self._reasons("> f", {"*": "deny"})
+        assert 'a redirection to "f" produced no command; wildcard policy is deny' in reasons
+
+    def test_an_ordinary_command_is_unaffected(self) -> None:
+        # The regression guard: nothing above should have leaked into the
+        # common case, which is a real command matching a pattern.
+        assert self._reasons("ls -la", {"*": "ask", "allowed_cmds_regex": ["^ls(\\s|$)"]}) == [
+            "command matches allowed pattern: ^ls(\\s|$)"
+        ]

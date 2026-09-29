@@ -529,10 +529,19 @@ class TestDevinCliCliTestNodeCoverage(_NodeCoverageBase):
         # Half 1 - the keyword is its own command segment, so exactly two segments are
         # reported and the first is the "" (variable-assignment) one. Folding the operands
         # back into export's arguments would collapse this to a single '"export"' entry.
-        assert '"", "export" commands do not match allowed patterns' in label
-        # Half 2 - the operands are attributed to the variable-assignment segment (both the
-        # NAME=value word and the bare word), which is what the policy keys on.
-        assert _in_label("variable assignment requires approval: ['FOO=bar', 'x']") in label
+        assert '"export" command does not match allowed patterns' in label
+        # Half 2 - the segment is still attributed to variable_assignment and still
+        # gated by it, which is what "which is what the policy keys on" means. What
+        # changed is only which operands the *reason* names: `x` is a bare word being
+        # exported, not an assignment, and listing it as one sent the user looking for
+        # a `variable_assignment` rule about `x`.
+        assert _in_label("variable assignment requires approval: ['FOO=bar']") in label
+        # The gate is unchanged, which is the part that matters and the part a
+        # narrowed message could have broken: narrowing what is *named* must not
+        # narrow what is *governed*.
+        response = json.loads(result.stdout)
+        command = str(response["hookSpecificOutput"]["updatedInput"]["command"])
+        assert "REQUIRES-USER-APPROVAL" in command or "auto-rejected" in command
         # the operand is an assignment, not a command of its own
         assert '"FOO=bar"' not in label
 
@@ -542,7 +551,11 @@ class TestDevinCliCliTestNodeCoverage(_NodeCoverageBase):
         result = self._test("export FOO=bar", tmp_project, global_dir)
         label = self._label(result)
         assert _in_label("variable assignment requires approval: ['FOO=bar']") in label
-        assert '"", "export" commands do not match allowed patterns' in label
+        assert '"export" command does not match allowed patterns' in label
+        # The pseudo-command's empty name is never rendered. It carried no
+        # information and the assignment reason above already explains that
+        # segment, so naming it twice told the user nothing.
+        assert '""' not in label
         assert "no parseable segments" not in label
 
     def test_declclause_export_denied_by_variable_assignment_policy(self, tmp_project: Path, tmp_path: Path) -> None:
@@ -581,7 +594,7 @@ class TestDevinCliCliTestNodeCoverage(_NodeCoverageBase):
         # `export FOO=$(cat x)` yields three segments: ("", ["FOO=$(...)"]),
         # ("export", []) and ("cat", ["x"]).  Asserting only `"cat" in label`
         # would not notice the split being undone.
-        assert '"", "export", "cat" commands do not match allowed patterns' in label
+        assert '"export", "cat" commands do not match allowed patterns' in label
         assert _in_label("variable assignment requires approval: ['FOO=$(...)']") in label
 
     def test_if_then_and_cond_segments(self, tmp_project: Path, tmp_path: Path) -> None:

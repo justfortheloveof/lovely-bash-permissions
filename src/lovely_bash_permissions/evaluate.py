@@ -31,6 +31,17 @@ from .segments import Segment, _segments_from_ast
 #: body as more than a plain escaped literal - i.e. not a bare-name anchor.
 _BARE_NAME_META = re.compile(r"(?<!\\)[()\[\]{}.*+?|^$]|\\(?!\\)")
 
+#: The *start* of a shell assignment: an identifier, optionally subscripted and
+#: optionally ``+=``, then ``=``. Used to decide which operands of a
+#: pseudo-command are assignments, so that ``export FOO=bar echo $(echo hi)``
+#: names ``FOO=bar`` and not the two ordinary words after it.
+#:
+#: Matched with ``.match``, not ``.fullmatch``: this is a prefix test. The value
+#: is arbitrary - ``FOO=bar``, ``B=(c)``, ``X=$(ls)`` - so requiring the whole
+#: operand to be consumed would match nothing at all and quietly leave the
+#: original behaviour in place.
+_ASSIGNMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?\+?=")
+
 
 # ---------------------------------------------------------------------------
 # Shared per-evaluation state
@@ -663,20 +674,29 @@ def _evaluate_one_segment(
 
     # Handle standalone variable assignments (no command name, only assignments)
     if cmd_name == "" and args:
+        # A pseudo-command's `arguments` are the whole operand list, and only
+        # the `NAME=value` entries are assignments. For `export FOO=bar echo
+        # $(echo hi)` that is one assignment and two ordinary operands, so
+        # naming all three told the user `echo` and `$(...)` were variable
+        # assignments. They are the words being exported, not assignments.
+        # Filtered only for the message: the policy still gates the whole
+        # construct, which is what `export A=1 B` needs.
+        assignments = [a for a in args if _ASSIGNMENT_RE.match(a)]
+        shown = assignments or args
         if variable_assignment_policy == "allow":
             result["allowed"] = True
             # If variable_assignment is explicitly "allow", don't override with wildcard policy
             if not allowed_patterns:
                 verdict.status = "allow"
-                verdict.reasons.append(f"variable assignment allowed: {args}")
+                verdict.reasons.append(f"variable assignment allowed: {shown}")
         elif variable_assignment_policy == "deny":
             result["allowed"] = False
             verdict.status = "deny"
-            verdict.reasons.append(f"variable assignment denied: {args}")
+            verdict.reasons.append(f"variable assignment denied: {shown}")
         else:  # ask (default)
             result["allowed"] = False
             verdict.status = "ask"
-            verdict.reasons.append(f"variable assignment requires approval: {args}")
+            verdict.reasons.append(f"variable assignment requires approval: {shown}")
     elif allowed_patterns:
         # Check allowed patterns against command name.
         # If arguments contain real values (not "$(...)" placeholders),
@@ -754,7 +774,12 @@ def _apply_redirection_policies(
 
 
 def _apply_wildcard_resolution(
-    segment_results: list[SegmentResult], verdict: _Verdict, *, wildcard: str, allowed_patterns: list[str]
+    segment_results: list[SegmentResult],
+    verdict: _Verdict,
+    *,
+    wildcard: str,
+    allowed_patterns: list[str],
+    segments: list[Segment],
 ) -> None:
     """Resolve segments no allow-list approved to the wildcard policy.
 
@@ -763,18 +788,54 @@ def _apply_wildcard_resolution(
     """
     if not verdict.any_segment_not_allowed:
         return
-    non_matching = [seg["command"] for seg in segment_results if not seg.get("allowed", True)]
-    if non_matching:
-        names = [f'"{name}"' for name in non_matching]
+    non_matching = [seg for seg in segment_results if not seg.get("allowed", True)]
+
+    # A pseudo-command carries an empty name by design - a bare assignment, a
+    # declaration operand, a redirection-only statement - and rendering that name
+    # produced `"" , "export" commands do not match allowed patterns` in a
+    # message a user reads. Two kinds, and they need different handling:
+    #
+    # - **with arguments** (a bare assignment): ``_evaluate_one_segment`` has
+    #   already given it a specific and better reason -
+    #   ``variable assignment requires approval: [...]`` - in every branch of its
+    #   policy. Naming it again here is a second, meaningless mention.
+    # - **without arguments** (redirection only): no reason of its own exists,
+    #   so it has to be described. It is named by what it does, because a
+    #   command allow-list genuinely cannot govern it and saying "does not match
+    #   allowed patterns" implies a pattern could.
+    named = [seg["command"] for seg in non_matching if seg["command"]]
+    unnamed = [seg for seg in non_matching if not seg["command"] and not seg["arguments"]]
+    if named:
+        names = [f'"{name}"' for name in named]
         if allowed_patterns:
-            if len(non_matching) == 1:
+            if len(named) == 1:
                 verdict.reasons.append(f"{names[0]} command does not match allowed patterns")
             else:
                 verdict.reasons.append(f"{', '.join(names)} commands do not match allowed patterns")
-        elif len(non_matching) == 1:
+        elif len(named) == 1:
             verdict.reasons.append(f"{names[0]} command is not allowlisted; wildcard policy is {wildcard}")
         else:
             verdict.reasons.append(f"{', '.join(names)} commands are not allowlisted; wildcard policy is {wildcard}")
+    if unnamed:
+        # Redirections live on the parsed segment, not on the result dict, so
+        # the two are read together by index. `SegmentResult` deliberately does
+        # not carry them: adding a key to the public `segments` output would
+        # change every consumer's shape and the golden fingerprint with it.
+        targets = sorted(
+            {
+                str(redir.get("Target"))
+                for result in unnamed
+                for redir in segments[result["index"]].get("redirections", [])
+                if redir.get("Target")
+            }
+        )
+        shown = ", ".join(f'"{target}"' for target in targets) if targets else "an unnamed command"
+        if allowed_patterns:
+            verdict.reasons.append(
+                f"a redirection to {shown} has no command name, so a command allow-list cannot match it"
+            )
+        else:
+            verdict.reasons.append(f"a redirection to {shown} produced no command; wildcard policy is {wildcard}")
     if verdict.status == "allow":
         verdict.status = wildcard
 
@@ -1012,7 +1073,9 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     # Redirection policy reads the segments, which already cover nested redirections.
     _apply_redirection_policies(segments, rules, parsed.raw, verdict)
 
-    _apply_wildcard_resolution(segment_results, verdict, wildcard=wildcard, allowed_patterns=allowed_patterns)
+    _apply_wildcard_resolution(
+        segment_results, verdict, wildcard=wildcard, allowed_patterns=allowed_patterns, segments=segments
+    )
 
     _apply_substitution_policies(parsed, rules, flags, blocked_patterns, verdict)
 

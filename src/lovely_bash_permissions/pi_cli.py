@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from typing import Any, NoReturn
 
@@ -285,9 +286,38 @@ def serve(source: Any = None, sink: Any = None) -> int:  # noqa: ANN401 - any re
                         "valid": False,
                         "error": f"internal error: {type(exc).__name__}: {exc}",
                     }
-        out.write(json.dumps(response, ensure_ascii=False) + "\n")
-        out.flush()
+        try:
+            out.write(json.dumps(response, ensure_ascii=False) + "\n")
+            out.flush()
+        except BrokenPipeError:
+            # The client went away mid-session - it timed out, or the user quit.
+            # That is a normal end, not a crash: exiting quietly here matters
+            # because the client is holding a 10 s timeout and a traceback on
+            # stderr at this exact moment is the one thing it would report as a
+            # server fault. Note that `flush` can raise on a *later* write, so
+            # the interpreter's own shutdown flush has to be silenced too -
+            # otherwise it prints "Exception ignored" and an error code after
+            # this returns.
+            _silence_interpreter_flush()
+            return EXIT_VERDICT
     return EXIT_VERDICT
+
+
+def _silence_interpreter_flush() -> None:
+    """Point stdout at devnull so the interpreter's exit-time flush is quiet.
+
+    Python flushes ``sys.stdout`` during shutdown even after the stream has
+    failed, and prints ``BrokenPipeError ... Exception ignored in: <_io...>``
+    plus a non-zero exit. Redirecting the real stdout to ``os.devnull`` is the
+    documented way to avoid it; ``sys.stdout`` is a separate wrapper object, so
+    it is reassigned too.
+    """
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+    except (OSError, ValueError):  # pragma: no cover - a stdout with no fileno
+        pass
+    sys.stdout = open(os.devnull, "w")  # noqa: SIM115 - must live for the process
 
 
 # ---------------------------------------------------------------------------
