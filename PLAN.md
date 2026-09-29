@@ -435,6 +435,11 @@ Keys this subsumes: `allow`, `deny`, `permission`, `blocked_paths_regex`.
 
 ### 4.2 Tests to rewrite
 
+> **Superseded in part by §13.2.** The list below is nearly complete: it misses
+> `test_unrecognized_tool_field_warns`, a bash-block typo that warned and is now
+> a hard error.
+
+
 | Test | Why |
 | --- | --- |
 | `tests/config/test_schema.py:235` `test_allow_deny_shorthand_rejected` | Now the generic unknown-key error. |
@@ -626,6 +631,12 @@ The richer shape is for the Pi protocol only. The Devin half's contract is uncha
 and does not rewrite commands, so none of that transfers.
 
 ### 5.3 `evaluate.py` - expose the reason list
+
+> **Superseded in part by §13.1.** This section's four-path table misses a
+> fifth return path, `_empty_segment_result`, which returns before
+> `_finalize_reasons` is reached. It is implemented as specified *and* extended
+> to that path; the corpus numbers below are pre-fix.
+
 
 `_finalize_reason` already builds a deduped list before joining on `"; "`. Return it:
 
@@ -864,6 +875,11 @@ wants the merged result, the extension's `/lovely-permissions-view` (8.9) is whe
 comes from - that stays in TS per D9.
 
 ### 6.4b `--mode` - because a Pi config file is not a bash block
+
+> **Superseded in part by §13.3 and §13.4.** The example command in rule 1 does
+> not parse as written, and the section does not say how a mode-wrapped file is
+> told apart from a bare block. Both are specified in the implementation record.
+
 
 **The single most useful thing a developer can point `--test` at is the extension's own
 config file, and that file is mode-wrapped.** Reading it as a bare `ToolConfig` does
@@ -1523,6 +1539,10 @@ Two consequences for the rest of Phase 5:
 
 ### 8.10 How the extension locates the binary
 
+> **Superseded in part by §13.6.** Step 2 of the resolution order was inert as
+> written, and step 1 has no configuration surface behind it.
+
+
 Resolution order, in preference:
 
 1. an explicit path in the extension config, if present
@@ -1851,8 +1871,195 @@ time - they are *specifications*. 11 is a verification step that fails on correc
 and 13 are two halves of the same omission, in different files, that neither mentions. Both
 halves are invisible to a review that reads each section on its own.
 
-If implementation surfaces a genuine fork, it goes here rather than being decided
-silently mid-phase.
+## 13. Implementation record
+
+Phases 0-5 are implemented. Both branches are `migrate-bash-to-python`; this repo
+is 5 commits past `3e20ff7`, the extension is 2 past `0916254`. Every decision in
+section 2 was implemented as written - nothing in D1-D13 was relitigated - and
+both gates are green: 1850 Python tests at 94% with `ruff` and `mypy --strict`
+clean, and 261 TypeScript tests with `vp run build`.
+
+What follows is what the implementation found that the plan above got wrong.
+It is written here rather than patched into each section because the sections
+that are wrong are wrong in ways that a reader would not detect; see the
+"superseded" banner at the head of each affected section.
+
+### 13.1 A fifth return path, which 5.3's four-path rule does not cover
+
+**The single most important correction.** 5.3 enumerates four return paths of
+`evaluate_bash_command` and measures "303 empty lists, every one of them
+`allow`" across the corpus. That measurement is right about the paths it looked
+at and wrong about the total, because **`_empty_segment_result` is a fifth
+path**, it returns before `_finalize_reasons` is ever called, and it had no
+`reasons` key at all:
+
+```
+rows in `commands` whose value has "ok" but no "reasons"   160
+  of those, status ask                                      120
+  of those, status deny                                      20
+  of those, status allow                                     20
+```
+
+Every one of them is a command that parses to **zero segments** - `# just a
+comment`, `(( 1+2 ))`, `[[ ( a == b ) ]]` - and 120 of them are `ask`. So the
+clause 5.3 calls "the one that actually protects the feature", "no `ask` and no
+`deny` entry has an empty list", would have been **false on correct output**:
+the Pi prompt would have shown an empty ask prompt for every comment-only
+command in the corpus.
+
+The plan's own discipline is what caught it, and it is worth stating precisely:
+3.1's Phase 2 gate was checked with "is every diff line of the form
+`.commands.*.ok.reasons: ADDED`", and 160 of the 4032 were *not* - they had no
+`reasons` key to add. Had the check been "did the diff contain only `reasons`
+additions", the shape of the miss would have been invisible.
+
+All four of `_empty_segment_result`'s branches now carry `reasons`, matching
+their `reason` one-for-one. The corpus numbers move accordingly:
+
+| | plan's measurement | after the fifth path was fixed |
+| --- | --- | --- |
+| `ok` rows | 4032 | 4032 (unchanged) |
+| rows with no `reasons` key | 0 (assumed) | **160** |
+| non-empty `reasons` | 3636 | 3796 |
+| empty `reasons`, all `allow` | 303 | 236 |
+| one-element lists containing `"; "` | 1219 | 1219 (unchanged) |
+
+Three of the four `reason` strings the plan predicted for the empty case were
+right; `"allowed by wildcard policy (allow)"` is the only one that occurs in
+this corpus, and 236 rather than 303 because 67 of the plan's 303 came from the
+path that now populates a list.
+
+### 13.2 4.2's test list missed one
+
+`test_unrecognized_tool_field_warns` (`tests/config/test_schema.py:190`) passes
+`{"bash": {"blocked_path_regex": ["^/tmp/"]}}` - a typo **inside a bash block**,
+which is rejected now, not warned about. 4.2 lists `test_unknown_key_logs_warning`
+and `test_typo_key_logs_warning` as "unchanged and still passing (both root-level,
+root stays permissive)", which is true, and reads as though the whole file was
+enumerated. It was not. Rewritten as `test_unrecognized_tool_field_rejected`.
+
+### 13.3 `--test` could not be an option with a value
+
+6.4b's own example, `--test --mode strict "git status" <path>`, does not parse
+under the signature 6.4 implies. argparse refuses an option-looking token as
+another option's value, so `--test --mode` is "expected one argument" and the
+command disappears:
+
+```
+$ lovely-pi-bash-permissions --test --mode strict "git status" /tmp/pi.jsonc
+lovely-pi-bash-permissions: error: argument --test: expected one argument
+```
+
+`--test` is a flag and the command is a positional. Both documented forms now
+work, and `main` refuses `--mode`/a config path outside `--test` rather than
+serving by accident.
+
+### 13.4 Mode detection needs a discriminator, not a heuristic
+
+6.4b rule 3 says a mode with no `bash` block is a hard error, but does not say
+how a mode-wrapped file is told apart from a bare block - and the obvious
+test, "a value contains a `bash` key", is wrong:
+
+```
+{"default": {"read": {"*": "ask"}}}     -> not detected, evaluated as a bare block
+                                            -> "unknown bash config key 'default'"
+```
+
+The shipped discriminator is structural: a mode-wrapped file has *all* top-level
+values as objects, and *none* of its keys is a key a bash block may carry. The
+second clause is what keeps `{"output_redirection": {"other": "deny"}}` - one
+key, one object value, an entirely ordinary bash block - on the right side.
+
+### 13.5 The e2e's missing-shfmt test needs a copied interpreter
+
+7's step 5 says the negative path "must be controlled for, e.g. by running with a
+`PATH` and `VIRTUAL_ENV` that cannot resolve it". That does not work.
+`find_shfmt` searches `$VIRTUAL_ENV/bin`, then **the directory holding
+`sys.executable`**, then `sys.prefix/bin`; a cleared `PATH` and a bogus
+`VIRTUAL_ENV` leave all three answering, and the probe passes:
+
+```
+$ echo '{"op":"validate","config":{"*":"ask"}}' \
+    | env -i PATH=/nonexistent VIRTUAL_ENV=/nonexistent .venv/bin/lovely-pi-bash-permissions
+{"protocol": 1, "valid": true}      # <- the binary was right there next to python
+```
+
+`tests/test_protocol_e2e.py` therefore copies the interpreter into a directory of
+its own (`sys.executable` no longer sits beside a shfmt, `sys.prefix` is no
+longer a venv) and empties both variables. A copy, not a symlink: a symlink
+resolves back into the venv and finds the binary all over again. Both directions
+are asserted, because a probe that has only ever passed is a probe nobody has
+watched fail.
+
+### 13.6 The extension's environment override could never fire
+
+8.10 specifies the resolution order as config path, then
+`LOVELY_PI_BASH_PERMISSIONS_BIN`, then `PATH`. Step 2 was inert:
+
+```ts
+const configured = options.binaryPath ?? options.env?.LOVELY_PI_BASH_PERMISSIONS_BIN;
+```
+
+`main.ts` constructs the client with no options, so `options.env` is `undefined`,
+the optional chain short-circuits, and the variable is never read. A documented
+escape hatch, reachable only from a constructor argument nothing passed. Every
+existing test supplied an explicit `env`, so none of them could see it. Fixed in
+`resolveBinaryPath` (`options.env ?? process.env`) with a test that goes through
+the default constructor and goes red when the short-circuit is restored.
+
+Step 1 has no plumbing at all - there is no extension-config surface for a
+binary path - so the class keeps the option and the README says only the
+environment variable and `PATH` are reachable in a normal install.
+
+### 13.7 The mode-level `*` is not a tool config, and the types say so wrongly
+
+8.4's replacement check is three lines *given that the value is reachable as a
+level*. It is not, quite: `LovelyPermissionsConfig`'s index signature types
+`config['*']` as `BaseToolConfig | BashConfig | undefined`, so a mode-level
+wildcard is statically a tool block. Reading it needs a widened read, and the
+level must be *validated* rather than cast - a `typeof entry === 'string'`
+branch narrows to `never` under the current types, which is the type system
+telling the truth about a model that is missing a case. `validateModes` now walks
+`Object.entries(mode)` as `unknown` and narrows, and `topLevelOf` validates rather
+than casts. Both are small; neither is mechanical, which is what 8.3 warned about
+for `doom_loop` and did not warn about for the mode wildcard.
+
+### 13.8 8.9's config needed an explicit `*`, and `vp fmt` will quote it
+
+Confirmed as predicted: with no `"*"` anywhere in `.pi/lovely-permissions.jsonc`
+the mode resolved to `ask` under D6, which is the intended behaviour, so the file
+now states `"*": "ask"` rather than inheriting it. Verified against the real
+binary. Note that `vp fmt` reformats the file and quotes its unquoted keys, which
+dirties it on every `vp run build`; that is a property of the formatter, not a
+defect, and the quoted form validates identically.
+
+### 13.9 What the gates confirmed
+
+- 8.6's sanity check: the committed bundle went **137.49 kB -> 35.56 kB**. The
+  npm dependency is really gone, and nothing else large was dragged in with it.
+- 3.1's Baseline C still holds after Phases 3 and 5: `compare` is `IDENTICAL`.
+- The two e2e tests that cross the boundary both run rather than skip: the
+  Python one drives the real console script over a pipe, and the TypeScript one
+  drives the real Python binary from the client (`server.test.ts > the real
+  binary`, 357 ms).
+- `vp test --coverage` - the `test` npm script - fails at startup, independently
+  of this work: `@vitest/coverage-v8@4.1.10` against vite-plus's bundled
+  `vitest@4.1.11`. Pre-existing, and `vp run build` runs `vp test` without
+  `--coverage`, so the gate is unaffected.
+
+### 13.10 The pattern held one more time
+
+Six of the seven findings above were invisible to reading the plan and visible
+only to running it: the fifth return path, the argparse rejection, the
+misclassified config, the shfmt probe that would not fail, the dead environment
+override, and the mode wildcard's type. The seventh - a bash-block typo that
+warned rather than errored - was visible to reading, and was missed by a test
+list that was nearly complete. The conclusion is the one 11.3 reached, now with
+one more data point: **a section that asserts runtime behaviour is a test that
+has not been written yet**, and a list of things to change is a list that has
+not been walked end to end. Every guard added in this implementation was
+mutated to confirm it goes red, and the mutations that did not fire found real
+problems - the mode-wildcard type, and the environment override twice.
 
 ---
 
