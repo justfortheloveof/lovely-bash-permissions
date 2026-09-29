@@ -41,10 +41,14 @@ def error_action(config: dict[str, Any], exc: BaseException) -> dict[str, Any]:
     :func:`~lovely_bash_permissions.config.effective_bash.resolve_bash_config`
     populates it. A config handed straight to :func:`decide_bash_command` is
     resolved first, so this reads a populated value on both hosts.
+
+    Returns the same three keys as a normal verdict, ``reasons`` included: a
+    failure is a verdict a host has to explain, and this path can be ``ask``.
     """
     level = config.get("error") or config.get("*") or "ask"
     action = LEVEL_TO_ACTION.get(level, "ask")
-    return {"action": action, "reason": f"error evaluating command (policy '{level}'): {exc}"}
+    reason = f"error evaluating command (policy '{level}'): {exc}"
+    return {"action": action, "reason": reason, "reasons": [reason]}
 
 
 def decide_bash_command(command: str, config: dict[str, Any], top_level_wildcard: str = "ask") -> dict[str, Any]:
