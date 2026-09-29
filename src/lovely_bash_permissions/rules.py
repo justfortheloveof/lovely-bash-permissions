@@ -17,6 +17,19 @@ from .segments import Segment, SegmentRedirection
 #: writing, as ``<>`` does).  Gates the ``output_redirection`` policy.
 WRITE_REDIRECT_OPS: frozenset[str] = frozenset({">", ">>", ">|", "&>", ">&", "&>>", "<>"})
 
+#: Redirection operators that feed a command from a file, a here-document or a
+#: here-string.  Gates the ``input_redirection`` policy.
+#:
+#: ``<<-`` is the tab-stripping here-document: bash consumes the body exactly as
+#: it does for ``<<``, differing only in how the delimiter is matched, so it
+#: must be gated identically or ``cat <<-EOF`` reads an arbitrary file with no
+#: policy ever consulted.
+#:
+#: Together with ``WRITE_REDIRECT_OPS`` this covers every operator the parser
+#: can emit.  ``<>`` is read-write and is classified as a write; that is the
+#: stricter of the two, since it cannot write without also reading.
+INPUT_REDIRECT_OPS: frozenset[str] = frozenset({"<", "<<", "<<-", "<<<", "<&"})
+
 COMBINED_OPS: frozenset[str] = frozenset({">&", "&>", "&>>"})
 DEV_NULL: str = "/dev/null"
 
@@ -260,7 +273,7 @@ def _check_segments_input_redirs(segments: list[Segment], rules: dict[str, Any])
     seen_input: set[tuple[str, str]] = set()
     for seg in segments:
         for r in seg.get("redirections") or []:
-            if r.get("Op") in ("<", "<<", "<<<", "<&"):
+            if r.get("Op") in INPUT_REDIRECT_OPS:
                 target = _redir_target(r)
                 key = (r["Op"], target)
                 if key not in seen_input:
