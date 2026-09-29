@@ -1,16 +1,16 @@
 """
 Tests for faithful rendering of bash variable-assignment operands.
 
-Bash array assignments used to be collapsed to a ``(...)`` placeholder, so
-the element text never reached any pattern matcher::
+Array elements must reach the pattern matchers verbatim, so the rendered
+operand is the operand as bash itself reads it::
 
-    A=(/etc/passwd foo)   ->  {"command": "", "arguments": ["A=(...)"]}
+    A=(/etc/passwd foo)   ->  {"command": "", "arguments": ["A=(/etc/passwd foo)"]}
 
-That hid the elements from allowed-pattern / blocked-path checks entirely.
-The rest of the assignment shapes were lossy in the same way: the ``+=`` test
-ran before the array test, so ``A+=(a b)`` rendered as a bare ``A+=`` with the
-elements dropped, and a subscript was never rendered at all, so ``A[i]=value``
-reported ``A=value``.
+Collapsing the elements into a ``(...)`` placeholder would hide them from
+allowed-pattern / blocked-path checks entirely.  Every other assignment shape is
+lossless for the same reason: ``+=`` is tested after the plain array form so
+``A+=(a b)`` renders with its elements intact, and a subscript is rendered so
+that ``A[i]=value`` reports ``A[i]=value`` rather than ``A=value``.
 
 These tests pin the rendered operand for every shape - scalar, subscripted,
 array, and append combined with either - keep the ``(...)`` placeholder only for
@@ -22,16 +22,17 @@ the same ``command == ""`` segment a bare assignment uses
 (``export A=(a b)`` -> ``{"command": "", "arguments": ["A=(a b)"]}`` plus a
 separate ``{"command": "export", "arguments": []}`` segment).  That split is
 what makes the ``variable_assignment`` policy reach them at all - it is only
-consulted for an empty-command segment, so before it, ``export A=(a b)`` was
-approved under ``"variable_assignment": "deny"``.  The rendering is shared, so
-the bare form and the declaration form cannot drift apart.
+consulted for an empty-command segment, so an array rendered onto the ``export``
+command segment instead would slip past ``"variable_assignment": "deny"``.  The
+rendering is shared, so the bare form and the declaration form cannot drift
+apart.
 """
 
-from typing import ClassVar, cast
+from typing import ClassVar
 
 import pytest
 
-from lovely_bash_permissions.errors import LovelyDevinPermissionsError
+from lovely_bash_permissions.errors import ShfmtError
 from lovely_bash_permissions.evaluate import evaluate_bash_command
 from lovely_bash_permissions.segments import parse_segments
 
@@ -52,7 +53,7 @@ def _args(command: str) -> list[str]:
     segs = parse_segments(command)
     assigns = [s for s in segs if s["command"] == ""]
     assert len(assigns) == 1, f"{command!r} -> {[(s['command'], s['arguments']) for s in segs]}"
-    return cast("list[str]", assigns[0]["arguments"])
+    return assigns[0]["arguments"]
 
 
 class TestStandaloneArrayAssignment:
@@ -166,8 +167,8 @@ class TestNonArrayAssignmentShapes:
         assert segs[0]["arguments"] == ["FOO+=bar"]
 
     def test_indexed_scalar_assignment_keeps_the_subscript(self) -> None:
-        # The subscript belongs to the assignment, not just the value, so it
-        # used to be dropped, turning `A[i]=value` into `A=value`.
+        # The subscript belongs to the assignment, not just the value; dropping
+        # it would turn `A[i]=value` into `A=value`.
         assert _args("A[i]=value") == ["A[i]=value"]
 
     def test_indexed_append_scalar_keeps_the_subscript(self) -> None:
@@ -184,9 +185,10 @@ class TestNonArrayAssignmentShapes:
 class TestAssignmentShapesBare:
     """Every assign shape renders, in the bare (non-declaration) form.
 
-    The five shapes below are the ones the duplicated rendering logic used to
-    get wrong or drop.  They now go through one shared helper, so a bare form
-    and its declaration-builtin form cannot drift apart.
+    The five shapes below - scalar, subscripted scalar, array, append-array and
+    subscripted append-array - each lose meaning if any part is dropped, so all
+    of them go through one shared helper and a bare form and its
+    declaration-builtin form cannot drift apart.
     """
 
     def test_scalar(self) -> None:
@@ -199,8 +201,8 @@ class TestAssignmentShapesBare:
         assert _args("A=(a b)") == ["A=(a b)"]
 
     def test_append_array(self) -> None:
-        # Regression: `append` was tested before `array`, and shfmt puts an
-        # append's value in `array`, so the elements were dropped entirely.
+        # shfmt puts an append's value in `array`, and `append` is tested after
+        # `array` so that the elements cannot be dropped entirely.
         assert _args("A+=(a b)") == ["A+=(a b)"]
 
     def test_subscripted_append_array(self) -> None:
@@ -265,19 +267,19 @@ class TestSubscriptPlusArrayIsAParseError:
         assert parse_segments("A[i]=(x y)") == []
 
     def test_evaluation_raises_rather_than_approving(self) -> None:
-        with pytest.raises(LovelyDevinPermissionsError):
+        with pytest.raises(ShfmtError):
             evaluate_bash_command("A[i]=(x y)", {"*": "allow", "variable_assignment": "deny"})
 
 
 class TestVariableAssignmentPolicyApplies:
     """Rendered operands reach the variable_assignment policy.
 
-    With every element dropped (``A+=``) a blocked assignment still tripped
-    the policy, but an allowed-pattern rule could not have matched the array
-    contents, and a zero-segment assignment would have skipped the policy
-    entirely.  The policy is consulted for the empty-command segment, which is
-    where a declaration builtin's operands now live too - so a declared array
-    is gated exactly like a bare one.
+    The policy is consulted for the empty-command segment, which is where a
+    declaration builtin's operands live too - so a declared array is gated
+    exactly like a bare one.  With every element dropped (``A+=``) a blocked
+    assignment would still trip the policy, but an allowed-pattern rule could
+    not match the array contents, and a zero-segment assignment would skip the
+    policy entirely.
     """
 
     _CONFIG: ClassVar[dict[str, str]] = {"*": "allow", "variable_assignment": "deny"}
@@ -293,8 +295,9 @@ class TestVariableAssignmentPolicyApplies:
 
     def test_declared_array_is_denied(self) -> None:
         # `export A=(a b)` assigns exactly as `A=(a b)` does, so denying the
-        # bare form must deny the declared one - the operand is no longer an
-        # argument of the `export` segment, which the policy never saw.
+        # bare form must deny the declared one - the operand belongs to its own
+        # variable-assignment segment, which is the one the policy sees, not an
+        # argument of the `export` segment.
         for source in ("export A=(a b)", "declare -a A=(a b)", "export A+=(a b)", "declare A=()"):
             assert evaluate_bash_command(source, self._CONFIG)["status"] == "deny", source
 

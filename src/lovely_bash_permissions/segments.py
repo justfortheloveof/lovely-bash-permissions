@@ -7,8 +7,8 @@ the command name, arguments, and redirections.
 
 Segment extraction handles:
     - Pipes (|): each side becomes a separate segment
-    - And (&&): each side becomes a separate segment
-    - Or (||): each side becomes a separate segment
+    - And (&&) and Or (||): shfmt reports these as BinaryCmd too, differing
+      only in ``op``; each side becomes a separate segment
     - Background (&): the command before & is extracted
     - Statements: each sequential command becomes a segment
 
@@ -21,10 +21,9 @@ exposed to that, and what a direct caller should do instead.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TypedDict
 
 from .ast import (
-    AndCmd,
     ArithmCmd,
     ArithmExp,
     ArrayElem,
@@ -34,7 +33,6 @@ from .ast import (
     BinaryCmd,
     BinaryTest,
     Block,
-    BraceExp,
     CallExpr,
     CaseClause,
     CmdSubst,
@@ -51,7 +49,7 @@ from .ast import (
     IfClause,
     LetClause,
     Lit,
-    OrCmd,
+    Node,
     ParamExp,
     ParamExpExp,
     ParamExpSlice,
@@ -70,7 +68,7 @@ from .ast import (
     Word,
 )
 from .converter import node_from_json
-from .errors import LovelyDevinPermissionsError
+from .errors import ShfmtError
 from .inspect import _word_exec, _word_raw, _word_value
 from .parser import parse
 
@@ -80,14 +78,51 @@ _logger = logging.getLogger(__name__)
 DEFAULT_DIALECT = "bash"
 
 
-def _part_value(p: object) -> str:
-    """Extract string value from a Word part node."""
-    if isinstance(p, Lit):
-        return p.value
-    elif hasattr(p, "value"):
-        v = getattr(p, "value", None)
-        return v if isinstance(v, str) else ""
-    return ""
+# ---------------------------------------------------------------------------
+# Segment wire types
+# ---------------------------------------------------------------------------
+#
+# ``parse_segments`` is public API and its return value is consumed directly by
+# callers (and by ``rules.py``), so its shape is a contract. The field names
+# below are the shfmt wire names on purpose: the redirection dicts are the
+# shfmt-shaped records the segment producers build, and spelling them the way
+# shfmt does keeps the mapping between the two representations obvious instead
+# of hiding it behind a translation layer that would then have to be undone.
+
+
+class SegmentRedirection(TypedDict):
+    """One redirection carried by a segment.
+
+    Attributes:
+        Op: Redirection operator as bash wrote it, e.g. ``>``, ``>>``, ``2>``
+            arrives as ``>`` with ``N`` set.
+        N: The explicit file descriptor shfmt extracted from the operator, as
+            ``{"Value": "<fd>"}``; the empty dict when the operator carried no
+            fd prefix.
+        Target: The full executed form of the redirect target: every word part
+            joined, quotes removed and backslashes unescaped.  This is what
+            policy decisions are made on, because it is the string bash
+            actually opens.
+    """
+
+    Op: str
+    N: dict[str, str]
+    Target: str
+
+
+class Segment(TypedDict, total=False):
+    """One command segment.
+
+    ``normalized_arguments`` is the reason this is not ``total``: it is only
+    emitted for a real command (the pseudo-command segments - a bare assignment,
+    a declaration operand, a redirection-only statement - have no argument
+    list to normalize).
+    """
+
+    command: str
+    arguments: list[str]
+    normalized_arguments: list[str]
+    redirections: list[SegmentRedirection]
 
 
 def _array_text(assign: Assign) -> str:
@@ -167,7 +202,7 @@ def _assign_operand_text(assign: Assign) -> str:
     return f"{name}{index}{operator}{operand}"
 
 
-def _assign_sub_segments(assigns: list[Assign], redirs: list[Redir]) -> list[dict[str, Any]]:
+def _assign_sub_segments(assigns: list[Assign], redirs: list[Redir]) -> list[Segment]:
     """Surface the commands and redirections hidden inside assignment operands.
 
     An assignment's value, subscript or array elements can contain command
@@ -182,7 +217,7 @@ def _assign_sub_segments(assigns: list[Assign], redirs: list[Redir]) -> list[dic
     missing from ``parse_segments`` and its redirection escaped
     ``output_redirection`` / ``input_redirection`` entirely.
     """
-    out: list[dict[str, Any]] = []
+    out: list[Segment] = []
     for assign in assigns:
         if assign.index is not None:
             out.extend(_extract_segments(assign.index, redirs))
@@ -198,24 +233,28 @@ def _assign_sub_segments(assigns: list[Assign], redirs: list[Redir]) -> list[dic
     return out
 
 
-def _redir_dicts(redirs: list[Redir]) -> list[dict[str, Any]]:
+def _redir_dicts(redirs: list[Redir]) -> list[SegmentRedirection]:
     """Serialize Redir nodes into the segment dict format.
 
     Mirrors the shape produced for CallExpr/DeclClause/LetClause segments so
     callers (``_check_segments_output_redirs`` / ``_check_segments_input_redirs``)
     can classify them uniformly. shfmt normalizes fd-prefixed operators into the
     ``N`` field (e.g. ``2>`` -> ``Op: ">", N: {"Value": "2"}``).
+
+    ``Target`` is the only field policy is decided on: the full executed form
+    of the target, so multi-part targets like ``"$DIR/out"``, ``"/dev""/null"``
+    or quote-split paths are identified correctly.  An earlier shape also
+    carried a part-wise ``Word`` projection rebuilt from the raw shfmt JSON;
+    it was lossy by construction (it dropped quoting, escapes and expansions)
+    and no policy ever read it, so it has been removed.  ``Target`` always
+    subsumes it.
     """
-    redir_dicts: list[dict[str, Any]] = []
+    redir_dicts: list[SegmentRedirection] = []
     for r in redirs or []:
         redir_dicts.append(
             {
                 "Op": r.op,
                 "N": {"Value": str(r.n)} if r.n is not None else {},
-                "Word": {"Parts": [{"Value": _part_value(p)} for p in (r.word.parts if r.word else [])]},
-                # Full executed-form target (all word parts, quotes removed,
-                # backslashes unescaped) so multi-part targets like "$DIR/out",
-                # "/dev""/null" or quote-split paths are identified correctly.
                 "Target": _word_exec(r.word) if r.word is not None else "",
             }
         )
@@ -223,30 +262,30 @@ def _redir_dicts(redirs: list[Redir]) -> list[dict[str, Any]]:
 
 
 def _extract_redirs(node: object) -> list[Redir]:
-    """Extract redirections from a typed AST node.
+    """Extract the redirections carried by a compound operand.
 
-    Handles both wrapped statements (Stmt.redirs) and direct operands whose
-    redirections live on the node itself (BinaryCmd left/right_redirs).
+    An operand made of redirections and nothing else (as in ``> /etc/x && cat
+    f``) reaches the converter as a ``Stmt``, so that is the only shape with
+    redirections to hand back.  A ``BinaryCmd`` operand's redirections are
+    already split onto its per-side ``left_redirs``/``right_redirs`` fields and
+    are read there by the caller, which is what attributes each one to the
+    correct side of the pipe.
 
     Args:
         node: A typed AST node.
 
     Returns:
-        List of Redir objects found on this node.
+        List of Redir objects found on this node; empty for every other shape.
     """
     if isinstance(node, Stmt):
         return list(node.redirs)
-    elif isinstance(node, BinaryCmd):
-        # Per-side split - caller decides how to attribute them
-        return []  # handled inline by the caller
-    else:
-        return []
+    return []
 
 
 def _extract_segments(
     node: object,
     redirs: list[Redir] | None = None,
-) -> list[dict[str, Any]]:
+) -> list[Segment]:
     """
     Recursively extract command segments from an AST node.
 
@@ -260,18 +299,22 @@ def _extract_segments(
         redirs: Redirections inherited from a parent statement/pipe.
 
     Returns:
-        List of segment dicts, each with:
+        List of segment dicts (:class:`Segment`), each with:
             - 'command': str - command name
             - 'arguments': list[str] - argument strings
-            - 'redirections': list[dict] - redirection info
+            - 'normalized_arguments': list[str] - argument strings with
+              quoting/expansion resolved (real commands only)
+            - 'redirections': list[SegmentRedirection] - redirection info
     """
-    segments: list[dict[str, Any]] = []
+    segments: list[Segment] = []
 
     # Handle Python AST nodes
     if isinstance(node, BinaryCmd):
-        # Pipe commands: each side becomes a separate segment.
-        # Redirections live on the BinaryCmd's per-side fields; also inherit
-        # any redirections from a parent compound (e.g. `{ a | b; } > file`).
+        # Pipe / logical-operator commands: each side becomes a separate
+        # segment. (``&&`` and ``||`` arrive here too - shfmt reports them as a
+        # BinaryCmd whose op is "&&"/"||".)  Redirections live on the per-side
+        # fields; also inherit any redirections from a parent compound
+        # (e.g. `{ a | b; } > file`).
         left_redirs = list(redirs or [])
         right_redirs = list(redirs or [])
         left_redirs += _extract_redirs(node.left) if node.left else []
@@ -283,29 +326,11 @@ def _extract_segments(
         segments.extend(_extract_segments(node.left, left_redirs))
         segments.extend(_extract_segments(node.right, right_redirs))
 
-    elif isinstance(node, AndCmd):
-        # Logical AND: each side becomes a separate segment
-        left_redirs = list(redirs or [])
-        right_redirs = list(redirs or [])
-        left_redirs += _extract_redirs(node.left) if node.left else []
-        right_redirs += _extract_redirs(node.right) if node.right else []
-        segments.extend(_extract_segments(node.left, left_redirs))
-        segments.extend(_extract_segments(node.right, right_redirs))
-
-    elif isinstance(node, OrCmd):
-        # Logical OR: each side becomes a separate segment
-        left_redirs = list(redirs or [])
-        right_redirs = list(redirs or [])
-        left_redirs += _extract_redirs(node.left) if node.left else []
-        right_redirs += _extract_redirs(node.right) if node.right else []
-        segments.extend(_extract_segments(node.left, left_redirs))
-        segments.extend(_extract_segments(node.right, right_redirs))
-
     elif isinstance(node, Stmt):
         # Statement: merge redirections inherited from a parent compound
         # command (e.g. `{ ...; } > file`) with the statement's own.
         inherited = list(redirs or []) + list(node.redirs)
-        sub: list[dict[str, Any]] = []
+        sub: list[Segment] = []
         if node.cmd:
             sub = _extract_segments(node.cmd, inherited)
             segments.extend(sub)
@@ -408,7 +433,7 @@ def _extract_segments(
     elif isinstance(node, CaseClause):
         # case/switch: the subject word (node.expr) and each branch's match
         # patterns can embed command substitutions that bash evaluates before
-        # the body runs - surface them alongside the branch bodies (bug #8).
+        # the body runs - surface them alongside the branch bodies.
         if getattr(node, "expr", None) is not None:
             segments.extend(_extract_segments(node.expr, redirs))
         if hasattr(node, "branches") and node.branches:
@@ -486,12 +511,12 @@ def _extract_segments(
         # `(( expr ))` runs no command of its own, so nothing is emitted for the
         # arithmetic.  But bash still evaluates substitutions inside it -
         # `(( x=$(cmd) ))` really does run `cmd` - so the body is walked to
-        # surface them.  Skipping it (as this handler used to) hid the command
-        # entirely: `(( x=$(rm -rf /) ))` produced zero segments and so fell
-        # through the empty-segment path to the wildcard, which under
-        # `"*": "allow"` auto-approved a command nothing had inspected.  Every
-        # sibling spelling already recursed (`x=$(cmd)`, `let x=$(cmd)`,
-        # `[[ -n $(cmd) ]]`, `$(( $(cmd) ))`); this brings `(( ... ))` in line.
+        # surface them.  Skipping it would hide the command entirely:
+        # `(( x=$(rm -rf /) ))` would produce zero segments and fall through
+        # the empty-segment path to the wildcard, which under `"*": "allow"`
+        # would auto-approve a command nothing had inspected.  Every sibling
+        # spelling recurses for the same reason (`x=$(cmd)`, `let x=$(cmd)`,
+        # `[[ -n $(cmd) ]]`, `$(( $(cmd) ))`), so `(( ... ))` must too.
         if node.body is not None:
             segments.extend(_extract_segments(node.body))
     elif isinstance(node, LetClause):
@@ -519,8 +544,6 @@ def _extract_segments(
                     return node.value
                 elif isinstance(node, ParamExp):
                     return "${...}"
-                elif isinstance(node, BraceExp):
-                    return "{...}"
                 else:
                     return "?"
 
@@ -564,7 +587,8 @@ def _extract_segments(
         # Word nodes (arguments) may contain CmdSubst/ProcSubst in their parts.
         # Recurse into every part: the bare Lit/SglQuoted/DblQuoted fragments
         # emit nothing on their own, while an embedded substitution is a real
-        # command (bug #6: no "$(...)" / "$var" phantom command names).
+        # command. Stopping here instead would emit the word's own text as a
+        # command name, producing "$(...)" and "$var" phantom commands.
         for part in node.parts:
             segments.extend(_extract_segments(part))
 
@@ -629,11 +653,6 @@ def _extract_segments(
             if child is not None:
                 segments.extend(_extract_segments(child))
 
-    elif isinstance(node, BraceExp):
-        # Brace expansion elements may contain substitutions ({a,$(cmd)}).
-        for elem in node.elems:
-            segments.extend(_extract_segments(elem))
-
     elif isinstance(node, ExtGlob):
         # Extended glob pattern is a literal pattern - no substitutions inside.
         pass
@@ -666,7 +685,25 @@ def _extract_segments(
     return segments
 
 
-def parse_segments(command: str, dialect: str = DEFAULT_DIALECT) -> list[dict[str, Any]]:
+def _segments_from_ast(ast: Node) -> list[Segment]:
+    """Extract segments from an already-converted typed AST.
+
+    The half of :func:`parse_segments` that does not need the shfmt subprocess.
+    Split out so a caller that has *already* parsed and converted the command
+    (:func:`lovely_bash_permissions.evaluate.evaluate_bash_command`, which
+    needs the typed tree for its own checks anyway) can reuse that work instead
+    of paying for a second parse and a second JSON-to-AST conversion.
+
+    Args:
+        ast: The converted typed AST (normally a :class:`~.ast.File`).
+
+    Returns:
+        The segment list, in execution order.
+    """
+    return _extract_segments(ast)
+
+
+def parse_segments(command: str, dialect: str = DEFAULT_DIALECT) -> list[Segment]:
     """
     Parse a bash command into segments.
 
@@ -679,10 +716,10 @@ def parse_segments(command: str, dialect: str = DEFAULT_DIALECT) -> list[dict[st
         dialect: Shell dialect for parsing (default: "bash").
 
     Returns:
-        List of segment dicts. Each dict contains:
+        List of :class:`Segment` dicts. Each dict contains:
             - 'command': str - the command name
             - 'arguments': list[str] - the command's arguments
-            - 'redirections': list[dict] - redirection info
+            - 'redirections': list[SegmentRedirection] - redirection info
 
     Note:
         An empty list is ambiguous: it means either "the command genuinely
@@ -704,9 +741,9 @@ def parse_segments(command: str, dialect: str = DEFAULT_DIALECT) -> list[dict[st
     try:
         raw_ast = parse(command, dialect)
         ast = node_from_json(raw_ast)
-    except LovelyDevinPermissionsError:
+    except ShfmtError:
         return []
 
     if ast is None:
         return []
-    return _extract_segments(ast)
+    return _segments_from_ast(ast)

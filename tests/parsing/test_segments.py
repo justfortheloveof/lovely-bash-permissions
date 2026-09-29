@@ -424,7 +424,7 @@ class TestTestClauseRedirections:
         assert len(segs) == 1
         assert segs[0]["command"] == "[["
         assert segs[0]["redirections"][0]["Op"] == ">"
-        assert segs[0]["redirections"][0]["Word"]["Parts"][0]["Value"] == "/tmp/out"
+        assert segs[0]["redirections"][0]["Target"] == "/tmp/out"
 
     def test_testclause_stderr_redirection_normalized(self) -> None:
         segs = parse_segments("[[ -f f ]] 2> /tmp/out")
@@ -457,7 +457,7 @@ class TestTestClauseRedirections:
         segs = parse_segments("> /tmp/out")
         assert len(segs) == 1
         assert segs[0]["redirections"][0]["Op"] == ">"
-        assert segs[0]["redirections"][0]["Word"]["Parts"][0]["Value"] == "/tmp/out"
+        assert segs[0]["redirections"][0]["Target"] == "/tmp/out"
 
 
 class TestTestClauseRegexOperands:
@@ -494,7 +494,7 @@ class TestTestClauseRegexOperands:
 
 
 class TestNestedSubstitutionExtraction:
-    """Nested command/process substitutions inside parts are extracted (issue #2)."""
+    """Nested command/process substitutions inside parts are extracted."""
 
     def test_cmdsubst_in_output_redirect_target(self) -> None:
         segs = parse_segments("echo hi > $(cat /etc/shells)")
@@ -525,23 +525,23 @@ class TestNestedSubstitutionExtraction:
         assert [s["command"] for s in segs] == ["echo", "cat"]
 
     def test_cmdsubst_in_repl_replacement_extracted(self) -> None:
-        # Bug 1: substitution in the replacement part of ${var/pat/rep}.
+        # Substitution in the replacement part of ${var/pat/rep}.
         segs = parse_segments("echo ${x//a/$(rm -rf x)}")
         assert [s["command"] for s in segs] == ["echo", "rm"]
         assert segs[1]["arguments"] == ["-rf", "x"]
 
     def test_cmdsubst_in_repl_pattern_extracted(self) -> None:
-        # Bug 1: substitution in the *pattern* part of ${var/pat/rep}.
+        # Substitution in the *pattern* part of ${var/pat/rep}.
         segs = parse_segments("echo ${x//$(recon_cmd)/y}")
         assert [s["command"] for s in segs] == ["echo", "recon_cmd"]
 
     def test_cmdsubst_in_single_repl_extracted(self) -> None:
-        # Bug 1: single-replacement form ${var/pat/rep} (Repl.All = false).
+        # Single-replacement form ${var/pat/rep} (Repl.All = false).
         segs = parse_segments("echo ${x/a/$(rm -rf x)}")
         assert [s["command"] for s in segs] == ["echo", "rm"]
 
     def test_cmdsubst_in_slice_extracted(self) -> None:
-        # Bug 3: substitution in the offset/length of ${var:offset:length}.
+        # Substitution in the offset/length of ${var:offset:length}.
         segs = parse_segments("echo ${x:0:$(cat N)}")
         assert [s["command"] for s in segs] == ["echo", "cat"]
         segs = parse_segments("echo ${x:$(seq 3)}")
@@ -556,12 +556,12 @@ class TestNestedSubstitutionExtraction:
         assert [s["command"] for s in segs] == ["", "echo"]
         assert segs[1]["arguments"] == ["hi"]
         assert segs[1]["redirections"][0]["Op"] == ">"
-        assert segs[1]["redirections"][0]["Word"]["Parts"][0]["Value"] == "/etc/passwd"
+        assert segs[1]["redirections"][0]["Target"] == "/etc/passwd"
 
     def test_array_assignment_value_cmdsubst_extracted(self) -> None:
         segs = parse_segments("arr=($(ls > /tmp/out))")
         assert [s["command"] for s in segs] == ["", "ls"]
-        assert segs[1]["redirections"][0]["Word"]["Parts"][0]["Value"] == "/tmp/out"
+        assert segs[1]["redirections"][0]["Target"] == "/tmp/out"
 
     def test_plain_parts_in_redirect_target_still_normal(self) -> None:
         segs = parse_segments("ls > /tmp/out")
@@ -571,34 +571,34 @@ class TestNestedSubstitutionExtraction:
 class TestCompoundCommandRedirections:
     """Redirections on time/funcdef/coproc compound commands are kept.
 
-    Regression: the converter unwrapped the Stmt-shaped body/statement of
-    TimeClause/CoprocClause/FuncDecl, silently dropping trailing redirections -
-    so `time echo hi > /etc/passwd` was approved while the plain command was blocked.
+    The Stmt-shaped body/statement of TimeClause/CoprocClause/FuncDecl keeps
+    its trailing redirections, so `time echo hi > /etc/passwd` is blocked
+    exactly like the plain command `echo hi > /etc/passwd`.
     """
 
     def test_time_redirection_kept(self) -> None:
         segs = parse_segments("time echo hi > /etc/passwd")
         assert [s["command"] for s in segs] == ["echo"]
-        assert segs[0]["redirections"][0]["Word"]["Parts"][0]["Value"] == "/etc/passwd"
+        assert segs[0]["redirections"][0]["Target"] == "/etc/passwd"
 
     def test_time_posix_redirection_kept(self) -> None:
         segs = parse_segments("time -p echo hi > /etc/passwd")
         assert [s["command"] for s in segs] == ["echo"]
-        assert segs[0]["redirections"][0]["Word"]["Parts"][0]["Value"] == "/etc/passwd"
+        assert segs[0]["redirections"][0]["Target"] == "/etc/passwd"
 
     def test_funcdef_redirection_kept(self) -> None:
         segs = parse_segments("f() { echo hi; } > /etc/passwd")
         assert [s["command"] for s in segs] == ["echo"]
-        assert segs[0]["redirections"][0]["Word"]["Parts"][0]["Value"] == "/etc/passwd"
+        assert segs[0]["redirections"][0]["Target"] == "/etc/passwd"
 
     def test_coproc_redirection_kept(self) -> None:
         segs = parse_segments("coproc c { echo hi; } > /etc/passwd")
         assert [s["command"] for s in segs] == ["echo"]
-        assert segs[0]["redirections"][0]["Word"]["Parts"][0]["Value"] == "/etc/passwd"
+        assert segs[0]["redirections"][0]["Target"] == "/etc/passwd"
 
 
 class TestRedirectionOnlyOperands:
-    """Redirection-only operands of && / || / | (NEW_BUGS #3).
+    """Redirection-only operands of && / || / |.
 
     shfmt emits these as operand dicts with Redirs but no Type and no Cmd,
     e.g. `> /etc/x && cat file`. The converter turns them into Stmt(cmd=None)
@@ -645,7 +645,7 @@ class TestErrorHandling:
 
 
 class TestForLoopListSegments:
-    """for-loop list words are evaluated before the body (bug #5)."""
+    """for-loop list words are evaluated before the body."""
 
     def test_cmdsubst_in_loop_list_extracted(self) -> None:
         assert [s["command"] for s in parse_segments("for i in $(seq 3); do echo $i; done")] == ["seq", "echo"]
@@ -660,13 +660,12 @@ class TestForLoopListSegments:
 class TestArithmeticCommandSubstitutions:
     """``(( expr ))`` runs no command, but still evaluates substitutions.
 
-    The ``ArithmCmd`` handler used to ``pass``, so a command substitution
-    inside ``(( ... ))`` produced no segment at all.  Zero segments fall
-    through the empty-segment path to the wildcard, so under
+    A command substitution inside ``(( ... ))`` must produce a segment, like
+    every sibling spelling.  Zero segments fall through the empty-segment path
+    to the wildcard, so under
     ``{"*": "allow", "command_substitution": "allow"}``
-    ``(( x=$(rm -rf /) ))`` was auto-approved with nothing having inspected the
-    ``rm``.  Every sibling spelling already recursed; this brings ``(( ... ))``
-    in line.  The arithmetic itself must still produce no segment.
+    nothing would inspect the ``rm`` in ``(( x=$(rm -rf /) ))`` and it would be
+    auto-approved.  The arithmetic itself must still produce no segment.
     """
 
     CONFIG: ClassVar[dict[str, Any]] = {
@@ -688,8 +687,9 @@ class TestArithmeticCommandSubstitutions:
         assert [s["command"] for s in parse_segments("(( y=${a:-$(cmd)} ))")] == ["cmd"]
 
     def test_hidden_command_is_gated_by_the_allowlist(self) -> None:
-        # The regression that mattered: this used to report "produced no
-        # parseable segments" and fall to the wildcard instead of naming rm.
+        # The reason the extraction matters: a verdict that falls back to
+        # "produced no parseable segments" reaches the wildcard instead of
+        # naming rm.
         result = evaluate_bash_command("(( x=$(rm -rf /) ))", self.CONFIG)
         assert result["status"] == "ask"
         assert '"rm" command does not match allowed patterns' in result["reason"]
@@ -721,11 +721,10 @@ class TestAssignOperandSubstitutions:
     """Command substitutions inside assignment operands are always walked.
 
     An assignment's value, subscript or array elements can contain command
-    substitutions and bash runs them.  The walk used to exist only on the
-    *standalone* assignment path, so an assignment **prefix** hid the whole
-    substitution: `x=$(cmd) ls` reported no segment for `cmd`, and a
-    redirection inside it escaped `output_redirection` / `input_redirection`
-    entirely while the identical standalone form was denied.
+    substitutions and bash runs them.  The walk covers the standalone
+    assignment *and* the assignment **prefix** alike, so `x=$(cmd) ls` surfaces
+    a segment for `cmd`, and a redirection inside it is still subject to
+    `output_redirection` / `input_redirection` exactly as the standalone form is.
     """
 
     def test_assign_prefix_surfaces_the_inner_command(self) -> None:
@@ -840,7 +839,7 @@ class TestCStyleLoopSegments:
 
 
 class TestBinaryTestLeftOperand:
-    """Left operands of [[ ]] binary tests hold nested substitutions (bug #5)."""
+    """Left operands of [[ ]] binary tests hold nested substitutions."""
 
     def test_left_operand_cmdsubst_extracted(self) -> None:
         assert [s["command"] for s in parse_segments("[[ $(pwd) == /root* ]]")] == ["pwd"]
@@ -854,7 +853,7 @@ class TestBinaryTestLeftOperand:
 
 
 class TestNoPhantomTestCommands:
-    """$(...)/$var inside [[ ]] are not emitted as literal command names (bug #6)."""
+    """$(...)/$var inside [[ ]] are not emitted as literal command names."""
 
     def test_cmdsubst_operand_is_real_command(self) -> None:
         assert [s["command"] for s in parse_segments("[[ $(cmd) ]]")] == ["cmd"]
@@ -887,12 +886,12 @@ class TestCaseCommandSubstitution:
     """case subject word and branch patterns are segments."""
 
     def test_case_word_command_substitution_extracted(self) -> None:
-        """bug #8: the case subject word is a segment."""
+        """The case subject word is a segment."""
         result = parse_segments("case $(evil) in a) echo 1;; esac")
         assert [s["command"] for s in result] == ["evil", "echo"]
 
     def test_case_branch_pattern_command_substitution_extracted(self) -> None:
-        """bug #8: branch patterns are segments too."""
+        """Branch patterns are segments too."""
         result = parse_segments("case $x in $(evil)) echo hit;; esac")
         assert [s["command"] for s in result] == ["evil", "echo"]
 

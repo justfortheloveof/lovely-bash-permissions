@@ -1,40 +1,42 @@
 """
 Tests for faithful rendering of bash parameter expansions (ParamExp).
 
-A parameter expansion used to render as its bare parameter name, so the
-whole operand was dropped before any pattern matching: ``echo ${BAR:-/etc/passwd}``
-reached the matcher as ``echo $BAR`` and the literal path disappeared.  These
-tests pin the operator/operand text back on - in the raw ``arguments`` form
+A parameter expansion must render the whole operand, so nothing is dropped
+before pattern matching: ``echo ${BAR:-/etc/passwd}``
+reaches the matcher with the literal path intact.  These
+tests pin the operator/operand text on - in the raw ``arguments`` form
 and in the quote/backslash-normalized ``normalized_arguments`` form - while
 keeping the two invariants intact: a ``$(...)`` operand stays the literal
 opaque placeholder, and nested expansions terminate.
 
-Two further fidelity gaps are pinned here because they share the same
-rendering code and the same matcher:
+Two further fidelity gaps share the same rendering code and the same matcher, and
+are pinned here for that reason:
 
-* A ``DblQuoted`` used to render from its lossy ``value`` field, which splices
-  every expansion out (``"pre${x}y"`` became the string ``"prey"`` - text the
-  user never wrote).  ``"..."`` regions now render from their parts.
-* ``ParamExp.length`` (``${#x}``) was never rendered, so ``${#x}`` reached the
-  matcher as ``$x`` - a *different* expression with a different meaning.
+* A ``DblQuoted`` must render from its parts, not from its lossy ``value``
+  field, which splices every expansion out (``"pre${x}y"`` would otherwise
+  become the string ``"prey"`` - text the user never wrote).
+* ``ParamExp.length`` (``${#x}``) must keep its sigil; without it ``${#x}``
+  reaches the matcher as ``$x`` - a *different* expression with a different
+  meaning.
 
 The third sigil gap is ``ParamExp.excl``: ``${!x}`` (indirect expansion - read
-the variable *named* by ``$x``) and the prefix form ``${!prefix*}`` also
-rendered as ``$x`` / ``$prefix``.  Every other operator was already faithful, so
-:class:`TestUnchangedOperatorForms` pins the rest byte-for-byte: a sigil fix must
-not disturb the spellings that were already right.
+the variable *named* by ``$x``) and the prefix form ``${!prefix*}`` carry a
+meaning their bare ``$x`` / ``$prefix`` spellings do not.  Every other operator
+is already faithful, so :class:`TestUnchangedOperatorForms` pins the rest
+byte-for-byte: a change to one sigil must
+not disturb the other spellings.
 """
 
-from typing import Any, ClassVar, cast
+from typing import ClassVar
 
 from lovely_bash_permissions.ast import DblQuoted, Lit, ParamExp, ParamExpExp, ParamExpSlice, Word
 from lovely_bash_permissions.converter import parse_ast
 from lovely_bash_permissions.evaluate import evaluate_bash_command
 from lovely_bash_permissions.inspect import _word_exec, _word_raw, _word_value, find_arguments
-from lovely_bash_permissions.segments import parse_segments
+from lovely_bash_permissions.segments import Segment, parse_segments
 
 
-def _first(command: str) -> dict[str, Any]:
+def _first(command: str) -> Segment:
     """Return the first segment of *command* (the ``echo`` itself).
 
     A ``$(...)`` operand yields a *second* segment for the nested command -
@@ -49,12 +51,12 @@ def _first(command: str) -> dict[str, Any]:
 
 def _args(command: str) -> list[str]:
     """Return the raw (quote-preserving) arguments of the ``echo`` segment."""
-    return cast(list[str], _first(command)["arguments"])
+    return _first(command)["arguments"]
 
 
 def _normalized(command: str) -> list[str]:
     """Return the executed (quote/backslash-normalized) arguments."""
-    return cast(list[str], _first(command)["normalized_arguments"])
+    return _first(command)["normalized_arguments"]
 
 
 def _value(command: str) -> list[str]:
@@ -186,7 +188,7 @@ class TestCombinedShapes:
 
 
 class TestUnchangedSimpleForms:
-    """Bare expansions keep their historical short spelling."""
+    """Bare expansions keep their short spelling."""
 
     def test_short_param(self) -> None:
         assert _args("echo $HOME") == ["$HOME"]
@@ -201,8 +203,8 @@ class TestUnchangedSimpleForms:
 class TestLengthExpansion:
     """``${#x}`` keeps its ``#``: it is a *different* expression from ``${x}``.
 
-    ``ParamExp.length`` is populated by shfmt (``"Length": true``) but used to
-    go unrendered, so ``echo ${#x}`` reached the matcher as ``echo $x`` - the
+    ``ParamExp.length`` is populated by shfmt (``"Length": true``) and must be
+    rendered, so ``echo ${#x}`` does not reach the matcher as ``echo $x`` - the
     string length being talked about as if it were the variable's value.
     """
 
@@ -240,8 +242,8 @@ class TestLengthExpansion:
 class TestIndirectExpansion:
     """``${!x}`` keeps its ``!``: it reads the variable *named* by ``$x``.
 
-    ``ParamExp.excl`` is populated by shfmt (``"Excl": true``) but used to go
-    unrendered, so ``echo ${!x}`` reached the matcher as ``echo $x`` - the
+    ``ParamExp.excl`` is populated by shfmt (``"Excl": true``) and must be
+    rendered, so ``echo ${!x}`` does not reach the matcher as ``echo $x`` - the
     indirection silently dropped, which is a different expansion entirely.
     """
 
@@ -296,7 +298,7 @@ class TestIndirectExpansion:
 
     def test_non_indirect_expansion_has_no_sigil(self) -> None:
         # `${!x}` and `${x}` differ only in the sigil; the `excl` default of
-        # False must keep the historical short spelling.
+        # False must keep the short spelling.
         node = ParamExp(param="x")
         assert _word_value(Word(parts=[node])) == "$x"
 
@@ -356,11 +358,10 @@ class TestIndirectPrefixExpansion:
 
 
 class TestUnchangedOperatorForms:
-    """Byte-for-byte regression pins for the operators that were already right.
+    """Byte-for-byte pins for the operators the sigil handling must not disturb.
 
-    Every expectation here is the rendering from *before* the ``excl`` work.
     ``_param_exp_text`` is shared by all three renderers, so a change to the
-    sigil handling could plausibly have disturbed the branches below it; these
+    sigil handling could plausibly disturb the branches below it; these
     cases are the canary.
     """
 
@@ -475,7 +476,8 @@ class TestDoubleQuotedFidelity:
 
     ``DblQuoted.value`` is built by ``converter._convert_dbl_quoted`` from only
     the ``Lit``/``SglQuoted`` children, substituting ``""`` for everything
-    else - so ``"pre${x:-/etc/passwd}post"`` used to render as ``"prepost"``,
+    else, so ``"pre${x:-/etc/passwd}post"`` would otherwise render as
+    ``"prepost"``,
     a literal string the user never wrote.  A restrictive allowed pattern can
     be satisfied by text that was dropped, so the raw form must keep the
     expansion visible.
@@ -486,7 +488,7 @@ class TestDoubleQuotedFidelity:
         assert _args('echo "${x}"') == ['"$x"']
 
     def test_expansion_with_literal_prefix_and_suffix(self) -> None:
-        # The exact string that used to come out as "prepost".
+        # The string that the lossy `value` field would collapse to "prepost".
         assert _args('echo "pre${x:-/etc/passwd}post"') == ['"pre${x:-/etc/passwd}post"']
 
     def test_plain_quoted_literal_unchanged(self) -> None:
@@ -574,13 +576,12 @@ class TestEscapedOperands:
 
 
 class TestExecFormUnchanged:
-    """The executed form is a byte-for-byte regression pin.
+    """The executed form is a byte-for-byte pin.
 
-    The raw renderers changed; ``normalized_arguments`` (the executed form
-    ``evaluate`` matches on first) must not have.  Every expectation here is
-    the value that renderer produced *before* the ``DblQuoted`` fix.  The one
-    deliberate exception is ``${#x}``, whose ``#`` is the second finding and is
-    shared by both renderers through ``_param_exp_text``.
+    The raw renderer and the executed form share ``_param_exp_text``; a change
+    to one must not move the other (``evaluate`` matches on the executed form
+    first).  ``${#x}`` is the deliberate difference between the two forms, since
+    its ``#`` is rendered from the shared parameter-expansion text.
     """
 
     def test_exec_form_unchanged_for_every_quoted_case(self) -> None:
@@ -606,13 +607,13 @@ class TestExecFormUnchanged:
 
 
 class TestAllowSideQuotedFidelity:
-    """Allow-side regressions for the raw ``arguments`` text.
+    """Allow-side pins for the raw ``arguments`` text.
 
     ``allowed_cmds_regex`` matches the joined segment text, and
     ``evaluate._texts_for`` tries the executed form first with the raw form as a
-    fallback.  While a ``"..."`` region rendered from its lossy ``value``, that
-    fallback text was text the user never wrote, so a restrictive guard could be
-    satisfied by dropped content.  ``evaluate._command_string`` also applies
+    fallback, so a ``"..."`` region must never fall back to text the user never
+    wrote - that would let a restrictive guard be satisfied by dropped content.
+    ``evaluate._command_string`` also applies
     ``_strip_quotes`` to every argument, so a pattern written with explicit
     quote characters never matches either form - these tests use the
     quote-stripped spelling, which is the one a pattern must be written in.
@@ -626,8 +627,8 @@ class TestAllowSideQuotedFidelity:
 
     def test_opaque_expansion_does_not_satisfy_a_slash_free_guard(self) -> None:
         # `[^/]*` means "no slash in the argument".  The expansion carries a
-        # literal path, so the guard must not approve it - previously the raw
-        # fallback was the empty string `""` and matched.
+        # literal path, so the guard must not approve it - a raw fallback of
+        # the empty string `""` would match.
         result = evaluate_bash_command(
             'echo "${BAR:-/etc/passwd}"', {"*": "ask", "allowed_cmds_regex": [r"^echo\s+[^/]*$"]}
         )
@@ -642,7 +643,7 @@ class TestAllowSideQuotedFidelity:
         assert result["status"] == "allow"
 
     def test_bare_expansion_pattern_matches(self) -> None:
-        # `${x}` renders in its historical short `$x` spelling, so the matching
+        # `${x}` renders in its bare `$x` spelling, so the matching
         # pattern is written that way.
         result = evaluate_bash_command('echo "${x}"', {"*": "ask", "allowed_cmds_regex": [r"^echo\s+\$x$"]})
         assert result["status"] == "allow"

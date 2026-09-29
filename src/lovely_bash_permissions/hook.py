@@ -27,7 +27,7 @@ HOOK_STATUS = {
 #: wrapper-matching regex below has to accept that exact spelling.
 _SHLEX_QUOTE_ESCAPE = "'\"'\"'"
 
-#: Matches a leading ``: '<label>' <emoji> ; `` wrapper previously emitted by
+#: Matches a leading ``: '<label>' <emoji> ; `` wrapper as emitted by
 #: :func:`_hook_command`. The label is a shlex-quoted string, so an embedded
 #: quote appears as the 4-character sequence ``'"'"'`` rather than a bare
 #: ``'``. Requires the ``[♡ perms: `` marker so a user's own ``: 'x' 💚 ; cmd``
@@ -188,8 +188,10 @@ def process_hook_event(event: dict[str, Any]) -> dict[str, Any]:
         reason = (manager and manager.get_error()) or "permissions config load failed"
         return {"action": "ask", "reason": f"config error (fallback to ask): {reason}"}
     except ValueError as exc:
-        # Config exists but is invalid - do not let the command run
-        # (previously this escaped to exit 1, which Devin logs and then runs).
+        # Config exists but is invalid.  Return a block rather than letting
+        # the exception escape: an exit 1 is logged by Devin and the command
+        # runs anyway, so failing this way would approve a command whose
+        # policy could not be read at all.
         return {"action": "block", "reason": f"invalid permissions config (blocked): {exc}"}
 
     try:

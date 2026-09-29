@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from typing import Any, Literal
+from dataclasses import dataclass, field
+from typing import Any, Literal, TypedDict
 
 from .ast import CallExpr, CmdSubst, Node, ProcSubst, Subshell
 from .converter import node_from_json
@@ -23,26 +24,117 @@ from .rules import (
     _compile_pattern,
     check_background_execution,
 )
-from .segments import parse_segments
+from .segments import Segment, _segments_from_ast
 
 #: Regex metacharacters (unescaped) or lone backslashes that mark a pattern
 #: body as more than a plain escaped literal - i.e. not a bare-name anchor.
 _BARE_NAME_META = re.compile(r"(?<!\\)[()\[\]{}.*+?|^$]|\\(?!\\)")
 
 
-def _extract_subshell_contents(tree: dict[str, Any]) -> list[str]:
+# ---------------------------------------------------------------------------
+# Shared per-evaluation state
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ParsedCommand:
+    """A command parsed exactly once, in every representation needed.
+
+    The evaluator needs the raw shfmt JSON (for the heredoc-body and
+    background-detection walks, which key off fields the typed AST does not
+    carry), the typed AST (for the construct/substitution checks and the
+    allowed-pattern walk) and the segment list (for the per-segment policy
+    loop).  All three come from a single shfmt subprocess and a single
+    JSON-to-AST conversion; producing them separately would mean spawning
+    shfmt twice and re-converting the tree three times per evaluation.
+
+    Attributes:
+        raw: The shfmt JSON tree, exactly as :func:`parse` returned it.
+        tree: The converted typed AST, or ``None`` when the converter could
+            not produce one (in which case ``segments`` is empty and every
+            typed-AST pass is a no-op, since there is no tree to walk).
+        segments: Commands extracted from *tree*, in execution order.
+    """
+
+    raw: dict[str, Any]
+    tree: Node | None
+    segments: list[Segment]
+
+
+class _SegmentResultBase(TypedDict):
+    """The always-present part of a per-segment result."""
+
+    index: int
+    command: str
+    arguments: list[str]
+
+
+class SegmentResult(_SegmentResultBase, total=False):
+    """One entry of the result dict's ``segments`` list.
+
+    ``allowed`` / ``blocked`` are evaluation verdicts, not parser output, so
+    they are only present on the paths that actually decided them.
+    """
+
+    allowed: bool
+    blocked: bool
+
+
+@dataclass
+class _Verdict:
+    """Mutable accumulator threaded through the evaluation steps.
+
+    The steps are separated for readability, not for independence: several of
+    them append to ``reasons`` and overwrite ``status``, so they must run in
+    the order :func:`evaluate_bash_command` runs them in.  The order the
+    reasons are appended in is observable - it is the reason string.
+    """
+
+    status: str = "allow"
+    reasons: list[str] = field(default_factory=list)
+    any_segment_not_allowed: bool = False
+    all_matched_patterns: list[str] = field(default_factory=list)
+    visited_commands: set[str] = field(default_factory=set)
+    nested_non_match: set[str] = field(default_factory=set)
+
+
+def _parse_command(command: str) -> ParsedCommand:
+    """Parse and convert a command once, into every form evaluation needs.
+
+    Any parse or shfmt infrastructure failure raises ``ShfmtError``; the
+    top-level hook handler maps it to the configurable ``error`` policy instead
+    of silently falling back to the wildcard.
+    """
+    raw = parse(command)
+    tree = node_from_json(raw)
+    return ParsedCommand(raw=raw, tree=tree, segments=[] if tree is None else _segments_from_ast(tree))
+
+
+def _resolve_rules(config: dict[str, Any], blocked_patterns: list[str]) -> dict[str, Any]:
+    """Resolve every policy key against the config wildcard into ``rules``."""
+    return {
+        "output_redirection": _resolve_level(config, "output_redirection"),
+        "input_redirection": _resolve_level(config, "input_redirection"),
+        "background_execution": _resolve_level(config, "background_execution"),
+        "command_substitution": _resolve_level(config, "command_substitution"),
+        "process_substitution": _resolve_level(config, "process_substitution"),
+        "subshell": _resolve_level(config, "subshell"),
+        "variable_assignment": _resolve_level(config, "variable_assignment"),
+        "blocked_cmds_regex": blocked_patterns,
+    }
+
+
+def _extract_subshell_contents(ast: Node | None) -> list[str]:
     """Extract literal text values from inside CmdSubst/ProcSubst nodes.
 
-    Uses the typed AST (via :func:`~lovely_bash_permissions.converter.node_from_json`)
-    so that substitutions nested inside quoted strings are found -
-    unlike the raw-JSON visitor which missed CmdSubst/ProcSubst
-    hidden inside DblQuoted/SglQuoted parts.
+    Uses the typed AST so that substitutions nested inside quoted strings are
+    found - unlike the raw-JSON visitor which missed CmdSubst/ProcSubst hidden
+    inside DblQuoted/SglQuoted parts.
 
     Returns:
         List of literal text strings found inside command / process substitutions,
         extracted via :func:`~lovely_bash_permissions.inspect._word_value`.
     """
-    ast = node_from_json(tree)
     if ast is None:
         return []
     contents: list[str] = []
@@ -111,7 +203,7 @@ def _heredoc_body_texts(tree: dict[str, Any]) -> list[str]:
     return texts
 
 
-def _subst_flags(tree: dict[str, Any]) -> dict[str, bool]:
+def _subst_flags(ast: Node | None) -> dict[str, bool]:
     """Detect which of the three substitution/subshell constructs appear.
 
     Returns ``{"command_substitution": bool, "process_substitution": bool,
@@ -120,11 +212,9 @@ def _subst_flags(tree: dict[str, Any]) -> dict[str, bool]:
     Uses typed-AST traversal so constructs nested inside quoted strings
     are detected too.
     """
-    ast = node_from_json(tree)
-    if ast is None:
-        return {"command_substitution": False, "process_substitution": False, "subshell": False}
-
     found = {"command_substitution": False, "process_substitution": False, "subshell": False}
+    if ast is None:
+        return found
 
     def visitor(node: Node) -> None:
         if isinstance(node, CmdSubst):
@@ -136,16 +226,6 @@ def _subst_flags(tree: dict[str, Any]) -> dict[str, bool]:
 
     _traverse(ast, visitor, recurse_call_expr_args=True)
     return found
-
-
-def _has_cmd_subst(tree: dict[str, Any]) -> bool:
-    """Check if the AST contains any command or process substitution.
-
-    Retained for backwards compatibility with existing callers; new code
-    should use :func:`_subst_flags` and gate each construct on its own key.
-    """
-    flags = _subst_flags(tree)
-    return flags["command_substitution"] or flags["process_substitution"]
 
 
 def _block_scan_variants(text: str) -> list[str]:
@@ -176,9 +256,9 @@ def _strip_quotes(s: str) -> str:
 def _command_string(name: str, args: list[str]) -> str:
     """Build the full command string used for allowed-pattern matching.
 
-    Mirrors the historical segment-loop semantics: when any argument holds a
-    real value (not a ``$(...)`` placeholder), the whole command line is
-    matched; otherwise only the command name is.
+    When any argument holds a real value (not a ``$(...)`` placeholder), the
+    whole command line is matched; otherwise only the command name is, since
+    the arguments are opaque and matching them could only ever be guessing.
     """
     cleaned = [_strip_quotes(a) for a in args]
     if any("$(...)" not in a for a in cleaned):
@@ -378,6 +458,431 @@ def _blocked_reason(snippet_text: str, pattern: str) -> str:
     return f'Blocked by bash permissions: Argument "{snippet}" matches blocked pattern {pattern}. The tool has not been run'
 
 
+def _whole_command_hits(command: str, blocked_patterns: list[str]) -> list[tuple[str, str]]:
+    """Match the command as written against the blocked patterns.
+
+    The per-segment checks only ever see a segment's *executed* command line, so
+    a blocked token that never reaches one - an expansion default
+    (``echo ${BAR:-/etc/passwd}``), an array assignment (``A=(/etc/passwd)``), a
+    ``[[ -f ... ]]`` test, a comment or a quoted mention - would slip through
+    entirely. Matching the raw string as written closes that gap and keeps the
+    established "block on mention" posture. It is purely additive: a hit here
+    only ever forces a deny.
+    """
+    if not blocked_patterns:
+        return []
+    return _match_texts([_whole_command_scan_text(command)], blocked_patterns, raw_fallback="always")
+
+
+def _substitution_blocked_reasons(ast: Node | None, blocked_patterns: list[str]) -> list[str]:
+    """Deny reasons for blocked tokens reachable only inside a substitution.
+
+    A command substitution's inner command line never becomes a segment, so
+    ``echo $(cat /etc/passwd)`` would otherwise be scanned only as ``echo
+    $(...)``. The typed AST is walked for the substitution contents here; the
+    empty-segments path and the main path both call this, which is why it is
+    one function.
+    """
+    reasons: list[str] = []
+    for text in _extract_subshell_contents(ast):
+        matched, pattern, value = _match_blocked_patterns("", [text], blocked_patterns)
+        if matched:
+            reasons.append(
+                f'Blocked by bash permissions: Argument "{value}" matches blocked pattern '
+                f"{pattern}. The tool has not been run"
+            )
+    return reasons
+
+
+def _heredoc_blocked_reasons(raw: dict[str, Any], blocked_patterns: list[str]) -> list[str]:
+    """Deny reasons for blocked tokens inside heredoc bodies.
+
+    This catches interpreter-as-code vectors that have no bash-level
+    ``$(...)`` expansion - e.g. ``python3 <<EOF\\nopen("/etc/passwd").read()\\nEOF``
+    - which would otherwise read a blocked file if the interpreter were
+    allow-listed. Mirrors the "block on mention" precedent already applied to
+    arguments.
+
+    Takes the *raw* tree on purpose: heredoc bodies live under ``Hdoc``, which
+    the raw walk identifies by the ``Op``/``Hdoc`` pair. The typed AST carries
+    the body as an ordinary ``Word``, which is indistinguishable from a normal
+    redirect target, so converting would cost a walk and buy nothing.
+
+    The empty-segments path and the main path both call this, which is why it
+    is one function.
+    """
+    reasons: list[str] = []
+    if not blocked_patterns:
+        return reasons
+    for body in _heredoc_body_texts(raw):
+        for candidate in _block_scan_variants(body):
+            matched, pattern, _value = _match_blocked_patterns("", [candidate], blocked_patterns)
+            if matched:
+                snippet = candidate.strip()
+                if len(snippet) > 80:
+                    snippet = snippet[:77] + "..."
+                reasons.append(
+                    f'Blocked by bash permissions: Heredoc body contains "{snippet}" '
+                    f"matching blocked pattern {pattern}. The tool has not been run"
+                )
+                break
+    return reasons
+
+
+def _empty_segment_result(
+    config: dict[str, Any],
+    rules: dict[str, Any],
+    parsed: ParsedCommand,
+    flags: dict[str, bool],
+    whole_command_hits: list[tuple[str, str]],
+) -> dict[str, Any]:
+    """Produce the finished result for a command that yielded no segments.
+
+    Security scans still run, so constructs like ``[[ $(cat /etc/passwd) == x ]]``
+    cannot bypass the blocked-path rules just because they produce no exec
+    segments.  A hit on any of them denies outright; only when nothing
+    matched does the wildcard / substitution policy decide.
+    """
+    blocked_patterns: list[str] = config.get("blocked_cmds_regex", [])
+    has_cmd_subst = flags["command_substitution"]
+    has_proc_subst = flags["process_substitution"]
+    wildcard = config.get("*", "ask")
+
+    reasons: list[str] = []
+    if (has_cmd_subst or has_proc_subst) and blocked_patterns:
+        reasons.extend(_substitution_blocked_reasons(parsed.tree, blocked_patterns))
+    if blocked_patterns:
+        reasons.extend(_heredoc_blocked_reasons(parsed.raw, blocked_patterns))
+    for pattern, text in whole_command_hits:
+        reasons.append(_blocked_reason(text, pattern))
+    if reasons:
+        return {"status": "deny", "reason": "; ".join(dict.fromkeys(reasons)), "segments": []}
+
+    if not (has_cmd_subst or has_proc_subst):
+        return {
+            "status": wildcard,
+            "reason": f"<empty command> produced no parseable segments - defaulting to wildcard policy ({wildcard})",
+            "segments": [],
+        }
+
+    # standalone arithmetic like `(( x[$(rm -rf /etc/x)] ))` produces no
+    # segments, so the fallback auto-approved it under "*": "allow" even when
+    # the substitution policy is "deny". Gate it by the resolved substitution
+    # policy; only an explicit "allow" falls through to the wildcard default.
+    # An *inherited* allow (key unset under a permissive wildcard) becomes ask:
+    # the command produced no segments, so we cannot analyse what runs - default
+    # fail-closed.
+    subst_key = "command_substitution" if has_cmd_subst else "process_substitution"
+    policy: str = rules[subst_key]
+    if policy == "allow" and subst_key not in config:
+        policy = "ask"
+    if policy == "allow":
+        return {
+            "status": wildcard,
+            "reason": f"<empty command> produced no parseable segments - defaulting to wildcard policy ({wildcard})",
+            "segments": [],
+        }
+    subst_label = "command substitution" if has_cmd_subst else "process substitution"
+    # A `deny` here is an absolute block, so the reason must not claim the
+    # user can still approve it at runtime.
+    return {
+        "status": policy,
+        "reason": f"{subst_label} denied in config" if policy == "deny" else f"{subst_label} requires approval",
+        "segments": [],
+    }
+
+
+def _collect_allowed_matches(tree: Node | None, allowed_patterns: list[str], verdict: _Verdict) -> None:
+    """Match every ``CallExpr`` in the command against the allowed patterns.
+
+    Real commands are counted here, once per ``CallExpr`` occurrence, whether or
+    not they also became a segment - so the per-segment loop only has to add
+    pseudo-commands (a command name with no ``CallExpr`` behind it, e.g. the
+    ``export`` in ``export FOO``).  A non-matching command nested inside a
+    substitution or subshell is recorded in ``nested_non_match`` for the
+    substitution-policy gate.
+
+    Walks the already-converted typed AST; on the raw JSON this pass would miss
+    substitutions nested inside quoted strings.
+    """
+    if not allowed_patterns or tree is None:
+        return
+
+    def _walk(node: Node, depth: int) -> None:
+        if isinstance(node, CallExpr) and node.args:
+            name = _word_value(node.args[0])
+            raw_args = [_word_raw(a) for a in node.args[1:]]
+            exec_args = [_word_exec(a) for a in node.args[1:]]
+            verdict.visited_commands.add(_command_string(name, raw_args))
+            matched = _match_allowed_patterns(name, raw_args, allowed_patterns, exec_args)
+            if matched:
+                verdict.all_matched_patterns.extend(matched)
+            elif depth > 0:
+                rest = " ".join(_word_value(a) for a in node.args[1:])
+                full_cmd = name if not rest else f"{name} {rest}"
+                verdict.nested_non_match.add(name if name != full_cmd else full_cmd)
+        new_depth = depth + (1 if isinstance(node, (CmdSubst, ProcSubst, Subshell)) else 0)
+        for child in iter_children(node, include_call_args=True):
+            _walk(child, new_depth)
+
+    _walk(tree, 0)
+
+
+def _evaluate_one_segment(
+    segment: Segment,
+    index: int,
+    verdict: _Verdict,
+    *,
+    wildcard: str,
+    allowed_patterns: list[str],
+    blocked_patterns: list[str],
+    variable_assignment_policy: Any,  # noqa: ANN401
+) -> SegmentResult:
+    """Decide one segment's ``allowed`` / ``blocked`` flags.
+
+    Returns the segment result (the per-segment half of the result dict) and
+    folds its verdict into *verdict*: the status downgrade or denial, the deny
+    reason, and - for a pseudo-command the AST walk could not see - the
+    allowed patterns it matched.
+    """
+    cmd_name = segment.get("command", "")
+    args = segment.get("arguments", [])
+    result: SegmentResult = {"index": index, "command": cmd_name, "arguments": args}
+
+    # Handle standalone variable assignments (no command name, only assignments)
+    if cmd_name == "" and args:
+        if variable_assignment_policy == "allow":
+            result["allowed"] = True
+            # If variable_assignment is explicitly "allow", don't override with wildcard policy
+            if not allowed_patterns:
+                verdict.status = "allow"
+                verdict.reasons.append(f"variable assignment allowed: {args}")
+        elif variable_assignment_policy == "deny":
+            result["allowed"] = False
+            verdict.status = "deny"
+            verdict.reasons.append(f"variable assignment denied: {args}")
+        else:  # ask (default)
+            result["allowed"] = False
+            verdict.status = "ask"
+            verdict.reasons.append(f"variable assignment requires approval: {args}")
+    elif allowed_patterns:
+        # Check allowed patterns against command name.
+        # If arguments contain real values (not "$(...)" placeholders),
+        # check full command line so ^ls$ rejects "ls -la".
+        norm_args = segment.get("normalized_arguments", args)
+        matched_patterns = _match_allowed_patterns(cmd_name, args, allowed_patterns, norm_args)
+
+        if matched_patterns:
+            result["allowed"] = True
+            # Real commands are already counted by the AST walk (each CallExpr
+            # occurrence is matched once); only pseudo-commands (no CallExpr in
+            # the AST, e.g. `export FOO` names) are added here.
+            if _command_string(cmd_name, args) not in verdict.visited_commands:
+                verdict.all_matched_patterns.extend(matched_patterns)
+        else:
+            result["allowed"] = False
+            verdict.any_segment_not_allowed = True
+    else:
+        # No allow-list configured. A command is approved only by an
+        # explicit "*": "allow" wildcard; otherwise it is left to the
+        # wildcard (ask/deny) below.
+        if wildcard == "allow":
+            result["allowed"] = True
+        else:
+            result["allowed"] = False
+            verdict.any_segment_not_allowed = True
+
+    # Check blocked patterns. The hook's own inert `:` label is treated like
+    # any other command, so it needs `Exec(:)` in the Devin allow list just
+    # as a user-written `:` would; the label carries no privilege, because
+    # the payload after `;` is scanned per-segment and as a whole command.
+    if blocked_patterns:
+        blocked_norm_args: list[str] | None = segment.get("normalized_arguments")
+        matched, pattern, value = _match_blocked_patterns(cmd_name, args, blocked_patterns, blocked_norm_args)
+        if matched:
+            result["blocked"] = True
+            verdict.status = "deny"
+            verdict.reasons.append(
+                f'Blocked by bash permissions: Argument "{value}" matches blocked pattern '
+                f"{pattern}. The tool has not been run"
+            )
+        else:
+            result["blocked"] = False
+    else:
+        result["blocked"] = False
+
+    return result
+
+
+def _apply_redirection_policies(
+    segments: list[Segment], rules: dict[str, Any], raw: dict[str, Any], verdict: _Verdict
+) -> None:
+    """Run the output / input / background policies and aggregate them.
+
+    Deny overrides ask in aggregation (deny anywhere → deny overall); ask only
+    downgrades an otherwise-allow verdict, and a reason is only shown when its
+    own status is the final one.
+    """
+    results = [
+        r
+        for r in (
+            _check_segments_output_redirs(segments, rules),
+            _check_segments_input_redirs(segments, rules),
+            check_background_execution(raw, rules),
+        )
+        if r.get("matched", True)
+    ]
+    if any(r["status"] == "deny" for r in results):
+        verdict.status = "deny"
+    elif any(r["status"] == "ask" for r in results) and verdict.status == "allow":
+        verdict.status = "ask"
+    for r in results:
+        if r["status"] == verdict.status:
+            verdict.reasons.append(r["reason"])
+
+
+def _apply_wildcard_resolution(
+    segment_results: list[SegmentResult], verdict: _Verdict, *, wildcard: str, allowed_patterns: list[str]
+) -> None:
+    """Resolve segments no allow-list approved to the wildcard policy.
+
+    Commands not approved by an allow-list or by an explicit ``"*": "allow"``
+    wildcard resolve to the wildcard policy (ask/deny).
+    """
+    if not verdict.any_segment_not_allowed:
+        return
+    non_matching = [seg["command"] for seg in segment_results if not seg.get("allowed", True)]
+    if non_matching:
+        names = [f'"{name}"' for name in non_matching]
+        if allowed_patterns:
+            if len(non_matching) == 1:
+                verdict.reasons.append(f"{names[0]} command does not match allowed patterns")
+            else:
+                verdict.reasons.append(f"{', '.join(names)} commands do not match allowed patterns")
+        elif len(non_matching) == 1:
+            verdict.reasons.append(f"{names[0]} command is not allowlisted; wildcard policy is {wildcard}")
+        else:
+            verdict.reasons.append(f"{', '.join(names)} commands are not allowlisted; wildcard policy is {wildcard}")
+    if verdict.status == "allow":
+        verdict.status = wildcard
+
+
+def _apply_substitution_policies(
+    parsed: ParsedCommand,
+    rules: dict[str, Any],
+    flags: dict[str, bool],
+    blocked_patterns: list[str],
+    verdict: _Verdict,
+) -> None:
+    """Gate the command/process substitution policies onto the verdict.
+
+    Also scans the substitution *contents* against the blocked patterns, and
+    reports commands nested inside a substitution that the allow-list did not
+    match - the non-match itself was already recorded by the AST walk (only
+    depth > 0 CallExprs contribute).
+    """
+    has_cmd_subst = flags["command_substitution"]
+    has_proc_subst = flags["process_substitution"]
+    if not (has_cmd_subst or has_proc_subst):
+        return
+
+    if blocked_patterns:
+        for reason in _substitution_blocked_reasons(parsed.tree, blocked_patterns):
+            verdict.status = "deny"
+            verdict.reasons.append(reason)
+
+    if not verdict.nested_non_match:
+        return
+    names_str = ", ".join(f'"{n}"' for n in sorted(verdict.nested_non_match))
+    verdict.reasons.append(f"{names_str} commands inside substitution/subshell do not match allowed patterns")
+    sub_policy = rules.get("command_substitution", "ask") if has_cmd_subst else rules.get("process_substitution", "ask")
+    if verdict.status == "deny":
+        # Already denied by blocked patterns check above, keep it
+        pass
+    elif sub_policy == "allow":
+        verdict.status = "ask"  # Validation failed, allow policy → ask for approval
+    elif sub_policy == "deny":
+        verdict.status = "deny"  # Validation failed, deny policy → reject outright
+        # The block comes from configuration, so say so: the non-match reason
+        # above explains *what* was rejected, this explains that no amount of
+        # approval at runtime would let it through.
+        verdict.reasons.append(
+            ("command substitution" if has_cmd_subst else "process substitution") + " denied in config"
+        )
+    else:  # ask
+        verdict.status = sub_policy
+
+
+def _construct_policy_verdict(
+    flag: bool, key: str, label: str, current: str, rules: dict[str, Any]
+) -> tuple[str, str | None]:
+    """Gate one construct policy onto an existing verdict.
+
+    ``deny`` is an ABSOLUTE block: it wins over the wildcard, over allow
+    patterns, and over any other policy, and it is not overridable at
+    runtime - only a config change lifts it.  That is what
+    ``variable_assignment`` and the redirection policies already do (see
+    :func:`_apply_redirection_policies`).  These construct keys were the
+    holdouts: their gate only ran when the verdict was still ``allow``, so
+    under the default ``"*": "ask"`` a ``deny`` here was silently inert - the
+    wildcard had already spoken and the policy was never consulted.
+
+    ``ask`` keeps its narrower meaning: it only downgrades an otherwise
+    ``allow`` verdict, i.e. it prevents auto-approval, and keeps the
+    "requires approval" wording because that is still actionable at runtime.
+    A verdict that is already ``deny`` is never softened.
+
+    Returns:
+        The new status, and the reason to append (or None for no change).
+    """
+    if not flag or current == "deny":
+        return current, None
+    pol = rules.get(key, "ask")
+    if pol == "deny":
+        return "deny", f"{label} denied in config"
+    if pol != "allow" and current == "allow":
+        return pol, f"{label} requires approval"
+    return current, None
+
+
+def _apply_construct_policies(flags: dict[str, bool], rules: dict[str, Any], verdict: _Verdict) -> None:
+    """Gate ``$(...)``, ``<(...)`` and ``( ... )`` independently."""
+    for flag, key, label in (
+        (flags["command_substitution"], "command_substitution", "command substitution"),
+        (flags["process_substitution"], "process_substitution", "process substitution"),
+        # ( ... ) paren-group subshells: inner segments are already scanned
+        # above (blocked patterns / allowed patterns); the policy gates the
+        # construct itself.
+        (flags["subshell"], "subshell", "subshell (...)"),
+    ):
+        verdict.status, added_reason = _construct_policy_verdict(flag, key, label, verdict.status, rules)
+        if added_reason:
+            verdict.reasons.append(added_reason)
+
+
+def _finalize_reason(verdict: _Verdict, config: dict[str, Any]) -> str:
+    """Assemble the human-readable reason, de-duplicated, in append order.
+
+    Approval reasons are only included when the status is ``allow``; when there
+    is nothing to say at all, the verdict falls back to describing the wildcard.
+    """
+    if verdict.status == "allow" and verdict.all_matched_patterns:
+        # Build approval reason from ALL matched patterns (top-level + nested)
+        noun = "pattern" if len(verdict.all_matched_patterns) == 1 else "patterns"
+        verdict.reasons.append(f"command matches allowed {noun}: {', '.join(verdict.all_matched_patterns)}")
+    if verdict.reasons:
+        seen: list[str] = []
+        for r in verdict.reasons:
+            if r not in seen:
+                seen.append(r)
+        return "; ".join(seen)
+    if verdict.all_matched_patterns:
+        noun = "pattern" if len(verdict.all_matched_patterns) == 1 else "patterns"
+        return f"command matches allowed {noun}: {', '.join(verdict.all_matched_patterns)}"
+    wildcard = config.get("*", "ask")
+    return "allowed by wildcard policy (allow)" if wildcard == "allow" else "allowed"
+
+
 def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any]:
     """Evaluate a bash command against a permission configuration.
 
@@ -411,404 +916,72 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
               evaluate-added metadata, absent from parse_segments output)
 
     Raises:
-        LovelyDevinPermissionsError: If the command cannot be parsed or shfmt
-            fails.  The caller (hook) maps this to the ``error`` policy.
+        ShfmtError: If the command cannot be parsed or shfmt fails.  The
+            caller (hook) maps this to the ``error`` policy.
     """
-    # Extract rules from config
     allowed_patterns = config.get("allowed_cmds_regex", [])
     blocked_patterns = config.get("blocked_cmds_regex", [])
+    rules = _resolve_rules(config, blocked_patterns)
 
-    rules = {
-        "output_redirection": _resolve_level(config, "output_redirection"),
-        "input_redirection": _resolve_level(config, "input_redirection"),
-        "background_execution": _resolve_level(config, "background_execution"),
-        "command_substitution": _resolve_level(config, "command_substitution"),
-        "process_substitution": _resolve_level(config, "process_substitution"),
-        "subshell": _resolve_level(config, "subshell"),
-        "variable_assignment": _resolve_level(config, "variable_assignment"),
-        "blocked_cmds_regex": blocked_patterns,
-    }
+    # One parse, one conversion, one segment extraction - shared by every pass
+    # below.  Any parse or shfmt infrastructure failure raises ShfmtError; the
+    # top-level hook handler maps it to the configurable `error` policy instead
+    # of silently falling back to the wildcard.
+    parsed = _parse_command(command)
 
-    # Parse the command to check for command substitution.  Any parse or
-    # shfmt infrastructure failure raises LovelyDevinPermissionsError; the
-    # top-level hook handler maps it to the configurable `error` policy
-    # instead of silently falling back to the wildcard (bug #2).
-    raw_tree = parse(command)
+    # Whole-command blocked scan, computed before the segment loop but applied
+    # after it, so the documented return shape - the `segments` key - is always
+    # present and a deny recorded later can never overwrite this one.
+    whole_command_hits = _whole_command_hits(command, blocked_patterns)
 
-    # Whole-command blocked scan. The per-segment checks below only ever see a
-    # segment's *executed* command line, so a blocked token that never reaches
-    # one - an expansion default (`echo ${BAR:-/etc/passwd}`), an array
-    # assignment (`A=(/etc/passwd)`), a `[[ -f ... ]]` test, a comment or a
-    # quoted mention - would slip through entirely. Matching the raw string as
-    # written closes that gap and keeps the established "block on mention"
-    # posture. It is purely additive: a hit here only ever forces a deny.
-    whole_command_hits: list[tuple[str, str]] = []
-    if blocked_patterns:
-        whole_command_hits = _match_texts([_whole_command_scan_text(command)], blocked_patterns, raw_fallback="always")
-
-    subst_flags = _subst_flags(raw_tree)
-    has_cmd_subst = subst_flags["command_substitution"]
-    has_proc_subst = subst_flags["process_substitution"]
-    has_paren_subshell = subst_flags["subshell"]
-
-    # Extract segments
-    segments = parse_segments(command)
+    flags = _subst_flags(parsed.tree)
+    segments = parsed.segments
 
     # Handle empty-segment case: if no segments found, apply wildcard policy.
-    # Security scans still run so constructs like `[[ $(cat /etc/passwd) == x ]]`
-    # cannot bypass the blocked-path rules just because they produce no exec
-    # segments (bug #2).
     if not segments:
-        _wildcard = config.get("*", "ask")
-        _empty_status: str = "allow"
-        _empty_reasons: list[str] = []
-        if (has_cmd_subst or has_proc_subst) and blocked_patterns:
-            for text in _extract_subshell_contents(raw_tree):
-                matched, pattern, value = _match_blocked_patterns("", [text], blocked_patterns)
-                if matched:
-                    _empty_status = "deny"
-                    _empty_reasons.append(
-                        f'Blocked by bash permissions: Argument "{value}" matches blocked pattern '
-                        f"{pattern}. The tool has not been run"
-                    )
-        if blocked_patterns:
-            for body in _heredoc_body_texts(raw_tree):
-                candidates = _block_scan_variants(body)
-                for candidate in candidates:
-                    matched, pattern, _value = _match_blocked_patterns("", [candidate], blocked_patterns)
-                    if matched:
-                        snippet = candidate.strip()
-                        if len(snippet) > 80:
-                            snippet = snippet[:77] + "..."
-                        _empty_status = "deny"
-                        _empty_reasons.append(
-                            f'Blocked by bash permissions: Heredoc body contains "{snippet}" '
-                            f"matching blocked pattern {pattern}. The tool has not been run"
-                        )
-                        break
-        for _pattern, _text in whole_command_hits:
-            _empty_status = "deny"
-            _empty_reasons.append(_blocked_reason(_text, _pattern))
-        if _empty_reasons:
-            _empty_status = "deny"
-            _empty_reason = "; ".join(dict.fromkeys(_empty_reasons))
-        elif has_cmd_subst or has_proc_subst:
-            # standalone arithmetic like `(( x[$(rm -rf /etc/x)] ))`
-            # produces no segments, so the fallback auto-approved it under
-            # "*": "allow" even when the substitution policy is "deny". Gate
-            # it by the resolved substitution policy; only an explicit
-            # "allow" falls through to the wildcard default. An *inherited*
-            # allow (key unset under a permissive wildcard) becomes ask: the
-            # command produced no segments, so we cannot analyse what runs -
-            # default fail-closed.
-            _cs_policy = rules["command_substitution"] if has_cmd_subst else rules["process_substitution"]
-            _cs_key = "command_substitution" if has_cmd_subst else "process_substitution"
-            if _cs_policy == "allow" and _cs_key not in config:
-                _cs_policy = "ask"
-            if _cs_policy == "allow":
-                _empty_status = _wildcard
-                _empty_reason = (
-                    f"<empty command> produced no parseable segments - defaulting to wildcard policy ({_wildcard})"
-                )
-            else:
-                _empty_status = _cs_policy
-                # A `deny` here is an absolute block, so the reason must not
-                # claim the user can still approve it at runtime.
-                _subst_label = "command substitution" if has_cmd_subst else "process substitution"
-                _empty_reason = (
-                    f"{_subst_label} denied in config" if _cs_policy == "deny" else f"{_subst_label} requires approval"
-                )
-        else:
-            _empty_status = _wildcard
-            _empty_reason = (
-                f"<empty command> produced no parseable segments - defaulting to wildcard policy ({_wildcard})"
-            )
-        return {"status": _empty_status, "reason": _empty_reason, "segments": []}
+        return _empty_segment_result(config, rules, parsed, flags, whole_command_hits)
 
     # Determine the wildcard policy (default action for unmatched commands)
     wildcard = config.get("*", "ask")
-
-    # Evaluate each segment
-    overall_status = "allow"
-    reasons = []
-    any_segment_not_allowed = False
-    variable_assignment_policy = rules.get("variable_assignment", "ask")
-
-    # Default values for redirection results (initialized before loop so they're always defined).
-    output_result: dict[str, Any] = {"status": "allow", "matched": False, "reason": "no output redirection"}
-    input_result: dict[str, Any] = {"status": "allow", "matched": False, "reason": "no input redirection"}
-    bg_result: dict[str, Any] = {"status": "allow", "matched": False, "reason": "no background execution"}
+    verdict = _Verdict()
 
     # Collect all matched patterns across ALL segments (joined into one reason, like TS)
+    _collect_allowed_matches(parsed.tree, allowed_patterns, verdict)
 
-    all_matched_patterns: list[str] = []
-    visited_commands: set[str] = set()
-    nested_non_match: set[str] = set()
-    segment_results: list[dict[str, Any]] = []
+    segment_results = [
+        _evaluate_one_segment(
+            segment,
+            i,
+            verdict,
+            wildcard=wildcard,
+            allowed_patterns=allowed_patterns,
+            blocked_patterns=blocked_patterns,
+            variable_assignment_policy=rules.get("variable_assignment", "ask"),
+        )
+        for i, segment in enumerate(segments)
+    ]
 
-    if allowed_patterns:
-        ast_root = node_from_json(raw_tree)
-        if ast_root is not None:
-
-            def _walk(node: Node, depth: int) -> None:
-                if isinstance(node, CallExpr) and node.args:
-                    name = _word_value(node.args[0])
-                    raw_args = [_word_raw(a) for a in node.args[1:]]
-                    exec_args = [_word_exec(a) for a in node.args[1:]]
-                    visited_commands.add(_command_string(name, raw_args))
-                    matched = _match_allowed_patterns(name, raw_args, allowed_patterns, exec_args)
-                    if matched:
-                        all_matched_patterns.extend(matched)
-                    elif depth > 0:
-                        rest = " ".join(_word_value(a) for a in node.args[1:])
-                        full_cmd = name if not rest else f"{name} {rest}"
-                        nested_non_match.add(name if name != full_cmd else full_cmd)
-                new_depth = depth + (1 if isinstance(node, (CmdSubst, ProcSubst, Subshell)) else 0)
-                for child in iter_children(node, include_call_args=True):
-                    _walk(child, new_depth)
-
-            _walk(ast_root, 0)
-
-    for i, segment in enumerate(segments):
-        cmd_name = segment.get("command", "")
-        args = segment.get("arguments", [])
-        segment_result = {"index": i, "command": cmd_name, "arguments": args}
-
-        # Handle standalone variable assignments (no command name, only assignments)
-        if cmd_name == "" and args:
-            if variable_assignment_policy == "allow":
-                segment_result["allowed"] = True
-                # If variable_assignment is explicitly "allow", don't override with wildcard policy
-                if not allowed_patterns:
-                    overall_status = "allow"
-                    reasons.append(f"variable assignment allowed: {args}")
-            elif variable_assignment_policy == "deny":
-                segment_result["allowed"] = False
-                overall_status = "deny"
-                reasons.append(f"variable assignment denied: {args}")
-            else:  # ask (default)
-                segment_result["allowed"] = False
-                overall_status = "ask"
-                reasons.append(f"variable assignment requires approval: {args}")
-        elif allowed_patterns:
-            # Check allowed patterns against command name.
-            # If arguments contain real values (not "$(...)" placeholders),
-            # check full command line so ^ls$ rejects "ls -la".
-            norm_args = segment.get("normalized_arguments", args)
-            matched_patterns = _match_allowed_patterns(cmd_name, args, allowed_patterns, norm_args)
-
-            if matched_patterns:
-                segment_result["allowed"] = True
-                # Real commands are already counted by the AST walk above (each
-                # CallExpr occurrence is matched once); only pseudo-commands
-                # (no CallExpr in the AST, e.g. `export FOO` names) are added here.
-                if _command_string(cmd_name, args) not in visited_commands:
-                    all_matched_patterns.extend(matched_patterns)
-            else:
-                segment_result["allowed"] = False
-                any_segment_not_allowed = True
-        else:
-            # No allow-list configured. A command is approved only by an
-            # explicit "*": "allow" wildcard; otherwise it is left to the
-            # wildcard (ask/deny) below.
-            if wildcard == "allow":
-                segment_result["allowed"] = True
-            else:
-                segment_result["allowed"] = False
-                any_segment_not_allowed = True
-
-        # Check blocked patterns. The hook's own inert `:` label is treated like
-        # any other command, so it needs `Exec(:)` in the Devin allow list just
-        # as a user-written `:` would; the label carries no privilege, because
-        # the payload after `;` is scanned per-segment and as a whole command.
-        if blocked_patterns:
-            norm_args = segment.get("normalized_arguments")
-            matched, pattern, value = _match_blocked_patterns(cmd_name, args, blocked_patterns, norm_args)
-            if matched:
-                segment_result["blocked"] = True
-                overall_status = "deny"
-                reasons.append(
-                    f'Blocked by bash permissions: Argument "{value}" matches blocked pattern '
-                    f"{pattern}. The tool has not been run"
-                )
-            else:
-                segment_result["blocked"] = False
-        else:
-            segment_result["blocked"] = False
-
-        segment_results.append(segment_result)
-
-    # Scan heredoc bodies as raw text against blocked patterns. This catches
-    # interpreter-as-code vectors that have no bash-level `$(...)` expansion -
-    # e.g. `python3 <<EOF\nopen("/etc/passwd").read()\nEOF` - which would
-    # otherwise read a blocked file if the interpreter were allow-listed.
-    # Mirrors the "block on mention" precedent already applied to args.
+    # Scan heredoc bodies as raw text against blocked patterns.
     if blocked_patterns:
-        for body in _heredoc_body_texts(raw_tree):
-            candidates = _block_scan_variants(body)
-            for candidate in candidates:
-                matched, pattern, _value = _match_blocked_patterns("", [candidate], blocked_patterns)
-                if matched:
-                    snippet = candidate.strip()
-                    if len(snippet) > 80:
-                        snippet = snippet[:77] + "..."
-                    overall_status = "deny"
-                    reasons.append(
-                        f'Blocked by bash permissions: Heredoc body contains "{snippet}" '
-                        f"matching blocked pattern {pattern}. The tool has not been run"
-                    )
-                    break
+        for reason in _heredoc_blocked_reasons(parsed.raw, blocked_patterns):
+            verdict.status = "deny"
+            verdict.reasons.append(reason)
 
-    # Apply the whole-command blocked scan computed before the segment loop.
-    # Done here (not as an early return) so the documented return shape - the
-    # `segments` key - is always present, and so a deny recorded below can
-    # never overwrite this one.
-    if whole_command_hits:
-        for _pattern, _text in whole_command_hits:
-            overall_status = "deny"
-            reasons.append(_blocked_reason(_text, _pattern))
+    for pattern, text in whole_command_hits:
+        verdict.status = "deny"
+        verdict.reasons.append(_blocked_reason(text, pattern))
 
-    # Collect matched patterns as approval reasons (only shown when status is allow).
-    # NOTE: approval_reason must be built AFTER _walk() so it includes nested command matches.
+    # Redirection policy reads the segments, which already cover nested redirections.
+    _apply_redirection_policies(segments, rules, parsed.raw, verdict)
 
-    # Check redirection rules (from segments - single source of truth, issue #2/#3)
-    output_result = _check_segments_output_redirs(segments, rules)
+    _apply_wildcard_resolution(segment_results, verdict, wildcard=wildcard, allowed_patterns=allowed_patterns)
 
-    input_result = _check_segments_input_redirs(segments, rules)
+    _apply_substitution_policies(parsed, rules, flags, blocked_patterns, verdict)
 
-    bg_result = check_background_execution(raw_tree, rules)
+    _apply_construct_policies(flags, rules, verdict)
 
-    # Deny overrides ask in aggregation (deny anywhere → deny overall)
-    _redir_results = [r for r in (output_result, input_result, bg_result) if r.get("matched", True)]
-    if any(r["status"] == "deny" for r in _redir_results):
-        overall_status = "deny"
-    elif any(r["status"] == "ask" for r in _redir_results) and overall_status == "allow":
-        overall_status = "ask"
-    for _r in _redir_results:
-        if _r["status"] == overall_status:
-            reasons.append(_r["reason"])
-
-    # Commands not approved by an allow-list or by an explicit "*": "allow"
-    # wildcard resolve to the wildcard policy (ask/deny).
-    if any_segment_not_allowed:
-        non_matching = [seg["command"] for seg in segment_results if not seg.get("allowed", True)]
-        if non_matching:
-            names = [f'"{name}"' for name in non_matching]
-            if allowed_patterns:
-                if len(non_matching) == 1:
-                    reasons.append(f"{names[0]} command does not match allowed patterns")
-                else:
-                    reasons.append(f"{', '.join(names)} commands do not match allowed patterns")
-            elif len(non_matching) == 1:
-                reasons.append(f"{names[0]} command is not allowlisted; wildcard policy is {wildcard}")
-            else:
-                reasons.append(f"{', '.join(names)} commands are not allowlisted; wildcard policy is {wildcard}")
-        if overall_status == "allow":
-            overall_status = wildcard
-
-    # Command substitution / process substitution policy checks; also check
-    # inner content against blocked patterns and allowed patterns.
-    if has_cmd_subst or has_proc_subst:
-        subshell_contents = _extract_subshell_contents(raw_tree)
-
-        # Check nested commands against blocked patterns (already done above, keep it)
-        if blocked_patterns and subshell_contents:
-            for text in subshell_contents:
-                matched, pattern, value = _match_blocked_patterns("", [text], blocked_patterns)
-                if matched:
-                    overall_status = "deny"
-                    reasons.append(
-                        f'Blocked by bash permissions: Argument "{value}" matches blocked pattern '
-                        f"{pattern}. The tool has not been run"
-                    )
-
-        # Also validate nested commands against allowed patterns.
-        # Non-matching commands inside substitutions were collected by the
-        # unconditional AST walk above (only depth>0 CallExprs contribute).
-        if nested_non_match:
-            names_str = ", ".join(f'"{n}"' for n in sorted(nested_non_match))
-            reasons.append(f"{names_str} commands inside substitution/subshell do not match allowed patterns")
-            _sub_policy = (
-                rules.get("command_substitution", "ask") if has_cmd_subst else rules.get("process_substitution", "ask")
-            )
-            if overall_status == "deny":
-                # Already denied by blocked patterns check above, keep it
-                pass
-            elif _sub_policy == "allow":
-                overall_status = "ask"  # Validation failed, allow policy → ask for approval
-            elif _sub_policy == "deny":
-                overall_status = "deny"  # Validation failed, deny policy → reject outright
-                # The block comes from configuration, so say so: the non-match
-                # reason above explains *what* was rejected, this explains that
-                # no amount of approval at runtime would let it through.
-                reasons.append(
-                    ("command substitution" if has_cmd_subst else "process substitution") + " denied in config"
-                )
-            else:  # ask
-                overall_status = _sub_policy
-
-    def _construct_policy_verdict(flag: bool, key: str, label: str, current: str) -> tuple[str, str | None]:
-        """Gate one construct policy onto an existing verdict.
-
-        ``deny`` is an ABSOLUTE block: it wins over the wildcard, over allow
-        patterns, and over any other policy, and it is not overridable at
-        runtime - only a config change lifts it.  That is what
-        ``variable_assignment`` and the redirection policies already do (see the
-        aggregation above).  These construct keys were the holdouts: their gate
-        only ran when the verdict was still ``allow``, so under the default
-        ``"*": "ask"`` a ``deny`` here was silently inert - the wildcard had
-        already spoken and the policy was never consulted.
-
-        ``ask`` keeps its narrower meaning: it only downgrades an otherwise
-        ``allow`` verdict, i.e. it prevents auto-approval, and keeps the
-        "requires approval" wording because that is still actionable at runtime.
-        A verdict that is already ``deny`` is never softened.
-
-        Returns:
-            The new status, and the reason to append (or None for no change).
-        """
-        if not flag or current == "deny":
-            return current, None
-        pol = rules.get(key, "ask")
-        if pol == "deny":
-            return "deny", f"{label} denied in config"
-        if pol != "allow" and current == "allow":
-            return pol, f"{label} requires approval"
-        return current, None
-
-    # $(...), <(...) and ( ... ) each gate independently.
-    for _flag, _key, _label in (
-        (has_cmd_subst, "command_substitution", "command substitution"),
-        (has_proc_subst, "process_substitution", "process substitution"),
-        # ( ... ) paren-group subshells: inner segments are already scanned
-        # above (blocked patterns / allowed patterns); the policy gates the
-        # construct itself.
-        (has_paren_subshell, "subshell", "subshell (...)"),
-    ):
-        overall_status, _added_reason = _construct_policy_verdict(_flag, _key, _label, overall_status)
-        if _added_reason:
-            reasons.append(_added_reason)
-
-    # Only include approval reasons when status is allow; hide them for ask/deny
-    if overall_status == "allow" and all_matched_patterns:
-        # Build approval reason from ALL matched patterns (top-level + nested)
-        noun = "pattern" if len(all_matched_patterns) == 1 else "patterns"
-        approval_reason = f"command matches allowed {noun}: {', '.join(all_matched_patterns)}"
-        reasons.append(approval_reason)
-    if reasons:
-        seen: list[str] = []
-        for r in reasons:
-            if r not in seen:
-                seen.append(r)
-        reason_str = "; ".join(seen)
-    elif all_matched_patterns:
-        noun = "pattern" if len(all_matched_patterns) == 1 else "patterns"
-        reason_str = f"command matches allowed {noun}: {', '.join(all_matched_patterns)}"
-    else:
-        _wp = config.get("*", "ask")
-        reason_str = "allowed by wildcard policy (allow)" if _wp == "allow" else "allowed"
     return {
-        "status": overall_status,
-        "reason": reason_str,
+        "status": verdict.status,
+        "reason": _finalize_reason(verdict, config),
         "segments": segment_results,
     }

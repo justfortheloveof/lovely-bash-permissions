@@ -4,14 +4,15 @@ Tests the evaluate_bash_command function across different rule types,
 aggregation behavior, and edge cases.
 """
 
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import pytest
 
 from lovely_bash_permissions.config.devin import exec_permission_to_regex
-from lovely_bash_permissions.errors import LovelyDevinPermissionsError
-from lovely_bash_permissions.evaluate import evaluate_bash_command
+from lovely_bash_permissions.errors import ShfmtError
+from lovely_bash_permissions.evaluate import _construct_policy_verdict, evaluate_bash_command
 from lovely_bash_permissions.hook import _hook_command
+from lovely_bash_permissions.parser import parse as parser_parse
 from tests.config.conftest import make_config
 
 
@@ -135,12 +136,11 @@ class TestAllowedPatterns:
         assert result["status"] == "allow"  # 'echo x' matches pattern
 
     def test_cstyle_prelude_cmdsubst_not_bypassed(self) -> None:
-        """C-style prelude substitutions in for ((...)) are no longer dropped.
+        """C-style prelude substitutions in for ((...)) must not be dropped.
 
-        Before the ForClause.cstyle fix this returned allow - the rm ran in
-        the loop init and every typed-AST pass (command_substitution policy, blocked-path
-        scan, segment extraction) missed it. The foreach form
-        for i in $(rm ...) was already correctly denied.
+        The rm runs in the loop init, so every typed-AST pass (command_substitution
+        policy, blocked-path scan, segment extraction) has to reach it.  The
+        foreach form for i in $(rm ...) is denied the same way.
         """
         result = evaluate_bash_command(
             "for ((i=$(rm -rf /etc/passwd); i<1; i++)); do :; done",
@@ -148,15 +148,15 @@ class TestAllowedPatterns:
         )
         assert result["status"] == "deny"
 
-    def test_cstyle_prelude_cmdsubst_visible_to_subshell_pass(self) -> None:
-        """_has_cmd_subst sees the C-style prelude via the typed AST."""
+    def test_cstyle_prelude_cmdsubst_visible_to_substitution_pass(self) -> None:
+        """_subst_flags sees the C-style prelude via the typed AST."""
         from lovely_bash_permissions.converter import node_from_json
-        from lovely_bash_permissions.evaluate import _has_cmd_subst
+        from lovely_bash_permissions.evaluate import _subst_flags
         from lovely_bash_permissions.parser import parse
 
-        raw = parse("for ((i=$(date); i<1; i++)); do :; done", "bash")
-        assert node_from_json(raw) is not None
-        assert _has_cmd_subst(raw) is True
+        tree = node_from_json(parse("for ((i=$(date); i<1; i++)); do :; done", "bash"))
+        assert tree is not None
+        assert _subst_flags(tree)["command_substitution"] is True
 
 
 class TestBlockedPatterns:
@@ -171,7 +171,7 @@ class TestBlockedPatterns:
         assert result["status"] == "deny"
 
     def test_blocked_pattern_no_match(self) -> None:
-        """No blocked match but no allow-list -> wildcard ask governs (bug #7)."""
+        """No blocked match but no allow-list -> wildcard ask governs."""
         result = evaluate_bash_command(
             "ls /var/log",
             make_config(blocked=["/etc/passwd"]),
@@ -200,7 +200,7 @@ class TestBlockedPatterns:
         assert result["status"] == "deny"
 
     def test_multiple_commands_none_blocked(self) -> None:
-        """Multiple commands, none blocked, no allow-list -> wildcard ask governs (bug #7)."""
+        """Multiple commands, none blocked, no allow-list -> wildcard ask governs."""
         result = evaluate_bash_command(
             "ls && cat file.txt",
             make_config(blocked=["/etc/passwd"]),
@@ -392,11 +392,11 @@ class TestWholeCommandBlockedScan:
         assert result["status"] == "allow"
 
     def test_hook_label_is_scanned_like_any_other_text(self) -> None:
-        """The whole-command scan no longer carves the label out.
+        """The whole-command scan includes the label.
 
-        It used to strip the `: '[♡ perms: ...]'` wrapper so a deny reason
-        quoting a path could not deny the command it described. The label is now
-        an ordinary command, so a blocked pattern matching its literal text
+        The `: '[♡ perms: ...]'` wrapper is an ordinary command, so a deny reason
+        quoting a path can deny the command it describes, and a blocked pattern
+        matching the label's literal text
         denies - which is the documented sharp edge, and why the README tells
         users not to write patterns like ``perms``.
         """
@@ -408,8 +408,8 @@ class TestWholeCommandBlockedScan:
     def test_hook_label_does_not_deny_a_realistic_blocked_pattern(self) -> None:
         """A denied command's label still describes, and re-denies, its payload.
 
-        Without the carve-out this is strictly *safer*: re-evaluating a wrapped
-        command whose payload trips a blocked pattern denies, same as before.
+        Re-evaluating a wrapped
+        command whose payload trips a blocked pattern denies.
         """
         config = {"*": "allow", "allowed_cmds_regex": [r"^echo(\s+.*)?$"], "blocked_cmds_regex": [r"\/etc"]}
         rewritten = _hook_command("block", "Argument cat /etc/passwd matches blocked pattern \\/etc", "cat /etc/passwd")
@@ -428,7 +428,7 @@ class TestWildcardIsBaseline:
     A command is auto-approved only by an allowed-pattern match or an explicit
     ``"*": "allow"``. No policy (subshell, variable_assignment, redirection,
     blocked-only configs) grants a blanket allow for commands that are neither
-    allow-listed nor wildcard-allowed - bug #7 and the broader fail-open class.
+    allow-listed nor wildcard-allowed - the broader fail-open class.
     """
 
     def test_blocked_only_config_denies_param_expansion_pattern(self) -> None:
@@ -436,7 +436,7 @@ class TestWildcardIsBaseline:
 
         The whole-command blocked scan covers text a segment's executed
         arguments never show (here `${x%@/etc/*}` collapses to `$x`), so the
-        original bug #7 verdict is no longer "ask".
+        verdict is "deny" rather than "ask".
         """
         result = evaluate_bash_command(
             "echo ${x%@/etc/*}",
@@ -446,7 +446,7 @@ class TestWildcardIsBaseline:
         assert "matches blocked pattern /etc" in result["reason"]
 
     def test_blocked_only_config_asks_plain_command(self) -> None:
-        """Blocked-only config under ask wildcard no longer auto-allows."""
+        """Blocked-only config under ask wildcard asks."""
         result = evaluate_bash_command(
             "echo hi",
             {"*": "ask", "blocked_cmds_regex": [r"/etc"]},
@@ -528,10 +528,10 @@ class TestWildcardIsBaseline:
         assert "wildcard policy (ask)" in result["reason"]
 
     def test_cmdsubst_in_test_clause_resolves_to_real_segment(self) -> None:
-        """bug #2/#6: test-operand command substitution now yields a real cat segment.
+        """Test-operand command substitution yields a real cat segment.
 
-        Verdict is unchanged (ask under "*": "ask"), but the reason now names
-        the real command instead of falling through the empty-segment path.
+        Verdict is unchanged (ask under "*": "ask"), but the reason names the
+        real command instead of falling through the empty-segment path.
         """
         result = evaluate_bash_command(
             "[[ $(cat /etc/passwd) == x ]]",
@@ -541,11 +541,11 @@ class TestWildcardIsBaseline:
         assert '"cat" command is not allowlisted' in result["reason"]
 
     def test_empty_segment_blocked_subshell_denied(self) -> None:
-        """bug #2: blocked-path scan denies before the empty-segment return.
+        """The blocked-path scan denies before the empty-segment return.
 
-        Post bug #6 fix this now fires via the real cat segment
-        blocked-path check rather than the empty-segment subshell scan -
-        verdict and reason are unchanged.
+        The deny comes from the real `cat` segment's blocked-path check rather
+        than the empty-segment subshell scan - verdict and reason are
+        unchanged.
         """
         result = evaluate_bash_command(
             "[[ $(cat /etc/passwd) == x ]]",
@@ -555,7 +555,7 @@ class TestWildcardIsBaseline:
 
 
 class TestBlockedReasonDedup:
-    """Blocked reason messages must not repeat identically (bug #8).
+    """Blocked reason messages must not repeat identically.
 
     The same blocked hit was reported once per pass: the segment loop and the
     subshell-contents pass each appended the identical message, so the final
@@ -886,9 +886,9 @@ class TestSubshellHandling:
     def test_subshell_nested_in_quotes_blocked(self) -> None:
         """Blocked paths inside substitutions within quotes must be caught.
 
-        Regression test for issue #5: CmdSubst nodes nested inside
-        DblQuoted/SglQuoted parts were previously missed by the raw-JSON
-        visitor, allowing blocked paths hidden inside quoted substitutions.
+        CmdSubst nodes nested inside DblQuoted/SglQuoted parts are checked by
+        the raw-JSON visitor too, so blocked paths hidden inside quoted
+        substitutions cannot slip through.
         """
         result = evaluate_bash_command(
             'echo "$(cat /etc/passwd)"',
@@ -943,9 +943,9 @@ class TestSubshellHandling:
 
     def test_subshell_matched_pattern_listed_once(self) -> None:
         """A command matched by both the segment loop and the AST walk counts once.
-
-        Regression: `echo $(ls -l)` previously listed `^ls` twice - once from
-        the flattened segment and once from the AST traversal of the same call.
+        `echo $(ls -l)` yields one segment for `echo` and one for `ls`, and the
+        same `ls` call is not visited again by the AST traversal, so `^ls` is
+        listed once.
         """
         result = evaluate_bash_command(
             "echo $(ls -l)",
@@ -1034,15 +1034,16 @@ class TestSubshellHandling:
 
 
 class TestParamExpansionSubstitutions:
-    """Substitutions inside parameter expansions are enforced (bugs 1 & 3).
+    """Substitutions inside parameter expansions are enforced.
 
-    Previously `${var/pat/$(cmd)}` (and `${var:-$(cmd)}`, `${var%$(cmd)}`,
-    `${var:offset:$(cmd)}`) were invisible to the subshell, allowed-pattern,
-    and blocked-path passes, so the inner command was auto-approved.
+    `${var/pat/$(cmd)}` (and `${var:-$(cmd)}`, `${var%$(cmd)}`,
+    `${var:offset:$(cmd)}`) must be visible to the subshell, allowed-pattern,
+    and blocked-path passes, so the inner command is not auto-approved by the
+    outer command's allow pattern.
     """
 
     def test_repl_replacement_subshell_denied(self) -> None:
-        """Bug 1: substitution in replacement part abides by command_substitution=deny."""
+        """Substitution in replacement part abides by command_substitution=deny."""
         result = evaluate_bash_command(
             "echo ${x//a/$(rm -rf x)}",
             make_config(allowed=[r"^echo(\s+.*)?$"], command_substitution="deny"),
@@ -1050,7 +1051,7 @@ class TestParamExpansionSubstitutions:
         assert result["status"] == "deny"
 
     def test_repl_pattern_subshell_denied(self) -> None:
-        """Bug 1: substitution in the pattern part abides by command_substitution=deny."""
+        """Substitution in the pattern part abides by command_substitution=deny."""
         result = evaluate_bash_command(
             "echo ${x//$(recon_cmd)/y}",
             make_config(allowed=[r"^echo(\s+.*)?$"], command_substitution="deny"),
@@ -1058,7 +1059,7 @@ class TestParamExpansionSubstitutions:
         assert result["status"] == "deny"
 
     def test_repl_replacement_blocked_path_denied(self) -> None:
-        """Bug 1: blocked path read via the replacement part is denied."""
+        """Blocked path read via the replacement part is denied."""
         result = evaluate_bash_command(
             "echo ${x//a/$(cat /etc/passwd)}",
             make_config(blocked=["^/etc/passwd$"], wildcard="ask"),
@@ -1066,7 +1067,7 @@ class TestParamExpansionSubstitutions:
         assert result["status"] == "deny"
 
     def test_repl_replacement_inner_command_not_allow_listed(self) -> None:
-        """Bug 1: inner command can't ride the outer echo allow pattern."""
+        """Inner command can't ride the outer echo allow pattern."""
         result = evaluate_bash_command(
             "echo ${x//a/$(rm -rf x)}",
             make_config(allowed=[r"^echo(\s+.*)?$"]),
@@ -1074,7 +1075,7 @@ class TestParamExpansionSubstitutions:
         assert result["status"] == "ask"
 
     def test_exp_default_subshell_denied(self) -> None:
-        """Bug 3: substitution in ${var:-...} abides by command_substitution=deny."""
+        """Substitution in ${var:-...} abides by command_substitution=deny."""
         result = evaluate_bash_command(
             'echo "${y:-$(rm -rf x)}"',
             make_config(allowed=[r"^echo(\s+.*)?$"], command_substitution="deny"),
@@ -1082,7 +1083,7 @@ class TestParamExpansionSubstitutions:
         assert result["status"] == "deny"
 
     def test_exp_trim_subshell_denied(self) -> None:
-        """Bug 3: substitution in ${var%...} abides by command_substitution=deny."""
+        """Substitution in ${var%...} abides by command_substitution=deny."""
         result = evaluate_bash_command(
             'echo "${z%$(rm -rf x)}"',
             make_config(allowed=[r"^echo(\s+.*)?$"], command_substitution="deny"),
@@ -1090,7 +1091,7 @@ class TestParamExpansionSubstitutions:
         assert result["status"] == "deny"
 
     def test_exp_default_blocked_path_denied(self) -> None:
-        """Bug 3: blocked path in ${var:-...} is denied."""
+        """Blocked path in ${var:-...} is denied."""
         result = evaluate_bash_command(
             'echo "${w:-$(cat /etc/passwd)}"',
             make_config(blocked=["^/etc/passwd$"], wildcard="ask"),
@@ -1098,7 +1099,7 @@ class TestParamExpansionSubstitutions:
         assert result["status"] == "deny"
 
     def test_slice_subshell_denied(self) -> None:
-        """Bug 3: substitution in ${var:offset} abides by command_substitution=deny."""
+        """Substitution in ${var:offset} abides by command_substitution=deny."""
         result = evaluate_bash_command(
             "echo ${x:0:$(rm -rf x)}",
             make_config(allowed=[r"^echo(\s+.*)?$"], command_substitution="deny"),
@@ -1108,11 +1109,10 @@ class TestParamExpansionSubstitutions:
 
 class TestOpaqueSubstitutionPatternGuard:
     """Opaque `$(...)` args must not slip past restrictive allow patterns.
-
-    Regression: `find . $(echo -delete)` was auto-approved because the outer
-    command was matched as `find . $(...)` (the negative lookahead never saw
-    `-delete`), while the inner `echo -delete` was individually approved -
-    even though the command line that actually runs is `find . -delete`.
+    `find . $(echo -delete)` must not be approved by matching the outer
+    command as `find . $(...)` - the negative lookahead would never see
+    `-delete` - while the inner `echo -delete` is individually approved:
+    the command line that actually runs is `find . -delete`.
     """
 
     def test_lookahead_pattern_bypass_not_allowed(self) -> None:
@@ -1151,12 +1151,12 @@ class TestEdgeCases:
 
     def test_empty_command(self) -> None:
         """Empty command cannot be parsed → raises, routed via error policy."""
-        with pytest.raises(LovelyDevinPermissionsError):
+        with pytest.raises(ShfmtError):
             evaluate_bash_command("", make_config())
 
     def test_whitespace_only(self) -> None:
         """Whitespace-only command cannot be parsed → raises."""
-        with pytest.raises(LovelyDevinPermissionsError):
+        with pytest.raises(ShfmtError):
             evaluate_bash_command("   ", make_config())
 
     def test_single_command(self) -> None:
@@ -1242,11 +1242,11 @@ class TestHookLabelRecognition:
     """The hook's `:` label is gated like any other command, not exempted.
 
     The hook rewrites commands as ``: '<label>' <emoji> ; <cmd>`` and Devin
-    feeds that string back. The ``:`` used to be special-cased and skipped by
-    both the allowed-pattern and blocked-pattern checks. It no longer is: it is
-    an ordinary command, permitted by the same ``Exec(:)`` entry ``--setup``
-    writes into the user's Devin config (which ``--setup`` used to get wrong -
-    see ``TestLabelExecEntry``). The payload after ``;`` is still fully vetted.
+    feeds that string back.  The ``:`` is an ordinary command, checked by both
+    the allowed-pattern and blocked-pattern checks, and permitted by the same
+    ``Exec(:)`` entry ``--setup``
+    writes into the user's Devin config (see ``TestLabelExecEntry``). The
+    payload after ``;`` is still fully vetted.
     """
 
     #: What ``Exec(:)`` in a Devin config resolves to.
@@ -1315,8 +1315,8 @@ class TestHookLabelRecognition:
 
         ``perms`` is included deliberately: it is the one plausible-looking
         pattern a user might reach for, and it *does* deny here - the label
-        carries that literal word and the label is no longer carved out of the
-        blocked scan. Pinned so the sharp edge stays visible; the README tells
+        carries that literal word and the whole label is in the blocked scan.
+        Pinned so the sharp edge stays visible; the README tells
         users not to write such patterns.
         """
         rewritten = _hook_command("allow", "command matches allowed pattern: ^echo(\\s+.*)?$", "echo hi")
@@ -1346,10 +1346,10 @@ class TestHookLabelRecognition:
 
 
 class TestPerKindOutputRedirection:
-    """Tests for per-kind output redirection policy resolution (bug fix)."""
+    """Tests for per-kind output redirection policy resolution."""
 
     def test_stderr_to_dev_null_allow_with_ask_wildcard(self) -> None:
-        """stderr_to_dev_null=allow approves only the redirect, not the command (bug #7)."""
+        """stderr_to_dev_null=allow approves only the redirect, not the command."""
         result = evaluate_bash_command(
             "echo hi 2> /dev/null",
             {
@@ -1382,7 +1382,7 @@ class TestPerKindOutputRedirection:
         assert result["status"] == "deny"
 
     def test_stdout_to_dev_null_allow(self) -> None:
-        """> /dev/null with stdout_to_dev_null=allow still asks an unapproved command (bug #7)."""
+        """> /dev/null with stdout_to_dev_null=allow still asks an unapproved command."""
         result = evaluate_bash_command(
             "echo hi > /dev/null",
             {
@@ -1434,7 +1434,7 @@ class TestPerKindOutputRedirection:
         assert result["status"] == "deny"
 
     def test_input_redirection_uses_wildcard(self) -> None:
-        """Input redirection object policy allow does not approve the command (bug #7)."""
+        """Input redirection object policy allow does not approve the command."""
         result = evaluate_bash_command(
             "cat < /tmp/in.txt",
             {
@@ -1649,7 +1649,7 @@ class TestResultStructure:
         assert "input redirection requires approval" in result["reason"]
 
     def test_dup_input_redirection_allowed_when_policy_allow(self) -> None:
-        """Input fd duplication allowed only for the redirect, not the command (bug #7)."""
+        """Input fd duplication allowed only for the redirect, not the command."""
         result = evaluate_bash_command(
             "cat <&2",
             {"*": "ask", "input_redirection": "allow"},
@@ -1666,8 +1666,8 @@ class TestResultStructure:
         assert "input redirection denied from" in result["reason"]
 
     def test_incomplete_heredoc_raises(self) -> None:
-        """Incomplete heredoc (unclosed) cannot be parsed → raises (bug #2 fix)."""
-        with pytest.raises(LovelyDevinPermissionsError):
+        """Incomplete heredoc (unclosed) cannot be parsed → raises."""
+        with pytest.raises(ShfmtError):
             evaluate_bash_command("cat << EOF", make_config())
 
     def test_input_redirect_to_blocked_path_denied(self) -> None:
@@ -1679,7 +1679,7 @@ class TestResultStructure:
         assert result["status"] == "deny"
 
     def test_input_redirect_allowed_when_policy_allow(self) -> None:
-        """Input redirection=allow approves only the redirect, not the command (bug #7)."""
+        """Input redirection=allow approves only the redirect, not the command."""
         result = evaluate_bash_command(
             "cat < /tmp/in.txt",
             {"*": "ask", "input_redirection": "allow"},
@@ -1703,7 +1703,7 @@ class TestResultStructure:
         assert result["status"] == "deny"
 
     def test_output_redirect_to_blocked_path_denied(self) -> None:
-        """Output redirection to a blocked path is denied (issue #1)."""
+        """Output redirection to a blocked path is denied."""
         result = evaluate_bash_command(
             "echo hi > /etc/passwd",
             make_config(blocked=["^/etc/"]),
@@ -1744,7 +1744,7 @@ class TestResultStructure:
         assert result["status"] == "allow"
 
     def test_block_output_redirection_denied(self) -> None:
-        """Block-level output redirection to a blocked path denies (issue #1)."""
+        """Block-level output redirection to a blocked path denies."""
         result = evaluate_bash_command(
             "{ echo hi; } > /etc/passwd",
             make_config(blocked=["^/etc/"]),
@@ -1768,7 +1768,7 @@ class TestResultStructure:
         assert result["status"] == "deny"
 
     def test_empty_segments_with_allowed_patterns_asks(self) -> None:
-        """Unmatched export command with allowed patterns → ask (bug 1 fix)."""
+        """Unmatched export command with allowed patterns → ask."""
         result = evaluate_bash_command("export BOGUS=true bogus", make_config(allowed=["^ls"]))
         assert result["status"] == "ask"
 
@@ -1813,12 +1813,12 @@ class TestResultStructure:
         assert result["status"] == "ask"
 
     def test_export_bogus_rejected(self) -> None:
-        """'export BOGUS=true bogus' → ask (regression for bug 1: unmatched segment wildcard policy)."""
+        """'export BOGUS=true bogus' → ask (unmatched segment wildcard policy)."""
         result = evaluate_bash_command("export BOGUS=true bogus", make_config(allowed=["^ls"]))
         assert result["status"] == "ask"
 
     def test_export_bogus_reason_not_auto_approved(self) -> None:
-        """Reason should NOT contain 'auto-approved' (regression for bug 2)."""
+        """Reason should NOT contain 'auto-approved'."""
         result = evaluate_bash_command("export BOGUS=true bogus", make_config(allowed=["^ls"]))
         reason = result["reason"].lower()
         assert "auto-approved" not in reason, f"Reason should not contain 'auto-approved': {reason}"
@@ -2100,9 +2100,9 @@ class TestVariableAssignment:
     def test_assignment_subshell_redir_blocked_path_denied(self) -> None:
         """A blocked-path write inside a `x=$(...)` substitution is denied.
 
-        Regression: `x=$(echo hi > /etc/passwd)` was auto-approved because the
-        standalone-assignment branch never flattened the inner command, so its
-        redirection target was invisible to the blocked-path check.
+        The standalone-assignment branch must flatten the inner command, so
+        `x=$(echo hi > /etc/passwd)` exposes its redirection target to the
+        blocked-path check.
         """
         result = evaluate_bash_command(
             "x=$(echo hi > /etc/passwd)",
@@ -2114,9 +2114,8 @@ class TestVariableAssignment:
     def test_assignment_subshell_output_redir_policy_applies(self) -> None:
         """The output-redirection policy applies inside `x=$(...)` substitutions.
 
-        Regression: `x=$(echo hi > /tmp/out)` was approved even with
-        output_redirection=ask, because the inner segment (with its redirection)
-        was never surfaced.
+        The inner segment (with its redirection) must be surfaced, so
+        `x=$(echo hi > /tmp/out)` asks under output_redirection=ask.
         """
         result = evaluate_bash_command(
             "x=$(echo hi > /tmp/out)",
@@ -2147,14 +2146,13 @@ class TestVariableAssignment:
 class TestDeclarationOperandsAreVariableAssignments:
     """A declaration builtin's operands reach the variable_assignment policy.
 
-    Regression: the operands used to hang off the variant segment
-    (``[('export', ['FOO=bar'])]``), and the policy is only ever consulted for
-    a segment whose command is `""`.  So with
+    The operands are split into their own variable-assignment segment rather
+    than hanging off the variant segment (``[('export', ['FOO=bar'])]``),
+    because the policy is only ever consulted for
+    a segment whose command is `""`.  With
     ``{"*": "allow", "variable_assignment": "deny"}`` the bare ``FOO=bar``
-    denied while every declared form was approved - the policy was bypassed by
-    typing one extra word in front of the assignment.  The operands are now
-    split into their own variable-assignment segment, so both spellings of the
-    same assignment are gated identically.
+    denies, and every declared form must deny with it - otherwise the policy
+    would be bypassed by typing one extra word in front of the assignment.
     """
 
     _CONFIG: ClassVar[dict[str, str]] = {"*": "allow", "variable_assignment": "deny"}
@@ -2217,15 +2215,13 @@ class TestDeclarationOperandsAreVariableAssignments:
 class TestCaptureOutputIsAlsoAVariableAssignment:
     """`x=$(cmd)` is an assignment *and* a substitution - both policies apply.
 
-    There used to be a carve-out that withheld the variable-assignment segment
-    when the value captured command output, on the theory that the operation
-    belonged to ``command_substitution`` alone.  It was applied inconsistently
-    (only on the assigns-alongside-a-command path, never for a standalone
-    assignment or a declaration operand), so two spellings of the same shell
-    operation got different verdicts - `FOO=$(rm -rf /) ls` was allowed while
-    `FOO=$(rm -rf /)` was denied.  The carve-out is gone: every assignment
-    yields a variable-assignment segment, and the substitution policies are
-    applied on top of it by the evaluator, so both gates fire.
+    Every assignment
+    yields a variable-assignment segment - including the ones whose value
+    captures command output, and including each spelling of that shape. The
+    substitution policies are
+    applied on top of it by the evaluator, so both gates fire, and
+    `FOO=$(rm -rf /) ls` cannot get a different verdict from
+    `FOO=$(rm -rf /)`.
     """
 
     _CONFIG: ClassVar[dict[str, str]] = {
@@ -2245,8 +2241,7 @@ class TestCaptureOutputIsAlsoAVariableAssignment:
         assert "variable assignment denied" in result["reason"], source
 
     def test_every_spelling_of_the_same_operation_agrees(self) -> None:
-        # The bug this replaces: the `ls` variant slipped through while the
-        # bare one did not.
+        # The `ls` variant must not slip through while the bare one denies.
         for source in ("FOO=$(rm -rf /) ls", "FOO=$(rm -rf /)", "export FOO=$(rm -rf /)"):
             assert evaluate_bash_command(source, self._CONFIG)["status"] == "deny", source
 
@@ -2262,7 +2257,7 @@ class TestCaptureOutputIsAlsoAVariableAssignment:
 
     def test_array_element_substitution_keeps_the_variable_assignment(self) -> None:
         # `A=($(cmd))` puts the substitution in an array *element*, and is
-        # reported identically to the value form now that no carve-out exists.
+        # reported identically to the value form.
         result = evaluate_bash_command("export A=($(cmd))", self._CONFIG)
         assert [(s["command"], s["arguments"]) for s in result["segments"]] == [
             ("", ["A=($(...))"]),
@@ -2347,10 +2342,8 @@ class TestBackgroundExecutionCompound:
 
 
 class TestCompoundCommandRedirections:
-    """Redirections on time/funcdef/coproc statements are not dropped.
-
-    Regression: `time echo hi > /etc/passwd` was auto-approved because the
-    converter unwrapped the inner Stmt and lost its redirections.
+    """Redirections on time/funcdef/coproc statements are not dropped: the inner
+    Stmt's redirections survive, so `time echo hi > /etc/passwd` is gated.
     """
 
     def test_compound_input_redirection_not_duplicated(self) -> None:
@@ -2867,18 +2860,13 @@ class TestAdvancedBashConstructs:
 class TestArithmeticCommandSubstitutionPolicy:
     """`(( ... $(...) ))` is gated by the command_substitution policy.
 
-    This command used to yield *zero* segments, so it took the empty-segment
-    path - which applies the substitution policy directly, and downgrades an
-    inherited `allow` to `ask` because nothing could be analysed. The
-    ``ArithmCmd`` handler now recurses, so the substituted command is a real
-    segment and the command is judged like its five sibling spellings
+    The substituted command is a real segment, so the command is judged like
+    its five sibling spellings
     (``x=$(cmd)``, ``let x=$(cmd)``, ``[[ -n $(cmd) ]]``, ``$(( $(cmd) ))``,
-    ``$(cmd)``) - verified to agree on every combination below. What changes is
-    the verdict for two combinations, both a consequence of that consistency:
-    under ``"*": "allow"`` the substituted command is now visible and the
-    wildcard genuinely approves it, and under ``"*": "ask"`` the verdict is
-    `ask` (as it is for every sibling) rather than the substitution policy's
-    `deny`.
+    ``$(cmd)``) - verified to agree on every combination below. Under
+    ``"*": "allow"`` the substituted command is visible and the
+    wildcard genuinely approves it; under ``"*": "ask"`` the verdict is
+    `ask` (as it is for every sibling).
     """
 
     CMD = "(( x[$(rm -rf /etc/x)] ))"
@@ -2887,8 +2875,8 @@ class TestArithmeticCommandSubstitutionPolicy:
         assert evaluate_bash_command(self.CMD, {"*": "allow", "command_substitution": "deny"})["status"] == "deny"
 
     def test_allow_wildcard_inherited_substitution_allow(self) -> None:
-        # The substituted command is a real segment now, so the wildcard's
-        # inherited allow is honoured instead of being downgraded.
+        # The substituted command is a real segment, so the wildcard's
+        # inherited allow is honoured rather than downgraded.
         result = evaluate_bash_command(self.CMD, {"*": "allow"})
         assert result["status"] == "allow"
         assert "rm" in [s["command"] for s in result["segments"]]
@@ -2901,9 +2889,7 @@ class TestArithmeticCommandSubstitutionPolicy:
 
     def test_ask_wildcard_deny_subshell(self) -> None:
         # `deny` is an absolute block: it wins over the wildcard, so the
-        # substitution is refused outright rather than prompting.  This is the
-        # case that used to report `ask`, because the gate only ran when the
-        # verdict was still `allow` and the wildcard had already spoken.
+        # substitution is refused outright rather than prompting.
         result = evaluate_bash_command(self.CMD, {"*": "ask", "command_substitution": "deny"})
         assert result["status"] == "deny"
         assert "command substitution denied in config" in result["reason"]
@@ -2937,6 +2923,165 @@ class TestArithmeticCommandSubstitutionPolicy:
         assert evaluate_bash_command("(( x = 5 ))", {"*": "allow", "command_substitution": "deny"})["status"] == "allow"
 
 
+class TestEmptySegmentSubstitutionGateIsUnreachable:
+    """`_empty_segment_result`'s substitution arm is a dead security gate - pin it.
+
+    `_empty_segment_result` is reached only when segment extraction produced
+    nothing.  Its last arm gates on the resolved substitution policy, so that a
+    command carrying `$(...)` but no inspectable segment cannot fall through to
+    a permissive wildcard.  That arm became unreachable when the `ArithmCmd`
+    handler in `segments.py` started recursing into `(( ... ))`, because every
+    substitution spelling now surfaces the substituted command as a real
+    segment.
+
+    The arm is a *fail-closed gate*, so it is kept rather than deleted: if a
+    future change reintroduces a substitution spelling that yields no segment,
+    this is the code that stops it auto-approving, and a deletion would remove
+    that stop silently.  These tests pin the two facts the deadness rests on,
+    so the arm cannot be reached by accident without a test going red:
+
+    1. every substitution spelling yields at least one segment, so the
+       empty-segment path is not taken for any of them (test below); and
+    2. if the arm *is* reached, it does what it says - it denies or asks on the
+       substitution policy rather than deferring to the wildcard.
+    """
+
+    #: One command per substitution spelling bash accepts, including the
+    #: `(( ... ))` form whose handler change is what retired the arm.  Nested
+    #: expansions (`${#$(cmd)}`, `${!$(cmd)}`, `${$(cmd)}`) are zsh-only and
+    #: never reach the evaluator, so they are deliberately absent.
+    SUBSTITUTION_SPELLINGS: ClassVar[list[str]] = [
+        "$(cmd)",
+        "`cmd`",
+        "<(cmd)",
+        ">(cmd)",
+        "echo $(cmd)",
+        "echo `cmd`",
+        "cat <(cmd)",
+        "cat >(cmd)",
+        "x=$(cmd)",
+        "x+=( $(cmd) )",
+        "A=( $(cmd) )",
+        "export A=$(cmd)",
+        "readonly A=$(cmd)",
+        "let x=$(cmd)",
+        "(( x=$(cmd) ))",
+        "(( $(cmd) ))",
+        "(( y = $(cmd) ))",
+        "(( x[$(cmd)] ))",
+        "$(( $(cmd) ))",
+        "${x:-$(cmd)}",
+        "${x//$(cmd)/y}",
+        "[[ -n $(cmd) ]]",
+        "[[ $(cmd) == y ]]",
+        "[[ ( $(cmd) == a ) ]]",
+        "if $(cmd); then ls; fi",
+        "while $(cmd); do ls; done",
+        "for i in $(cmd); do ls; done",
+        "f() { $(cmd); }",
+        "{ $(cmd); }",
+        "( $(cmd) )",
+        "time $(cmd)",
+        "coproc c { $(cmd); }",
+        'echo "$(cmd)"',
+        'x="pre$(cmd)post"',
+    ]
+
+    def test_every_substitution_spelling_yields_a_segment(self) -> None:
+        """The invariant that makes the arm dead: no substitution goes segmentless.
+
+        If this ever fails, a substitution can reach `_empty_segment_result`
+        with a substitution flag set, and the dead arm becomes live code again.
+        """
+        segmentless = [
+            spelling
+            for spelling in self.SUBSTITUTION_SPELLINGS
+            if not evaluate_bash_command(spelling, {"*": "allow"})["segments"]
+        ]
+        assert segmentless == [], (
+            f"these substitutions produced no segments, reviving the empty-segment gate: {segmentless}"
+        )
+
+    def test_gate_would_deny_rather_than_defer_to_wildcard(self) -> None:
+        """Reached directly: a substitution-only command cannot inherit an allow.
+
+        `{"*": "allow"}` with the key unset is the dangerous shape - if the gate
+        deferred to the wildcard it would auto-approve a command nothing had
+        inspected.  It must downgrade to `ask`.
+        """
+        result = self._gate({"*": "allow"}, 'echo "$(cmd)"')
+        assert result == {
+            "status": "ask",
+            "reason": "command substitution requires approval",
+            "segments": [],
+        }
+
+    @staticmethod
+    def _gate(config: dict[str, Any], raw: str) -> dict[str, Any]:
+        """Call `_empty_segment_result` as the evaluator would if it got here.
+
+        The evaluator reaches it only via `if not segments`; the flags are
+        derived from the real tree, so the substitution key the gate picks is
+        the same one it would pick in production.
+        """
+        from lovely_bash_permissions.evaluate import (
+            _empty_segment_result,
+            _parse_command,
+            _resolve_rules,
+            _subst_flags,
+        )
+
+        parsed = _parse_command(raw)
+        # The test helper only makes sense for a command that *does* produce
+        # segments - that is the very fact under test elsewhere in this class.
+        assert parsed.segments, "test helper needs a command that does produce segments"
+        blocked = config.get("blocked_cmds_regex", [])
+        return _empty_segment_result(
+            config,
+            _resolve_rules(config, blocked),
+            parsed,
+            _subst_flags(parsed.tree),
+            [],
+        )
+
+    def test_gate_deny_is_absolute(self) -> None:
+        """`deny` blocks outright and does not claim the user can still approve it."""
+        result = self._gate({"*": "allow", "command_substitution": "deny"}, 'echo "$(cmd)"')
+        assert result == {
+            "status": "deny",
+            "reason": "command substitution denied in config",
+            "segments": [],
+        }
+
+    def test_gate_explicit_allow_falls_through_to_wildcard(self) -> None:
+        """An *explicit* `allow` is the one case that defers to the wildcard.
+
+        The inherited-allow downgrade is what makes the gate fail closed; an
+        explicit opt-in is the user's own decision and is honoured.
+        """
+        result = self._gate({"*": "allow", "command_substitution": "allow"}, 'echo "$(cmd)"')
+        assert result["status"] == "allow"
+        assert "defaulting to wildcard policy (allow)" in result["reason"]
+
+    def test_gate_process_substitution_label(self) -> None:
+        """The same gate, keyed on process substitution, reports its own label."""
+        result = self._gate({"*": "allow", "process_substitution": "deny"}, "cat <(cmd)")
+        assert result == {
+            "status": "deny",
+            "reason": "process substitution denied in config",
+            "segments": [],
+        }
+
+    def test_gate_still_runs_blocked_scans_first(self) -> None:
+        """A blocked path in the substitution wins over the substitution policy."""
+        result = self._gate(
+            {"*": "allow", "command_substitution": "allow", "blocked_cmds_regex": ["/etc/shadow"]},
+            'echo "$(cat /etc/shadow)"',
+        )
+        assert result["status"] == "deny"
+        assert "/etc/shadow" in result["reason"]
+
+
 class TestDeepNestingRecursion:
     """deep nesting converts and evaluates; past the cap, fail closed."""
 
@@ -2952,13 +3097,13 @@ class TestDeepNestingRecursion:
 
         monkeypatch.setattr(conv, "_MAX_RECURSION_LIMIT", 2000)
         deep = "echo " + "$(" * 400 + "true" + ")" * 400
-        with pytest.raises(LovelyDevinPermissionsError):
+        with pytest.raises(ShfmtError):
             conv.parse_ast(deep)
 
 
 class TestExecutedFormMatching:
-    """Executed-form matching (NEW_BUGS #1): quote-split / backslash-escaped
-    spellings cannot dodge blocked-path checks or guard patterns.
+    """Quote-split / backslash-escaped spellings cannot dodge blocked-path
+    checks or guard patterns.
 
     Wildcard is ``ask`` (mirrors the user's real config): under
     ``"*": "allow"`` a guard-tripped command would fall through to the allow
@@ -3010,17 +3155,17 @@ class TestExecutedFormMatching:
         assert result["status"] == "deny"
 
     def test_safe_single_quoted_find_still_allowed(self) -> None:
-        """A safe single-quoted find stays auto-approved (union-regression guard)."""
+        """A safe single-quoted find stays auto-approved (union guard)."""
         result = evaluate_bash_command("find . -name '*.txt'", self.CONFIG)
         assert result["status"] == "allow"
 
 
 class TestRedirectionOnlyOperands:
-    """Redirection-only operands of && / || / | must not bypass policy (NEW_BUGS #3).
+    """Redirection-only operands of && / || / | must not bypass policy.
 
     shfmt emits e.g. `> /etc/x && cat file` as an operand dict with Redirs but
-    no Type and no Cmd; before the fix the redirection was silently dropped
-    and slipped past all output-redirection / blocked-path checks.
+    no Type and no Cmd; the redirection must not be silently dropped, or it
+    slips past all output-redirection / blocked-path checks.
     """
 
     CONFIG_A: ClassVar[dict[str, str | list[str]]] = {
@@ -3128,13 +3273,12 @@ class TestSubstitutionKeySplit:
         assert "command substitution denied in config" in result["reason"]
 
     def test_arithmetic_cmdsubst_inherited_allow_is_honoured(self) -> None:
-        """`(( x[$(rm)] ))` is no longer zero-segment.
+        """`(( x[$(rm)] ))` yields a segment for the substituted command.
 
-        The substituted command is extracted now, so with only `"*": "allow"`
-        there is something to analyse and the wildcard genuinely approves it.
-        Previously the empty-segment path downgraded the inherited allow to
-        `ask` precisely *because* it could not see what ran; that reasoning no
-        longer applies, and this is the fail-open the recursion closed. Every
+        With only `"*": "allow"` there is then something to analyse and the
+        wildcard genuinely approves it.  Downgrading an inherited allow to `ask`
+        is reserved for a line that yields nothing to analyse, and this one does
+        not. Every
         sibling spelling of the same substitution behaves the same way.
         """
         result = evaluate_bash_command("(( x[$(rm)] ))", {"*": "allow"})
@@ -3146,12 +3290,11 @@ class TestDenyIsAbsolute:
     """A `deny` on any policy key is an absolute block.
 
     The three construct keys - `command_substitution`, `process_substitution`
-    and `subshell` - used to be consulted only when the verdict was still
-    `allow`, so under the default `"*": "ask"` a `deny` on one of them was
-    silently inert: the wildcard had already produced `ask` and the policy was
-    never read. `variable_assignment` and the redirection policies never had
-    that problem (they set or force `deny` outright), which made these three
-    the odd ones out. They are now absolute too.
+    and `subshell` - are read whatever verdict the wildcard produced, so under
+    the default `"*": "ask"` a `deny` on one of them is not inert: the
+    construct policy denies on top of the wildcard's `ask`.  `deny` is an
+    absolute block, exactly as `variable_assignment` and the redirection
+    policies are, and unlike the narrower `ask`.
     """
 
     # key -> a command that exercises exactly that construct
@@ -3174,8 +3317,7 @@ class TestDenyIsAbsolute:
 
     @pytest.mark.parametrize(("key", "command"), CONSTRUCTS)
     def test_deny_blocks_from_ask_and_allow_wildcards(self, key: str, command: str) -> None:
-        # These are the cases that used to report `ask`: the wildcard had
-        # already spoken, so the construct policy was never consulted.
+        # The wildcard has already spoken; the construct policy still denies.
         for wildcard in ("ask", "allow"):
             result = evaluate_bash_command(command, {"*": wildcard, key: "deny"})
             assert result["status"] == "deny", (key, wildcard)
@@ -3253,3 +3395,127 @@ class TestDenyIsAbsolute:
         result = evaluate_bash_command("( $(rm x) )", {"*": "ask", "command_substitution": "deny"})
         assert result["status"] == "deny"
         assert "command substitution denied in config" in result["reason"]
+
+
+class TestParseOnce:
+    """The evaluator parses and converts each command exactly once.
+
+    ``evaluate_bash_command`` needs the raw shfmt JSON (the heredoc-body and
+    background walks key off fields the typed AST does not carry), the typed
+    AST (construct detection, the allowed-pattern walk) and the segment list.
+    All three come from a single parse - one shfmt subprocess and
+    one JSON-to-AST conversion per evaluation - because the helpers that need
+    one must share it rather than re-derive it from the raw JSON.  Re-deriving
+    is not free: each
+    ``node_from_json`` re-measures the JSON nesting depth and may raise the
+    interpreter's recursion limit.  These tests pin the sharing.
+    """
+
+    COMMAND = "ls -la | grep txt && cat foo | wc -l && for i in 1 2; do echo $i; done"
+    CONFIG: ClassVar[dict[str, Any]] = {
+        "*": "ask",
+        "allowed_cmds_regex": ["^ls(\\s|$)", "^cat(\\s|$)", "^grep(\\s|$)", "^wc(\\s|$)", "^echo(\\s|$)"],
+    }
+
+    @staticmethod
+    def _count(
+        command: str, config: dict[str, Any], monkeypatch: pytest.MonkeyPatch, *, expect_error: bool = False
+    ) -> tuple[int, int]:
+        """Return (parse() calls, top-level node_from_json() calls) for one evaluation."""
+        import lovely_bash_permissions.converter as converter_mod
+        import lovely_bash_permissions.evaluate as ev
+        import lovely_bash_permissions.segments as segments_mod
+
+        counts = [0, 0]
+        real_parse = parser_parse
+        real_nfj = converter_mod.node_from_json
+
+        def counting_parse(*args: object, **kwargs: object) -> object:
+            counts[0] += 1
+            return real_parse(*args, **kwargs)  # type: ignore[arg-type]
+
+        def counting_nfj(data: dict[str, Any] | None) -> object:
+            # node_from_json recurses through its own converter table, so only
+            # the outermost call of each conversion is a "top-level" one.
+            if converter_mod._json_conversion_depth == 0:
+                counts[1] += 1
+            return real_nfj(data)
+
+        monkeypatch.setattr(ev, "parse", counting_parse)
+        monkeypatch.setattr(ev, "node_from_json", counting_nfj)
+        monkeypatch.setattr(segments_mod, "parse", counting_parse)
+        monkeypatch.setattr(segments_mod, "node_from_json", counting_nfj)
+
+        if expect_error:
+            with pytest.raises(ShfmtError):
+                ev.evaluate_bash_command(command, config)
+        else:
+            ev.evaluate_bash_command(command, config)
+        return counts[0], counts[1]
+
+    def test_single_parse_and_single_conversion(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """One shfmt subprocess and one top-level conversion per evaluation."""
+        assert self._count(self.COMMAND, dict(self.CONFIG), monkeypatch) == (1, 1)
+
+    def test_verdict_unchanged_by_the_sharing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Sanity check on the count above: the segments are all still found."""
+        self._count(self.COMMAND, dict(self.CONFIG), monkeypatch)
+        result = evaluate_bash_command(self.COMMAND, dict(self.CONFIG))
+        assert result["status"] == "allow"
+        assert [seg["command"] for seg in result["segments"]] == ["ls", "grep", "cat", "wc", "echo"]
+
+    def test_unparseable_command_fails_at_parse(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A command shfmt rejects raises before any conversion is attempted.
+
+        Parsing is the first thing evaluation does, so a failure here still
+        propagates to the hook (which maps it to the ``error`` policy) instead
+        of being swallowed into the empty-segments fallback.
+        """
+        import lovely_bash_permissions.evaluate as ev
+
+        with pytest.raises(ShfmtError):
+            ev.evaluate_bash_command("   ", {})
+        assert self._count("   ", {}, monkeypatch, expect_error=True) == (1, 0)
+
+
+class TestConstructPolicyVerdict:
+    """The construct-policy gate, hoisted out of evaluate_bash_command."""
+
+    def test_absent_flag_is_a_no_op(self) -> None:
+        """A construct that does not occur never changes the verdict."""
+        assert _construct_policy_verdict(False, "subshell", "subshell (...)", "allow", {"subshell": "deny"}) == (
+            "allow",
+            None,
+        )
+
+    def test_deny_is_absolute(self) -> None:
+        """A ``deny`` policy wins over a wildcard that already spoke."""
+        assert _construct_policy_verdict(True, "subshell", "subshell (...)", "ask", {"subshell": "deny"}) == (
+            "deny",
+            "subshell (...) denied in config",
+        )
+
+    def test_ask_only_downgrades_allow(self) -> None:
+        """``ask`` prevents auto-approval but never overwrites a decision."""
+        assert _construct_policy_verdict(True, "subshell", "subshell (...)", "allow", {"subshell": "ask"}) == (
+            "ask",
+            "subshell (...) requires approval",
+        )
+        assert _construct_policy_verdict(True, "subshell", "subshell (...)", "deny", {"subshell": "ask"}) == (
+            "deny",
+            None,
+        )
+
+    def test_allow_policy_changes_nothing(self) -> None:
+        """An explicit ``allow`` policy leaves the verdict and adds no reason."""
+        assert _construct_policy_verdict(True, "subshell", "subshell (...)", "allow", {"subshell": "allow"}) == (
+            "allow",
+            None,
+        )
+
+    def test_missing_policy_key_fails_closed_to_ask(self) -> None:
+        """An unconfigured construct key is treated as ``ask``."""
+        assert _construct_policy_verdict(True, "subshell", "subshell (...)", "allow", {}) == (
+            "ask",
+            "subshell (...) requires approval",
+        )

@@ -17,7 +17,7 @@ class TestSegmentRedirections:
         r = segs[0]["redirections"]
         assert len(r) == 1
         assert r[0]["Op"] == ">"
-        assert r[0]["Word"]["Parts"][0]["Value"] == "/tmp/out"
+        assert r[0]["Target"] == "/tmp/out"
 
     def test_simple_input_redir(self) -> None:
         segs = parse_segments("grep foo < input.txt")
@@ -32,7 +32,7 @@ class TestSegmentRedirections:
         r = segs[0]["redirections"]
         assert len(r) == 1
         assert r[0]["Op"] == "<>"
-        assert r[0]["Word"]["Parts"][0]["Value"] == "/tmp/out"
+        assert r[0]["Target"] == "/tmp/out"
 
     def test_fd_redirection(self) -> None:
         segs = parse_segments("cmd 2>/dev/null")

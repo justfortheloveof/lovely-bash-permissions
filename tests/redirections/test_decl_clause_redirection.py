@@ -9,8 +9,6 @@ the exact segment list -- both the operands and *which* segment owns the
 redirection -- rather than scanning for a segment that happens to match.
 """
 
-from typing import Any
-
 from lovely_bash_permissions.segments import parse_segments
 
 Shape = list[tuple[str, list[str], list[str]]]
@@ -26,11 +24,6 @@ def shape_of(command: str) -> Shape:
     return [(s["command"], s["arguments"], [r["Op"] for r in s["redirections"]]) for s in parse_segments(command)]
 
 
-def first_value(word: dict[str, Any]) -> str:
-    """Return the first literal Value of a redirection target word."""
-    return str(word["Parts"][0]["Value"])
-
-
 class TestDeclClauseRedirectionInheritance:
     """Verify declaration builtins emit an assignment segment plus a keyword segment."""
 
@@ -39,7 +32,7 @@ class TestDeclClauseRedirectionInheritance:
         segs = parse_segments('export FOO="bar" > /tmp/out.txt')
         assert shape_of('export FOO="bar" > /tmp/out.txt') == [("", ['FOO="bar"'], []), ("export", [], [">"])]
         # the redirection rides on the keyword segment, and names /tmp/out.txt
-        assert first_value(segs[1]["redirections"][0]["Word"]) == "/tmp/out.txt"
+        assert segs[1]["redirections"][0]["Target"] == "/tmp/out.txt"
 
     def test_readonly_with_output_redirection(self) -> None:
         """readonly splits the same way; the operand stays on the assignment segment."""
@@ -66,15 +59,15 @@ class TestDeclClauseRedirectionInheritance:
         assert shape_of('export FOO="bar" 2> /tmp/err.txt') == [("", ['FOO="bar"'], []), ("export", [], [">"])]
         # Op alone cannot distinguish `2>` from `>`; pin the fd and the target.
         assert segs[1]["redirections"][0]["N"] == {"Value": "2"}
-        assert first_value(segs[1]["redirections"][0]["Word"]) == "/tmp/err.txt"
+        assert segs[1]["redirections"][0]["Target"] == "/tmp/err.txt"
         # the fd redirection must not be duplicated onto the assignment segment
         assert segs[0]["redirections"] == []
 
-    def test_callexpr_regression_still_works(self) -> None:
+    def test_callexpr_redirect_still_attaches_to_its_segment(self) -> None:
         """A plain CallExpr is still a single segment owning its redirection."""
         segs = parse_segments("echo hi > /tmp/test.txt")
         assert shape_of("echo hi > /tmp/test.txt") == [("echo", ["hi"], [">"])]
-        assert first_value(segs[0]["redirections"][0]["Word"]) == "/tmp/test.txt"
+        assert segs[0]["redirections"][0]["Target"] == "/tmp/test.txt"
 
     def test_export_nested_cmdsubst_still_detected(self) -> None:
         """The CmdSubst value yields a third segment that owns its own inner redirection."""
@@ -104,8 +97,8 @@ class TestDeclClauseRedirectionInheritance:
         assert segs[0]["redirections"] == []
         # order and fd attribution, not just the count of two
         assert [r["Op"] for r in keyword_redirs] == [">", ">"]
-        assert first_value(keyword_redirs[0]["Word"]) == "/tmp/out.txt"
-        assert first_value(keyword_redirs[1]["Word"]) == "/tmp/err.txt"
+        assert keyword_redirs[0]["Target"] == "/tmp/out.txt"
+        assert keyword_redirs[1]["Target"] == "/tmp/err.txt"
         # the first is an implicit-fd `>`, the second an explicit `2>`
         assert keyword_redirs[0]["N"] == {}
         assert keyword_redirs[1]["N"] == {"Value": "2"}
