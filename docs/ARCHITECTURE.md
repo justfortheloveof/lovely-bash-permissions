@@ -21,6 +21,13 @@ four. Anything in `scenarios/` deliberately belongs to no single module: it is
 about the product's behaviour, not one module's internals. If a test only
 imports one module, it does not belong there.
 
+A **contract** test — one that pins a property spanning two modules, usually
+across the two halves — lives with the side it is about rather than in
+`scenarios/`, and does not need to import only one module to earn its place. The
+"every declared policy key is enforced" tests in `tests/config/test_schema.py`
+are the example: their subject is the config surface, and they reach into
+`evaluate` only to check that what the schema accepts is acted on.
+
 All shared fixtures and helpers live in a single `tests/conftest.py`. The tree is
 split by subject, not by audience, so one root conftest serves all of it and
 there is nowhere else to look.
@@ -48,12 +55,24 @@ tree the caller already holds, so it never parses. `converter.py` imports
 `parser.parse` lazily, inside `parse_ast`, to keep the graph acyclic.
 
 **Devin half** — the permission hook: `config/` -> `hook.py` -> `devin_cli.py`.
-It depends on the library half (`hook.py` calls `evaluate.evaluate_bash_command`)
-and **nothing in the library half imports any of it**; `config/` imports nothing
-from the library half at all. The parser can be vendored and used on its own, and
-the hook can be deleted without touching it. Two console scripts sit at the
-edges: `lovely-bash-inspection` (library half) and `lovely-devin-permissions`
-(Devin half).
+**Nothing in the library half imports any of it**, which is what makes the parser
+vendored-and-usable-on-its-own and the hook deletable-without-trace. The
+dependency runs one way only, and `config/` now takes part in it too:
+`config/schema.py` and `config/effective_bash.py` import `policy.py`, which holds
+the policy vocabulary both halves resolve from. `policy.py` is data and imports
+nothing, so the edge cannot cycle.
+
+Two console scripts sit at the edges: `lovely-bash-inspection` (library half) and
+`lovely-devin-permissions` (Devin half).
+
+**`policy.py` declares the vocabulary once.** Every construct the evaluator gates
+and every output-redirection kind it classifies is named there; the schema
+validates against it, the effective-config builder resolves from it, and the
+evaluator builds its rules from it. This exists because the list used to be
+written out by hand in three modules, which is how `ToolConfig.permission` came to
+be a declared config key with no reader anywhere — it validated, it was
+documented as though it did something, and it changed no verdict. A key declared
+in one copy and forgotten in the others is now not expressible.
 
 ## One permission decision
 

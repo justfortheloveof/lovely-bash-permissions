@@ -466,3 +466,43 @@ class TestDenyIsAbsoluteOnEveryKey:
         for wildcard in ("ask", "allow"):
             result = evaluate_bash_command(probe, {"*": wildcard, key: "deny"})
             assert result["status"] == "deny", (key, wildcard, result["reason"])
+
+
+class TestOutputRedirectionKindsMustExist:
+    """A redirection kind the evaluator cannot produce is a config error.
+
+    The evaluator classifies a write into one of four kinds and then looks up
+    the policy for each kind it found. A key that is not one of the four can
+    never be consulted, so accepting it means a policy that reads as configured
+    and governs nothing: `{"stderr_to_devnull": "deny"}` looks like it blocks
+    stderr discards and silently permits every one of them.
+    """
+
+    @pytest.mark.parametrize("kind", ["stdout_to_dev_null", "stderr_to_dev_null", "stderr_to_stdout", "other"])
+    def test_every_declared_kind_is_accepted(self, kind: str) -> None:
+        PermissionsConfig.model_validate({"bash": {"output_redirection": {kind: "deny"}}})
+
+    @pytest.mark.parametrize("kind", ["stderr_to_devnull", "nonsense", "STDERR_TO_DEV_NULL", "stdout_to_null"])
+    def test_unknown_kind_is_rejected(self, kind: str) -> None:
+        with pytest.raises(ValidationError) as exc:
+            PermissionsConfig.model_validate({"bash": {"output_redirection": {kind: "deny"}}})
+        assert "unknown output_redirection kind" in exc.value.errors()[0]["msg"]
+        assert kind in exc.value.errors()[0]["msg"]
+
+    def test_wildcard_is_still_accepted(self) -> None:
+        PermissionsConfig.model_validate({"bash": {"output_redirection": {"*": "deny"}}})
+
+    def test_a_misspelled_kind_does_not_silently_permit_the_redirect(self) -> None:
+        """End to end: the typo fails closed rather than allowing the write."""
+        from lovely_bash_permissions.evaluate import evaluate_bash_command
+
+        with pytest.raises(ValidationError):
+            PermissionsConfig.model_validate({"bash": {"output_redirection": {"stderr_to_devnull": "deny"}}})
+        # With the correct spelling the same policy is honoured, so the typo was
+        # losing a real decision rather than describing an absent one.
+        assert (
+            evaluate_bash_command(
+                "ls 2> /dev/null", {"*": "allow", "output_redirection": {"stderr_to_dev_null": "deny"}}
+            )["status"]
+            == "deny"
+        )

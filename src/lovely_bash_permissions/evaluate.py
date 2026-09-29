@@ -18,6 +18,7 @@ from .ast import CallExpr, CmdSubst, Node, ProcSubst, Subshell
 from .converter import node_from_json
 from .inspect import _traverse, _word_exec, _word_raw, _word_value, iter_children
 from .parser import parse
+from .policy import POLICY_KEYS
 from .rules import (
     _check_segments_input_redirs,
     _check_segments_output_redirs,
@@ -111,15 +112,13 @@ def _parse_command(command: str) -> ParsedCommand:
 
 
 def _resolve_rules(config: dict[str, Any], blocked_patterns: list[str]) -> dict[str, Any]:
-    """Resolve every policy key against the config wildcard into ``rules``."""
+    """Resolve every policy key against the config wildcard into ``rules``.
+
+    Driven by :data:`policy.POLICY_KEYS`, so a construct the evaluator gates and
+    a construct the config accepts cannot drift apart.
+    """
     return {
-        "output_redirection": _resolve_level(config, "output_redirection"),
-        "input_redirection": _resolve_level(config, "input_redirection"),
-        "background_execution": _resolve_level(config, "background_execution"),
-        "command_substitution": _resolve_level(config, "command_substitution"),
-        "process_substitution": _resolve_level(config, "process_substitution"),
-        "subshell": _resolve_level(config, "subshell"),
-        "variable_assignment": _resolve_level(config, "variable_assignment"),
+        **{key: _resolve_level(config, key) for key in POLICY_KEYS},
         "blocked_cmds_regex": blocked_patterns,
     }
 

@@ -10,6 +10,7 @@ structurally by the evaluator so re-evaluated rewrites don't spuriously ask.
 
 from typing import Any
 
+from ..policy import NON_CONSTRUCT_KEYS, POLICY_KEYS
 from .devin import load_devin_exec_regexes
 
 
@@ -54,14 +55,10 @@ def get_effective_bash_config(raw_bash: object, project_dir: str, top_level_wild
         return {
             **bash,
             "*": resolved_star,
-            "error": _resolve("error"),
-            "command_substitution": _resolve("command_substitution"),
-            "process_substitution": _resolve("process_substitution"),
-            "subshell": _resolve("subshell"),
-            "variable_assignment": _resolve("variable_assignment"),
-            "input_redirection": _resolve("input_redirection"),
-            "background_execution": _resolve("background_execution"),
-            "output_redirection": _resolve("output_redirection"),
+            # Driven by the shared vocabulary, so a key the evaluator gates is
+            # always resolved here and vice versa. `error` is resolved alongside
+            # them but read by the hook, not by the evaluator.
+            **{key: _resolve(key) for key in (*POLICY_KEYS, *NON_CONSTRUCT_KEYS)},
             "allowed_cmds_regex": allowed_patterns,
             "blocked_cmds_regex": blocked_patterns,
         }

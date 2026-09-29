@@ -6,6 +6,8 @@ from enum import Enum
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
+from ..policy import NON_CONSTRUCT_KEYS, NON_POLICY_CONFIG_KEYS, OUTPUT_REDIRECTION_KINDS, POLICY_KEYS
+
 log = logging.getLogger(__name__)
 
 
@@ -18,19 +20,50 @@ class PermissionLevel(str, Enum):
 class OutputRedirectionPolicy(BaseModel):
     """Policy for output redirection.
 
-    Accepts either a plain ``PermissionLevel`` string (\"allow\", \"deny\", \"ask\")
-    or a dict with optional keys:
+    Accepts either a plain ``PermissionLevel`` string ("allow", "deny", "ask")
+    or a dict keyed by redirection kind:
 
     - ``*`` - wildcard/default for any redirection not otherwise matched
     - ``stdout_to_dev_null`` - level for ``>/dev/null``-style discards
     - ``stderr_to_dev_null`` - level for ``2>/dev/null``-style discards
     - ``stderr_to_stdout`` - level for ``2>&1``-style fd duplication
+    - ``other`` - level for every other write (``> file``, ``>> file``,
+      ``>| file``), i.e. anything that is not a discard or a duplication
+
+    ``other`` is a named kind, not another name for ``*``: given
+    ``ls > /dev/null 2> /tmp/f``, ``{"stdout_to_dev_null": "allow",
+    "other": "allow"}`` permits both redirections, while
+    ``{"stdout_to_dev_null": "allow", "*": "deny"}`` does not.
     """
+
+    model_config = {"extra": "forbid"}
 
     wildcard: PermissionLevel | None = Field(None, alias="*")
     stdout_to_dev_null: PermissionLevel | None = None
     stderr_to_dev_null: PermissionLevel | None = None
     stderr_to_stdout: PermissionLevel | None = None
+    other: PermissionLevel | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_unknown_kind(cls, data: object) -> object:
+        """Refuse a kind the evaluator cannot produce.
+
+        Without this, a misspelled kind is accepted, stored, and governs
+        nothing: ``{"stderr_to_devnull": "deny"}`` looks like it blocks stderr
+        discards and silently permits every one of them. The evaluator matches
+        on the kinds it classifies, so a key that is not one of them can never
+        be consulted.
+        """
+        if not isinstance(data, dict):
+            return data
+        unknown = sorted(set(data) - {"*", *OUTPUT_REDIRECTION_KINDS})
+        if unknown:
+            valid = ", ".join(f"'{k}'" for k in ("*", *OUTPUT_REDIRECTION_KINDS))
+            raise ValueError(
+                f"unknown output_redirection kind(s) {', '.join(repr(k) for k in unknown)}; valid keys are {valid}"
+            )
+        return data
 
 
 #: Keys a tool config must not carry, mapped to the key that replaced them.
@@ -63,6 +96,27 @@ class ToolConfig(BaseModel):
             if replacement is not None:
                 raise ValueError(f"config key '{key}' is not supported - use {replacement} instead")
             log.warning("unknown config key '%s' - unrecognized tool field or typo?", key)
+        return self
+
+    @model_validator(mode="after")
+    def _fields_match_the_policy_vocabulary(self) -> ToolConfig:
+        """Every declared field must be a key the product actually reads.
+
+        A field with no reader is the failure this guards: it validates, it is
+        documented as if it did something, and it changes no verdict. The
+        vocabulary lives in :mod:`lovely_bash_permissions.policy` because the
+        evaluator and the effective-config builder both resolve from it.
+        """
+        expected = set(POLICY_KEYS) | set(NON_CONSTRUCT_KEYS) | NON_POLICY_CONFIG_KEYS
+        declared = set(type(self).model_fields)
+        if declared != expected:
+            undeclared = sorted(declared - expected)
+            missing = sorted(expected - declared)
+            raise ValueError(
+                f"ToolConfig fields and the policy vocabulary disagree; "
+                f"declared but unread: {undeclared or 'none'}; "
+                f"in the vocabulary but not declared: {missing or 'none'}"
+            )
         return self
 
     wildcard: PermissionLevel | None = Field(None, alias="*")  # default permission for unmatched tools
