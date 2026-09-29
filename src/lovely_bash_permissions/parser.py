@@ -174,6 +174,15 @@ class ParseError(ShfmtError):
         self.stderr = stderr
 
     def __str__(self) -> str:
+        """The developer form: everything known about the failure.
+
+        For a traceback, where the command, the exit code and shfmt's raw stderr
+        are all useful context. **Not** for a prompt - see
+        :meth:`user_message`, which is what the `error` policy reason uses,
+        because this form is four lines, repeats shfmt's own message, and lands
+        in the model's context on every command the agent got syntactically
+        wrong.
+        """
         msg = super().__str__()
         if self.command:
             msg += f"\n  Command: {self.command!r}"
@@ -182,3 +191,18 @@ class ParseError(ShfmtError):
         if self.stderr:
             msg += f"\n  Stderr: {self.stderr.strip()!r}"
         return msg
+
+    def user_message(self) -> str:
+        """The one-line form, for a reason a person and a model read.
+
+        Deliberately *not* ``str(self)``. That form exists for a traceback and
+        carries three things a user does not need: the command they just typed
+        (the prompt shows it), an exit code that says only "1", and shfmt's
+        stderr repeating the message that is already the first line.
+
+        Collapses the multi-line shfmt output to its first line for the same
+        reason - a reason is one bullet, and an embedded newline leaves the rest
+        of the dump without a bullet.
+        """
+        first_line = super().__str__().strip().splitlines()
+        return first_line[0].strip() if first_line else "the command could not be parsed"

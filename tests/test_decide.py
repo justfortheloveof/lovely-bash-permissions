@@ -173,3 +173,59 @@ class TestThisModuleSpeaksDeny:
     def test_the_vocabulary_is_exactly_three_levels(self, config: dict[str, Any], action: str) -> None:
         assert set(decide.LEVEL_TO_ACTION) == {"allow", "ask", "deny"}
         assert decide.decide_bash_command("ls", config)["action"] == action
+
+
+class TestTheErrorReasonIsReadable:
+    """The `error` reason is a prompt bullet *and* a model-facing tool result.
+
+    `ParseError.__str__` is a developer form: the command, an exit code, and
+    shfmt's stderr repeating the message already on the first line. Reached here
+    it was four lines and ~180 characters for every command the agent got
+    syntactically wrong, and an embedded newline left the tail of the dump
+    without its bullet. The verdict was always correct; only the explanation was
+    for someone else's reader.
+    """
+
+    UNPARSEABLE = "ls > | f"  # `>` with no word
+
+    def test_the_reason_is_one_line(self) -> None:
+        reason = decide.decide_bash_command(self.UNPARSEABLE, {"*": "ask", "error": "deny"})["reason"]
+        assert "\n" not in reason, reason
+
+    def test_it_keeps_the_diagnostic(self) -> None:
+        # The point of collapsing is brevity, not concealment: the user still
+        # learns what is wrong with their command.
+        reason = decide.decide_bash_command(self.UNPARSEABLE, {"*": "ask", "error": "deny"})["reason"]
+        assert "must be followed by a word" in reason
+
+    def test_it_drops_what_the_prompt_already_shows(self) -> None:
+        reason = decide.decide_bash_command(self.UNPARSEABLE, {"*": "ask", "error": "deny"})["reason"]
+        for redundant in ("Command:", "Exit code:", "Stderr:"):
+            assert redundant not in reason, f"{redundant} is noise in a reason"
+
+    def test_it_does_not_repeat_the_parser_message(self) -> None:
+        # "Failed to parse: X" and "Stderr: X" is the same sentence twice.
+        reason = decide.decide_bash_command(self.UNPARSEABLE, {"*": "ask", "error": "deny"})["reason"]
+        assert reason.count("must be followed by a word") == 1
+
+    def test_the_traceback_form_is_unchanged(self) -> None:
+        # The verbose form is not removed, only kept away from the prompt: a
+        # developer reading a traceback still wants the command and the exit code.
+        from lovely_bash_permissions.parser import ParseError
+
+        exc = ParseError("boom", command="ls > | f", returncode=1, stderr="boom again")
+        assert "Command: 'ls > | f'" in str(exc)
+        assert "Exit code: 1" in str(exc)
+        assert "boom again" in str(exc)
+
+    def test_an_exception_without_the_user_form_still_renders(self) -> None:
+        # `error` is reached with more than ParseError - a converter failure, a
+        # config problem. A missing `user_message` must not crash the reason.
+        result = decide.error_action({"error": "deny"}, ValueError("something else"))
+        assert "something else" in result["reason"]
+
+    def test_an_empty_command_renders(self) -> None:
+        result = decide.decide_bash_command("   ", {"*": "ask", "error": "deny"})
+        assert result["action"] == "deny"
+        assert "Empty command" in result["reason"]
+        assert "\n" not in result["reason"]

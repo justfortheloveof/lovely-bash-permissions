@@ -42,12 +42,21 @@ def error_action(config: dict[str, Any], exc: BaseException) -> dict[str, Any]:
     populates it. A config handed straight to :func:`decide_bash_command` is
     resolved first, so this reads a populated value on both hosts.
 
+    The reason uses the exception's *user* form where it has one. A
+    :class:`~lovely_bash_permissions.parser.ParseError` renders four lines for a
+    traceback - the command, an exit code, and shfmt's stderr repeating the
+    message - and this string is a prompt bullet and a model-facing tool result,
+    so it takes the one-line form instead. Anything else without that method
+    falls back to ``str()``.
+
     Returns the same three keys as a normal verdict, ``reasons`` included: a
     failure is a verdict a host has to explain, and this path can be ``ask``.
     """
     level = config.get("error") or config.get("*") or "ask"
     action = LEVEL_TO_ACTION.get(level, "ask")
-    reason = f"error evaluating command (policy '{level}'): {exc}"
+    user_form = getattr(exc, "user_message", None)
+    detail = user_form() if callable(user_form) else str(exc)
+    reason = f"error evaluating command (policy '{level}'): {detail}"
     return {"action": action, "reason": reason, "reasons": [reason]}
 
 
