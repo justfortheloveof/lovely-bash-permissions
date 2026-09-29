@@ -5,35 +5,10 @@ not covered by test_parser.py.
 
 from lovely_bash_permissions import (
     ArithmExp,
-    BraceExp,
     CallExpr,
     DeclClause,
-    Word,
     parse_ast,
 )
-
-
-class TestBraceExpNode:
-    """Tests for the BraceExp node type."""
-
-    def test_brace_exp_dataclass_exists(self) -> None:
-        assert BraceExp is not None
-
-    def test_brace_exp_type_string(self) -> None:
-        node = BraceExp()
-        assert node.type == "BraceExp"
-
-    def test_brace_exp_sequence_default(self) -> None:
-        node = BraceExp()
-        assert node.sequence is False
-
-    def test_brace_exp_elems_default(self) -> None:
-        node = BraceExp()
-        assert node.elems == []
-
-    def test_brace_exp_instantiation(self) -> None:
-        node = BraceExp(sequence=True, elems=[Word(parts=[])])
-        assert node.sequence is True
 
 
 class TestNodeFromJsonNoneGuard:

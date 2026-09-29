@@ -32,7 +32,6 @@ from .ast import (
     _POSITION_FIELDS,
     ArithmExp,
     BinaryCmd,
-    BraceExp,
     CallExpr,
     CmdSubst,
     DblQuoted,
@@ -272,8 +271,6 @@ def _value_part(part: Node) -> str:
         return "$(( ... ))"
     if isinstance(part, ExtGlob):
         return f"{part.op}{part.pattern.value if part.pattern else ''})"
-    if isinstance(part, BraceExp):
-        return "{...}"
     if isinstance(part, ProcSubst):
         return f"{part.op}...)"
     return ""
@@ -283,7 +280,7 @@ def _word_value(word: Word) -> str:
     """Get the best-effort string value of a word (concatenating all parts).
 
     Handles Lit, SglQuoted, DblQuoted, ParamExp, CmdSubst, ArithmExp,
-    ExtGlob, BraceExp, and ProcSubst parts explicitly (see
+    ExtGlob, and ProcSubst parts explicitly (see
     :func:`_value_part`).  Unknown part types render as the empty string.
     """
     return "".join(_value_part(part) for part in word.parts)
@@ -338,8 +335,6 @@ def _raw_part(part: Node) -> str:
         return "$(( ... ))"
     if isinstance(part, ExtGlob):
         return f"{part.op}{part.pattern.value if part.pattern else ''})"
-    if isinstance(part, BraceExp):
-        return "{...}"
     if isinstance(part, ProcSubst):
         return f"{part.op}...)"
     return ""
@@ -383,8 +378,6 @@ def _exec_part(part: Node, in_double_quotes: bool) -> str:
         return "$(( ... ))"
     if isinstance(part, ExtGlob):
         return part.pattern.value if part.pattern else ""
-    if isinstance(part, BraceExp):
-        return "{...}"
     if isinstance(part, ProcSubst):
         return f"{part.op}...)"
     return ""
@@ -500,8 +493,9 @@ def find_arguments(tree: Node) -> list[list[Word]]:
 def has_pipe(tree: Node) -> bool:
     """Check if the command contains any pipe operators.
 
-    Only returns True for actual pipe operators (``|`` and ``|&``), not for
-    ``&&`` or ``||`` which are represented as AndCmd/OrCmd nodes.
+    Only the pipe operators (``|`` and ``|&``) match: ``&&`` and ``||`` reach
+    the same :class:`BinaryCmd` node type with a different ``op``, and are not
+    counted as pipes.
     """
 
     def visitor(node: Node) -> None:

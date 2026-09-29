@@ -17,7 +17,6 @@ Quick start:
 from importlib.metadata import version as _metadata_version
 
 from .ast import (
-    AndCmd,
     ArithmCmd,
     ArithmExp,
     ArrayElem,
@@ -27,13 +26,10 @@ from .ast import (
     BinaryCmd,
     BinaryTest,
     Block,
-    BraceExp,
     CallExpr,
     CaseBranch,
     CaseClause,
-    CaseItem,
     CmdSubst,
-    Comment,
     CoprocClause,
     CStyleLoop,
     DblQuoted,
@@ -48,7 +44,6 @@ from .ast import (
     LetClause,
     Lit,
     Node,
-    OrCmd,
     ParamExp,
     ParamExpExp,
     ParamExpSlice,
@@ -67,11 +62,10 @@ from .ast import (
     UnaryTest,
     WhileClause,
     Word,
-    WordIter,
     structurally_equal,
 )
 from .converter import parse_ast
-from .errors import LovelyDevinPermissionsError
+from .errors import ShfmtError
 from .inspect import (
     RedirectionInfo,
     find_arguments,
@@ -90,7 +84,6 @@ __version__ = _metadata_version("lovely-bash-permissions")
 
 __all__ = [
     # AST nodes
-    "AndCmd",
     "ArithmCmd",
     "ArithmExp",
     "ArrayElem",
@@ -100,14 +93,11 @@ __all__ = [
     "BinaryCmd",
     "BinaryTest",
     "Block",
-    "BraceExp",
     "CStyleLoop",
     "CallExpr",
     "CaseBranch",
     "CaseClause",
-    "CaseItem",
     "CmdSubst",
-    "Comment",
     "CoprocClause",
     "DblQuoted",
     "DeclClause",
@@ -120,9 +110,7 @@ __all__ = [
     "IfClause",
     "LetClause",
     "Lit",
-    "LovelyDevinPermissionsError",
     "Node",
-    "OrCmd",
     "ParamExp",
     "ParamExpExp",
     "ParamExpSlice",
@@ -134,6 +122,7 @@ __all__ = [
     "Redir",
     "RedirectionInfo",
     "SglQuoted",
+    "ShfmtError",
     "Stmt",
     "Subshell",
     "TestClause",
@@ -143,7 +132,6 @@ __all__ = [
     "UnaryTest",
     "WhileClause",
     "Word",
-    "WordIter",
     # Inspection
     "find_arguments",
     "find_commands",

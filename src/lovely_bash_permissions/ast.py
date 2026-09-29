@@ -9,12 +9,12 @@ Node types:
     - File: Top-level container with statements
     - Stmt: Individual statement with optional redirections
     - CallExpr: Command invocation (e.g., "ls -la")
-    - BinaryCmd: Pipe operations (cmd1 | cmd2)
+    - BinaryCmd: Two operands joined by an operator - the pipe operators
+      (|, |&) and the logical operators (&&, ||), told apart by ``op``
     - Word: A word composed of parts
     - Redir: Redirection (file > output.txt)
     - Subshell: Parenthesized command group
     - IfClause, ForClause, WhileClause: Control flow
-    - AndCmd, OrCmd: Logical operators (&&, ||)
     - CaseClause: Case/switch statements
     - DeclClause: Declaration builtins (export, local, readonly, etc.)
     - ElifBranch, CaseBranch: Typed branch structures
@@ -286,19 +286,6 @@ class ArithmExp(Node):
 
 
 @dataclass(slots=True, repr=False)
-class BraceExp(Node):
-    """Brace expansion: {a,b} or {1..10}.
-
-    Attributes:
-        sequence: True for {1..10} style, False for {a,b}
-        elems: List of Word nodes representing expansion elements
-    """
-
-    sequence: bool = False
-    elems: list[Word] = field(default_factory=list)
-
-
-@dataclass(slots=True, repr=False)
 class ExtGlob(Node):
     """Extended glob pattern (@(pat|pat), +(pat|pat), etc.).
 
@@ -381,23 +368,24 @@ class FuncDecl(Node):
 
 @dataclass(slots=True, repr=False)
 class BinaryCmd(Node):
-    """A binary command with two operands joined by a pipe operator.
+    """A binary command: two operands joined by an operator.
 
     This node is produced by shfmt for pipe (``|``) and pipe-both (``|&``)
-    operators.  Logical ``&&`` and ``||`` are represented by :class:`AndCmd`
-    and :class:`OrCmd` respectively.
+    operators, and for the logical operators ``&&`` and ``||``.  The four
+    are the same node type, distinguished only by :attr:`op`.
 
     Attributes:
-        op: Operator symbol ("|" for pipe, "|&" for pipe-both)
+        op: Operator symbol ("|" or "|&" for the pipes, "&&" or "||" for
+            the logical operators)
         left: Left operand (a command or nested expression)
         right: Right operand (a command or nested expression)
         left_redirs: Redirections attached to the ``X`` (left) operand
         right_redirs: Redirections attached to the ``Y`` (right) operand
         redirs: All redirections attached to either operand, in operand
-            order (``left_redirs + right_redirs``).  Kept merged for
-            backwards compatibility - consumers that need to know which
-            operand a redirection belongs to should use the per-side
-            fields instead.
+            order (``left_redirs + right_redirs``).  Use this when you want
+            "every redirection in this pipeline"; use the per-side fields when
+            you need to know which operand owns one, since only they can say
+            whether ``> f`` binds to the left or the right command.
     """
 
     op: str = ""
@@ -478,32 +466,6 @@ class WhileClause(Node):
 
     cond_stmts: list[Stmt] = field(default_factory=list)
     body: list[Stmt] = field(default_factory=list)
-
-
-@dataclass(slots=True, repr=False)
-class AndCmd(Node):
-    """Logical AND operator (&&).
-
-    Attributes:
-        left: Left operand (command or expression)
-        right: Right operand (command or expression)
-    """
-
-    left: Node | None = None
-    right: Node | None = None
-
-
-@dataclass(slots=True, repr=False)
-class OrCmd(Node):
-    """Logical OR operator (||).
-
-    Attributes:
-        left: Left operand (command or expression)
-        right: Right operand (command or expression)
-    """
-
-    left: Node | None = None
-    right: Node | None = None
 
 
 @dataclass(slots=True, repr=False)
@@ -690,14 +652,6 @@ class TestDecl(Node):
 
 
 @dataclass(slots=True, repr=False)
-class Comment(Node):
-    """Shell comment: # text."""
-
-    hash_pos: Position | None = None
-    text: str = ""
-
-
-@dataclass(slots=True, repr=False)
 class Assign(Node):
     """Variable assignment: var=val, arr[i]=val, var+=val."""
 
@@ -707,23 +661,6 @@ class Assign(Node):
     array: Node | None = None
     append: bool = False
     naked: bool = False
-
-
-@dataclass(slots=True, repr=False)
-class CaseItem(Node):
-    """Case statement branch: patterns) stmts;;"""
-
-    op: str = ""
-    patterns: list[Word] = field(default_factory=list)
-    stmts: list[Node] = field(default_factory=list)
-
-
-@dataclass(slots=True, repr=False)
-class WordIter(Node):
-    """For-loop word iteration: for var in words."""
-
-    name: Lit | None = None
-    items: list[Word] = field(default_factory=list)
 
 
 @dataclass(slots=True, repr=False)
@@ -756,12 +693,13 @@ class DeclClause(Node):
 
     Attributes:
         variant: The declaration command name (e.g., "export", "local")
-        args: Declaration arguments as Word nodes
-        assigns: Variable assignments in the declaration
+        assigns: The declaration's operands, as variable assignments - every
+            operand of ``export``/``local``/``declare`` assigns, exactly as
+            ``FOO=bar`` does, so they are carried as :class:`Assign` and
+            rendered from there.
     """
 
     variant: str = ""
-    args: list[Word] = field(default_factory=list)
     assigns: list[Assign] = field(default_factory=list)
 
 
@@ -773,12 +711,10 @@ class Stmt(Node):
 
     Attributes:
         cmd: The command node (CallExpr, BinaryCmd, Subshell, etc.)
-        position: shfmt's position field (alternative to pos)
         redirs: List of Redir objects applied to this statement
     """
 
     cmd: Node | None = None
-    position: Position | None = None
     redirs: list[Redir] = field(default_factory=list)
 
 
@@ -801,14 +737,12 @@ _POSITION_FIELDS = frozenset(
     {
         "pos",
         "end",
-        "position",
         "op_pos",
         "value_pos",
         "value_end",
         "dollar_pos",
         "left_pos",
         "right_pos",
-        "hash_pos",
         "let_pos",
         "time_pos",
         "coproc_pos",

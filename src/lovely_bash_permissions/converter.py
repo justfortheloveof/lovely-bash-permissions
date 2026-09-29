@@ -15,7 +15,6 @@ from collections.abc import Callable
 from typing import Any
 
 from .ast import (
-    AndCmd,
     ArithmCmd,
     ArithmExp,
     ArrayElem,
@@ -25,13 +24,10 @@ from .ast import (
     BinaryCmd,
     BinaryTest,
     Block,
-    BraceExp,
     CallExpr,
     CaseBranch,
     CaseClause,
-    CaseItem,
     CmdSubst,
-    Comment,
     CoprocClause,
     CStyleLoop,
     DblQuoted,
@@ -46,7 +42,6 @@ from .ast import (
     LetClause,
     Lit,
     Node,
-    OrCmd,
     ParamExp,
     ParamExpExp,
     ParamExpSlice,
@@ -337,7 +332,6 @@ def _convert_stmt(data: dict[str, Any]) -> Stmt:
     pos, end = _parse_pos_end(data)
     return Stmt(
         cmd=cmd,
-        position=_parse_position(data.get("Position")),
         pos=pos,
         end=end,
         redirs=redirs,
@@ -478,7 +472,8 @@ def _convert_binary_cmd(data: dict[str, Any]) -> BinaryCmd:
     redirections are split here onto :class:`BinaryCmd` per-side fields
     (``left_redirs``/``right_redirs``) so each redirection can be
     attributed to its own operand.  ``redirs`` holds the merged list
-    (left then right) for backwards compatibility.
+    (left then right) for consumers that want every redirection in the
+    pipeline without caring which side owns it.
     """
     left_redirs: list[Redir] = []
     right_redirs: list[Redir] = []
@@ -504,33 +499,23 @@ def _convert_decl_clause(data: dict[str, Any]) -> DeclClause:
     """Convert shfmt DeclClause JSON to a typed DeclClause node.
 
     shfmt represents declaration arguments (e.g., ``export FOO=bar``) as
-    Assign-like dicts in the ``Args`` array.  We store these in two fields:
-
-    * ``assigns`` - the full Assign objects with name/value/etc.
-    * ``args`` - the *value* portion as Word nodes, so callers that only
-      need the word-level view don't have to dig into Assign internals.
+    Assign-like dicts in the ``Args`` array.  Each becomes an :class:`Assign`
+    in ``assigns``; the declaration's operands are variable assignments and
+    are rendered from there, so a word-level duplicate is not carried.
     """
     variant = data.get("Variant", {})
     variant_value = variant.get("Value", "") if isinstance(variant, dict) else ""
 
     assigns: list[Assign] = []
-    args: list[Word] = []
     for arg in data.get("Args", []):
         if isinstance(arg, dict):
             assigns.append(_convert_assign(arg))
-            # Also extract the value as a Word for backwards compat
-            val = arg.get("Value", {})
-            if isinstance(val, dict) and val.get("Parts"):
-                word = _convert_word(val)
-                if word is not None:
-                    args.append(word)
 
     pos, end = _parse_pos_end(data)
     return DeclClause(
         pos=pos,
         end=end,
         variant=variant_value,
-        args=args,
         assigns=assigns,
     )
 
@@ -589,26 +574,6 @@ def _convert_while_clause(data: dict[str, Any]) -> WhileClause:
         end=end,
         cond_stmts=[_convert_stmt(s) for s in data.get("Cond", [])],
         body=[_convert_stmt(s) for s in data.get("Do", [])],
-    )
-
-
-def _convert_and_cmd(data: dict[str, Any]) -> AndCmd:
-    pos, end = _parse_pos_end(data)
-    return AndCmd(
-        pos=pos,
-        end=end,
-        left=node_from_json(data.get("X")),
-        right=node_from_json(data.get("Y")),
-    )
-
-
-def _convert_or_cmd(data: dict[str, Any]) -> OrCmd:
-    pos, end = _parse_pos_end(data)
-    return OrCmd(
-        pos=pos,
-        end=end,
-        left=node_from_json(data.get("X")),
-        right=node_from_json(data.get("Y")),
     )
 
 
@@ -808,27 +773,6 @@ def _convert_test_decl(data: dict[str, Any]) -> TestDecl:
     )
 
 
-def _convert_comment(data: dict[str, Any]) -> Comment:
-    pos, end = _parse_pos_end(data)
-    return Comment(
-        pos=pos,
-        end=end,
-        hash_pos=_parse_position(data.get("Hash")),
-        text=data.get("Text", ""),
-    )
-
-
-def _convert_case_item(data: dict[str, Any]) -> CaseItem:
-    pos, end = _parse_pos_end(data)
-    return CaseItem(
-        pos=pos,
-        end=end,
-        op=data.get("Op", ""),
-        patterns=[w for p in data.get("Patterns", []) if (w := _convert_word(p)) is not None],
-        stmts=[_convert_stmt(s) for s in data.get("Stmts", [])],
-    )
-
-
 def _convert_cstyle_loop(data: dict[str, Any]) -> CStyleLoop:
     pos, end = _parse_pos_end(data)
     return CStyleLoop(
@@ -849,16 +793,6 @@ def _convert_array_expr(data: dict[str, Any]) -> ArrayExpr:
     )
 
 
-def _convert_brace_exp(data: dict[str, Any]) -> BraceExp:
-    pos, end = _parse_pos_end(data)
-    return BraceExp(
-        pos=pos,
-        end=end,
-        sequence=data.get("Sequence", False),
-        elems=[w for e in data.get("Elems", []) if (w := _convert_word(e)) is not None],
-    )
-
-
 # ---------------------------------------------------------------------------
 # Dispatch table mapping shfmt Type strings to converter functions
 # ---------------------------------------------------------------------------
@@ -872,8 +806,6 @@ _CONVERTERS: dict[str, Callable[[dict[str, Any]], Node | None]] = {
     "IfClause": _convert_if_clause,
     "ForClause": _convert_for_clause,
     "WhileClause": _convert_while_clause,
-    "AndCmd": _convert_and_cmd,
-    "OrCmd": _convert_or_cmd,
     "CaseClause": _convert_case_clause,
     "ArithmExp": _convert_arithm_exp,
     "BinaryArithm": _convert_binary_arithm,
@@ -892,13 +824,10 @@ _CONVERTERS: dict[str, Callable[[dict[str, Any]], Node | None]] = {
     "TimeClause": _convert_time_clause,
     "CoprocClause": _convert_coproc_clause,
     "TestDecl": _convert_test_decl,
-    "Comment": _convert_comment,
     "Assign": _convert_assign,
-    "CaseItem": _convert_case_item,
     "CStyleLoop": _convert_cstyle_loop,
     "ArrayExpr": _convert_array_expr,
     "ArrayElem": _convert_array_elem,
-    "BraceExp": _convert_brace_exp,
     "Lit": _convert_lit,
     "SglQuoted": _convert_sgl_quoted,
     "ParamExp": _convert_param_exp,
@@ -978,7 +907,7 @@ def node_from_json(data: dict[str, Any] | None) -> Node | None:
         # a Stmt(cmd=None) so segments.py emits the synthetic redir-only
         # segment it already supports for top-level statements - otherwise the
         # redirection is silently dropped and bypasses all redir/blocked-path
-        # checks (NEW_BUGS #3).
+        # checks.
         if not node_type and "Redirs" in data:
             return _convert_stmt(data)
 
@@ -1012,8 +941,8 @@ def parse_ast(command: str) -> File:
         Root File node of the parsed AST tree
 
     Raises:
-        LovelyDevinPermissionsError: If shfmt cannot parse the command or
-            the shfmt binary is unavailable.
+        ShfmtError: If shfmt cannot parse the command or the shfmt binary is
+            unavailable.
     """
     from .parser import parse
 
