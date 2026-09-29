@@ -4,11 +4,20 @@ A Python library for parsing bash commands into structured, typed AST trees usin
 
 Perfect for AI agents, shell scripting tools, permission checkers, syntax analysis, and any application that needs to understand bash command structure.
 
-## Related Project: lovely-devin-permissions
+## Related Projects
 
-This repository also ships `lovely-devin-permissions`, a Devin CLI permission hook built on top of this library. It parses bash commands, evaluates each command segment against configurable rules and decides whether to allow, ask for approval, or deny execution.
+This repository ships two permission clients built on the same parser and the
+same policy vocabulary:
 
-See [README.lovely-devin-permissions.md](README.lovely-devin-permissions.md) for installation, hook registration, the config schema, and troubleshooting.
+| Project | What it is | Read more |
+| --- | --- | --- |
+| `lovely-devin-permissions` | a Devin CLI permission hook | [README.lovely-devin-permissions.md](README.lovely-devin-permissions.md) |
+| `lovely-pi-bash-permissions` | the bash permission server for the [`lovely-pi-permissions`](https://github.com/jftlo/lovely-pi-permissions) Pi extension | [README.lovely-pi-bash-permissions.md](README.lovely-pi-bash-permissions.md) |
+
+Both parse bash commands, evaluate each command segment against configurable
+rules, and decide whether to allow, ask for approval, or deny execution. The Pi
+one is a separate repository and speaks newline-delimited JSON over a pipe;
+`lovely-pi-permissions` is the TypeScript extension that drives it.
 
 ## Installation
 

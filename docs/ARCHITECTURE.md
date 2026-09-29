@@ -1,8 +1,9 @@
 # Architecture
 
 A short map of `lovely_bash_permissions` for someone who has not read it before.
-Two independent halves ship in one package: a general-purpose bash parser, and a
-Devin CLI permission hook built on top of it.
+Three surfaces ship in one package: a general-purpose bash parser, and two
+permission clients built on top of it — one for Devin's hook protocol, one that
+serves the Pi coding agent's extension over a pipe.
 
 ## Tests
 
@@ -43,7 +44,7 @@ All shared fixtures and helpers live in a single `tests/conftest.py`. The tree i
 split by subject, not by audience, so one root conftest serves all of it and
 there is nowhere else to look.
 
-## The two halves
+## The three surfaces
 
 **Library half** — the parser and its inspection API, which is what `README.md`
 documents. Its dependency order is strictly one-way:
@@ -73,8 +74,14 @@ dependency runs one way only, and `config/` now takes part in it too:
 the policy vocabulary both halves resolve from. `policy.py` is data and imports
 nothing, so the edge cannot cycle.
 
-Two console scripts sit at the edges: `lovely-bash-inspection` (library half) and
-`lovely-devin-permissions` (Devin half).
+**Pi half** — `decide.py` -> `pi_cli.py`, the server the Pi coding agent's
+extension `lovely-pi-permissions` drives over a pipe. It is a *host*, not a
+third copy of the policy: it calls the same `decide.decide_bash_command` the
+Devin hook calls, and owns no decision logic of its own.
+
+Three console scripts sit at the edges: `lovely-bash-inspection` (library half),
+`lovely-devin-permissions` (Devin half), and `lovely-pi-bash-permissions` (Pi
+half).
 
 **`policy.py` declares the vocabulary once.** Every construct the evaluator gates
 and every output-redirection kind it classifies is named there; the schema
@@ -84,6 +91,77 @@ written out by hand in three modules, which is how `ToolConfig.permission` came 
 be a declared config key with no reader anywhere — it validated, it was
 documented as though it did something, and it changed no verdict. A key declared
 in one copy and forgotten in the others is now not expressible.
+
+The vocabulary declares **wire** keys, not field names. The one place the two
+namespaces differ is the wildcard — the field is `wildcard`, the config key is
+`*` — and a `mode="before"` validator sees raw dict keys, i.e. the wire
+spelling. `WIRE_NON_POLICY_CONFIG_KEYS` therefore holds `"*"`, and the schema's
+own field-vs-vocabulary check compares *aliases* so the two agree. Do not
+"simplify" either back to field names: a vocabulary that mixed the two rejects
+every bash block that sets a level, which is a total failure of the primary
+feature and is invisible on review because the vocabulary looks right where it is
+read.
+
+## The two seams, and why they exist
+
+Both exist to stop host-specific code from reaching into shared code, which is
+what makes a second host possible at all. Neither is a stylistic preference, and
+neither should be inlined back into its caller.
+
+**`resolve_bash_config` / `get_effective_bash_config`.** `get_effective_bash_config`
+calls `load_devin_exec_regexes(project_dir)` — a host that has no `Exec()`
+concept cannot call it without reading a Devin config file it has no opinion
+about. The host-agnostic resolution is the first function; the Devin merge is a
+thin wrapper over it.
+
+`resolve_bash_config` branches on `if not raw_bash:`, **not**
+`if raw_bash is None:`. An empty block and `None` take the same branch today, so
+`{}` never gets the `{**bash}` spread, never has its keys resolved, and returns
+the bare four-key default. The natural-looking `is None` would spread `{}`,
+resolve every policy key against the wildcard, and change the output for a config
+that is a documented no-op — drift introduced by the very refactor meant to
+prevent it. That is why the parameter is typed `object`: a `dict` signature
+invites narrowing the truthiness test away. The `{**bash}` spread itself is
+equally load-bearing — the function is still called directly with unvalidated
+dicts by `--show-config` and by the golden harness.
+
+**`decide_bash_command`.** The decision logic used to live inside `hook.py`,
+interleaved with Devin's wire protocol. It is now one host-agnostic function that
+both hosts call, so a policy change cannot land in one and miss the other.
+
+Two things about it are load-bearing and previously implicit:
+
+- It **resolves the config before evaluating**. `error` is a
+  `NON_CONSTRUCT_KEYS` key: the evaluator's own level resolution never touches
+  it, only `resolve_bash_config` populates it. Skip the resolution and a shfmt
+  failure on `{"*": "allow"}` falls through the chain to the wildcard and
+  reports `ask` — silent, and in the permissive direction.
+- It **speaks `deny`, never `block`.** `deny` is this product's policy
+  vocabulary; `block` is Devin's wire vocabulary, produced only by `hook.py`'s
+  `_DEVIN_ACTION` at the seam. Forwarding a `deny` where `block` is expected
+  misses both `elif action == "block"` branches in `generate_hook_response`, so
+  the response is `None`, the CLI never reaches `sys.exit(2)`, and the denied
+  command runs. Translate once, at the seam, and nowhere else. The word must not
+  appear in `decide.py` as a value, which `tests/test_decide.py` asserts by
+  walking its AST.
+
+## The two client/server halves, by full name
+
+- `lovely-pi-bash-permissions` — this repo, Python, the server. Reads
+  newline-delimited JSON on stdin, evaluates bash commands, writes one response
+  line per request.
+- `lovely-pi-permissions` — a separate repository, TypeScript, the client. A Pi
+  coding-agent extension that spawns the server at `session_start` and gates
+  *bash tool calls only* through it. It owns config discovery, deep-merge, mode
+  selection, the ask prompt, doom-loop detection, and status-bar sync; none of
+  that lives here.
+
+They are never the same thing, and they are never referred to interchangeably.
+A reader who found this file via either project needs to know which half they
+are looking at, and a "server unavailable" message that names the wrong project
+sends them to the wrong repository. The wire protocol is documented in
+`README.lovely-pi-bash-permissions.md`, and it is stable once both sides have
+shipped.
 
 ## One permission decision
 
@@ -97,7 +175,25 @@ in one copy and forgotten in the others is now not expressible.
 4. **`rules.py` policy checks** over those segments, plus the per-segment
    allowed/blocked matchers in `evaluate.py`.
 5. **Verdict** — a `_Verdict` accumulator folded through the steps, ending in
-   `{"status", "reason", "segments"}`.
+   `{"status", "reason", "reasons", "segments"}`.
+
+`reasons` is the same information as `reason`, as a list, de-duplicated in append
+order. A consumer must **not** re-split `reason` on `"; "` to recover it: most
+reasons contain a semicolon themselves, and the single largest class of reason
+the evaluator produces is a one-element list like
+`['"ls" command is not allowlisted; wildcard policy is ask']`, which a naive split
+tears into two bullets. The list is empty only when the verdict is an `allow` with
+nothing to explain — a matched pattern, or the wildcard — and never for an `ask`
+or a `deny`. Both facts are load-bearing for the Pi prompt, which renders one
+bullet per entry.
+
+### A fourth return path
+
+`evaluate_bash_command` has a second exit for commands that parse to **zero
+segments** — `_empty_segment_result`, reached via `if not segments`. It carries
+`reasons` on every branch, and for the same reason: over the golden corpus 120 of
+its rows are `ask`, and a host asked to explain a verdict it has no reasons for
+either shows an empty prompt or invents one.
 
 Steps 1-3 happen **exactly once per decision**, threaded through a single
 `ParsedCommand` dataclass (`raw`, `tree`, `segments`) that every later pass

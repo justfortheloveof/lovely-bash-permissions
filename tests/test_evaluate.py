@@ -3522,3 +3522,244 @@ class TestEvaluateConstructPolicyVerdict:
             "ask",
             "subshell (...) requires approval",
         )
+
+
+class TestReasonsList:
+    """`reasons` is the reason string, pre-split - a host renders one bullet per entry.
+
+    The Pi prompt draws a bullet per reason, and 63% of the reason lists the
+    evaluator emits contain a `"; "` *inside a single element*, so a consumer
+    that re-split the joined `reason` on `"; "` would tear one bullet into two.
+    The list is therefore returned as built, de-duplicated, in append order.
+
+    What is pinned here is the contract of that list, and it is deliberately
+    NOT "`"; ".join(reasons) == reason`": the two `allow` fallbacks in
+    `_finalize_reason` return an empty list and still return a `reason`, so the
+    unconditional form fails on correct output and would push the implementer
+    to invent a synthetic reason - changing `reason` on the two paths the
+    fingerprint protects.
+    """
+
+    #: (command, config, expected status, expected segment command names). A
+    #: corpus rather than one case per test: the contract is a property over
+    #: verdicts, so it has to be checked against every shape the evaluator can
+    #: return - allow by pattern, allow by wildcard, ask, deny, and the
+    #: zero-segment path - not against whichever one was convenient.
+    #:
+    #: The segment list is pinned here too, and deliberately: `reasons` was
+    #: added to the returned dict, and the only way to show it changed
+    #: *nothing* else is to assert the other keys on the same rows.
+    CORPUS: ClassVar[list[tuple[str, dict[str, Any], str, list[str]]]] = [
+        # allow carrying reasons: the matched-pattern path, and an allow with
+        # several of them. These are the entries the "non-empty iff status !=
+        # allow" phrasing gets wrong.
+        ("ls", make_config(allowed=["^ls$"]), "allow", ["ls"]),
+        (
+            "cat < /tmp/in > /tmp/out &",
+            {
+                "*": "ask",
+                "allowed_cmds_regex": ["^cat"],
+                "output_redirection": "allow",
+                "input_redirection": "allow",
+                "background_execution": "allow",
+            },
+            "allow",
+            ["cat"],
+        ),
+        ("( ls )", make_config(allowed=["^ls$"], subshell="allow"), "allow", ["ls"]),
+        (
+            "export BOGUS=true bogus",
+            make_config(allowed=[r"^export(\s+.*)?$"], variable_assignment="allow"),
+            "allow",
+            ["", "export"],
+        ),
+        # allow with nothing to explain: the wildcard decided it, so the list
+        # is empty and `reason` is the fallback wording.
+        ("ls", make_config(wildcard="allow"), "allow", ["ls"]),
+        ("ls && cat f", make_config(wildcard="allow"), "allow", ["ls", "cat"]),
+        # ask, from the wildcard and from the policies on top of it.
+        ("ls -la", make_config(), "ask", ["ls"]),
+        ("ls -la", make_config(allowed=["^ls$"]), "ask", ["ls"]),
+        ("rm -rf / && echo done", make_config(allowed=["^ls", "^cat"]), "ask", ["rm", "echo"]),
+        ("ls > /tmp/out &", make_config(allowed=["^ls"], output="ask", background="ask"), "ask", ["ls"]),
+        ("export FOO=bar", make_config(variable_assignment="ask"), "ask", ["", "export"]),
+        # deny, from blocked_cmds_regex and from an absolute config deny.
+        ("cat /etc/passwd", make_config(blocked=["/etc/passwd"]), "deny", ["cat"]),
+        ("cat /etc/passwd", {"*": "deny", "allowed_cmds_regex": ["^cat$"]}, "deny", ["cat"]),
+        ("export FOO=bar", {"*": "allow", "variable_assignment": "deny"}, "deny", ["", "export"]),
+        ("echo $(cat /etc/shadow)", make_config(allowed=["^echo$"], blocked=["/etc/shadow"]), "deny", ["echo", "cat"]),
+    ]
+
+    #: Commands that parse to zero segments, against configs that make the
+    #: empty-segment path return a verdict a host has to explain. `_empty_segment_result`
+    #: is a return path of its own, not a fall-through of the main one, so the
+    #: clause-4 guarantee has to be shown to hold on it as well - and 120 of
+    #: those rows across the golden corpus are `ask`.
+    SEGMENTLESS_CORPUS: ClassVar[list[tuple[str, dict[str, Any], str]]] = [
+        ("# just a comment", make_config(), "ask"),
+        ("# just a comment", make_config(wildcard="deny"), "deny"),
+        ("(( 1+2 ))", make_config(), "ask"),
+        ("(( 1+2 ))", make_config(wildcard="deny"), "deny"),
+        ("[[ -d /tmp ]]", make_config(), "ask"),
+        ("[[ -f /etc/passwd ]]", make_config(blocked=["/etc/passwd"]), "deny"),
+    ]
+
+    @staticmethod
+    def _fallback_reason(reason: str) -> bool:
+        """Whether *reason* is one of the shapes an empty list may carry.
+
+        `_finalize_reason`'s two fallbacks: the matched-pattern summary, and the
+        two wordings for a wildcard allow. Anything else arriving with an empty
+        list would mean a real explanation was dropped on the way to the host.
+        """
+        return reason.startswith("command matches allowed ") or reason in (
+            "allowed",
+            "allowed by wildcard policy (allow)",
+        )
+
+    @pytest.mark.parametrize(("command", "config", "status", "segments"), CORPUS)
+    def test_reasons_is_a_list_and_the_rest_of_the_dict_is_untouched(
+        self, command: str, config: dict[str, Any], status: str, segments: list[str]
+    ) -> None:
+        """`reasons` is always a list, and adding it changed no other key.
+
+        The exact key set is asserted as well: the addition was supposed to be
+        purely additive, so a host reading this dict by name must find exactly
+        the four documented keys and no unexpected fifth.
+        """
+        result = evaluate_bash_command(command, config)
+        assert set(result) == {"status", "reason", "reasons", "segments"}
+        assert isinstance(result["reasons"], list)
+        assert all(isinstance(entry, str) for entry in result["reasons"])
+        assert result["status"] == status
+        assert [segment["command"] for segment in result["segments"]] == segments
+
+    @pytest.mark.parametrize(("command", "config", "status", "segments"), CORPUS)
+    def test_the_list_joins_back_to_the_reason_whenever_it_is_not_empty(
+        self, command: str, config: dict[str, Any], status: str, segments: list[str]
+    ) -> None:
+        # `status` / `segments` are unused here; the row is the unit, and the
+        # parametrization is over the whole corpus on purpose.
+        del status, segments
+        result = evaluate_bash_command(command, config)
+        reasons = result["reasons"]
+        # Deliberately NOT asserted unconditionally. The two `allow` fallbacks
+        # return an empty list and still return a `reason`, so the unconditional
+        # form is false on correct output; the empty case is the next test.
+        if reasons:
+            assert "; ".join(reasons) == result["reason"]
+
+    def test_the_empty_case_is_reached_so_the_conditional_is_not_vacuous(self) -> None:
+        """Both halves of "whenever" are exercised, and only the non-empty half joins.
+
+        Without this, the join assertion above could be passing simply because
+        no row in the corpus has an empty list - which is the case the plan
+        corrects.
+        """
+        joined = [row for row in self.CORPUS if evaluate_bash_command(row[0], row[1])["reasons"]]
+        empty = [row for row in self.CORPUS if not evaluate_bash_command(row[0], row[1])["reasons"]]
+        assert len(joined) > 0 and len(empty) > 0
+        assert all(evaluate_bash_command(row[0], row[1])["status"] == "allow" for row in empty)
+
+    @pytest.mark.parametrize(("command", "config", "status", "segments"), CORPUS)
+    def test_an_empty_list_leaves_only_a_fallback_reason_behind(
+        self, command: str, config: dict[str, Any], status: str, segments: list[str]
+    ) -> None:
+        """With no list to show, `reason` says only which pattern or wildcard allowed it.
+
+        The exhaustive half of clause 3: an empty list next to a real
+        explanation is a lost explanation, and this is the assertion that names
+        it.
+        """
+        del status, segments
+        result = evaluate_bash_command(command, config)
+        if not result["reasons"]:
+            assert self._fallback_reason(result["reason"]), result["reason"]
+
+    @pytest.mark.parametrize(("command", "config", "status", "segments"), CORPUS)
+    def test_no_ask_or_deny_ever_leaves_the_list_empty(
+        self, command: str, config: dict[str, Any], status: str, segments: list[str]
+    ) -> None:
+        # This is the clause that protects the feature: it is what guarantees
+        # the ask prompt always has bullets to draw. Note the converse phrasing
+        # - "`reasons` is non-empty iff status != allow" - is NOT the rule and
+        # over-constrains: the four `allow` rows above carry a non-empty list
+        # (test_allow_legitimately_carries_reasons pins that), so a gate
+        # written that way fails the other way.
+        del status, segments
+        result = evaluate_bash_command(command, config)
+        if result["status"] != "allow":
+            assert result["reasons"], f"{command!r} came back {result['status']} with no reason to show"
+
+    @pytest.mark.parametrize(("command", "config", "status"), SEGMENTLESS_CORPUS)
+    def test_the_zero_segment_path_explains_itself_too(self, command: str, config: dict[str, Any], status: str) -> None:
+        """A command with no parseable segments still has to justify a non-allow verdict.
+
+        `_empty_segment_result` is the fourth return path, and it has no
+        `_finalize_reasons` behind it - it builds its own list. An ask or deny
+        raised there is exactly the verdict a host most needs to explain (the
+        command produced nothing it could analyse), so the guarantee has to
+        hold there and not only on the main path.
+        """
+        result = evaluate_bash_command(command, config)
+        assert result["segments"] == []
+        assert result["status"] == status
+        assert result["reasons"]
+        assert "; ".join(result["reasons"]) == result["reason"]
+
+    def test_allow_legitimately_carries_reasons(self) -> None:
+        """An `allow` can be non-empty, which is why the converse phrasing is wrong.
+
+        The matched-pattern path and the "redirection allowed" reasons both
+        report on a successful auto-approval, and both are non-allow-listed
+        ways of learning *why* something was allowed. Treating a non-empty list
+        as a signal of a non-allow status would throw that information away.
+        """
+        by_pattern = evaluate_bash_command("ls", make_config(allowed=["^ls$"]))
+        assert by_pattern["status"] == "allow"
+        assert by_pattern["reasons"] == ["command matches allowed pattern: ^ls$"]
+
+        by_redirection = evaluate_bash_command("ls > f", {"*": "allow", "output_redirection": "allow"})
+        assert by_redirection["status"] == "allow"
+        assert by_redirection["reasons"] == ["output redirection allowed to f"]
+
+    def test_a_reason_containing_a_semicolon_stays_one_entry(self) -> None:
+        """The reason a list exists at all: a `"; "` inside a reason is not a separator.
+
+        Splitting the joined string here would produce two bullets from one
+        reason, and the wrong first one - this is the 63%-of-corpus case.
+        """
+        result = evaluate_bash_command("ls -la", make_config())
+        assert result["reasons"] == ['"ls" command is not allowlisted; wildcard policy is ask']
+        assert result["reason"] == "; ".join(result["reasons"])
+
+    def test_reasons_are_deduplicated_in_append_order(self) -> None:
+        """Repeats collapse, order does not - the list is what `reason` was built from.
+
+        The same blocked path is hit more than once here (per-segment, whole
+        command, and substitution scan), so the naive concatenation would
+        repeat a bullet; the order assertion keeps the list from being sorted
+        or reversed to satisfy the dedup.
+        """
+        result = evaluate_bash_command(
+            "echo $(cat /etc/passwd) $(cat /etc/passwd)", make_config(blocked=["/etc/passwd"])
+        )
+        reasons = result["reasons"]
+        assert result["status"] == "deny"
+        assert len(reasons) == len(set(reasons))
+        # The per-segment hit and the whole-command hit are two different
+        # reasons about the same pattern, in that order; the not-allowlisted
+        # reason from the wildcard resolution follows them.
+        assert reasons[0].startswith('Blocked by bash permissions: Argument "cat /etc/passwd"')
+        assert reasons[1].startswith('Blocked by bash permissions: Argument "echo $(cat /etc/passwd)')
+        assert reasons[2].startswith('"echo"')
+
+    def test_an_unparseable_command_returns_no_dict_at_all(self) -> None:
+        """The gate is scoped to evaluations that returned: a ParseError has no `reasons`.
+
+        There is no dict to add a key to, so the contract is about successful
+        evaluations only - and it is worth pinning that the error row stays an
+        exception rather than becoming a partial dict.
+        """
+        with pytest.raises(ShfmtError):
+            evaluate_bash_command("'unterminated", make_config())

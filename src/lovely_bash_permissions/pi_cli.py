@@ -56,7 +56,7 @@ import sys
 from typing import Any, NoReturn
 
 from . import decide
-from .config.jsonc import read_jsonc_file
+from .config.jsonc import parse_jsonc, read_jsonc_file
 from .config.schema import VALID_BASH_CONFIG_KEYS, ToolConfig
 from .parser import find_shfmt
 
@@ -315,6 +315,22 @@ def _looks_like_mode_wrapped(data: dict[str, Any]) -> bool:
     return all(isinstance(value, dict) for value in data.values())
 
 
+def _parse_config_text(text: str, source: str) -> dict[str, Any]:
+    """Parse config text as JSONC, exactly as the file route does.
+
+    The same parser for both routes is the point: a comment or a trailing
+    comma is legal in a file the user wrote and illegal in one piped to
+    ``--test``, and the difference would read as a bug in the tool.
+    """
+    try:
+        data = parse_jsonc(text)
+    except ValueError as exc:
+        _fail(f"cannot parse config from {source}: {exc}")
+    if not isinstance(data, dict):
+        _fail(f"config from {source} is not a JSON object, so there is no bash block in it")
+    return data
+
+
 def _load_test_config(path: str | None, mode: str | None) -> tuple[dict[str, Any], str]:
     """Read a bash block and its top-level wildcard, for ``--test`` only.
 
@@ -335,21 +351,14 @@ def _load_test_config(path: str | None, mode: str | None) -> tuple[dict[str, Any
     Returns the bash block and the wildcard the mode supplies for it.
     """
     if path is None:
-        raw_text = sys.stdin.read()
         source = "<stdin>"
+        data = _parse_config_text(sys.stdin.read(), source)
     else:
+        source = path
         result = read_jsonc_file(path)
         if result.error is not None or not isinstance(result.value, dict):
             _fail(f"cannot read config from {path}: {result.error or 'not a JSON object'}")
-        raw_text = json.dumps(result.value)
-        source = path
-
-    try:
-        data = json.loads(raw_text)
-    except ValueError as exc:
-        _fail(f"cannot parse config from {source}: {exc}")
-    if not isinstance(data, dict):
-        _fail(f"config from {source} is not a JSON object")
+        data = result.value
 
     wildcard = data.get(WILDCARD_KEY)
     top_level = wildcard if isinstance(wildcard, str) and wildcard else "ask"
