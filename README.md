@@ -76,17 +76,23 @@ Supported dialects: `bash`, `posix`, `mksh`, `bats`, `zsh`. An unknown dialect r
 
 ### Errors
 
-- `ParseError` - raised when the input cannot be parsed (syntax error, empty command, or shfmt failure). Carries `.command`, `.returncode`, and `.stderr` attributes.
-- `LovelyDevinPermissionsError` - raised when the shfmt binary is missing or shfmt could not be run (timeout, OS error).
+Both exception types live in the package root, and one inherits the other:
+
+- `ShfmtError` - raised when no trustworthy parse could be obtained: the shfmt binary is missing, shfmt timed out, the subprocess failed with an OS error, or the command is nested too deeply to convert safely.
+- `ParseError` - a **subclass** of `ShfmtError`, raised when the input itself is the problem (syntax error, empty command, shfmt exited non-zero, undecodable JSON). Adds `.command`, `.returncode`, and `.stderr`.
+
+`ParseError` being a subclass matters for `except`: catching `ShfmtError` catches every way the backend can fail, while catching `ParseError` narrows to "this input is not valid shell". An unknown `dialect` is not either of these - `parse` raises `ValueError` for it.
 
 ```python
-from lovely_bash_permissions import parse_ast, ParseError
+from lovely_bash_permissions import parse_ast, ParseError, ShfmtError
 
 try:
     parse_ast('echo "unclosed')
 except ParseError as exc:
     print(exc.returncode)  # shfmt exit code
     print(exc.stderr)  # raw shfmt error output
+except ShfmtError as exc:
+    print(f"backend unavailable: {exc}")
 ```
 
 ## AST
@@ -96,19 +102,23 @@ Parsed commands are represented as nested Python dataclasses. Every node inherit
 - `type` - the node type name (e.g. `"File"`, `"CallExpr"`, `"Word"`)
 - `pos` / `end` - `Position` source locations (`offset`, `line`, `col`)
 
-Nodes print a nested, human-readable repr (source-position fields are omitted), so you can inspect a tree directly:
+Nodes print a nested, human-readable repr (source-position fields are omitted). The repr is **depth-limited**: fields are shown one level deep and anything below that collapses to `<Type ...>`, so a top-level `print(tree)` stays one line:
 
 ```python
 from lovely_bash_permissions import parse_ast
 
 tree = parse_ast("ls -la | grep txt")
 print(tree)
-# File(type='File', stmts=[Stmt(type='Stmt', cmd=BinaryCmd(type='BinaryCmd', op='|',
-#   left=CallExpr(type='CallExpr', args=[Word(type='Word', parts=[Lit(type='Lit', value='ls')]),
-#     Word(type='Word', parts=[Lit(type='Lit', value='-la')])]),
-#   right=CallExpr(type='CallExpr', args=[Word(type='Word', parts=[Lit(type='Lit', value='grep')]),
-#     Word(type='Word', parts=[Lit(type='Lit', value='txt')])])))])
+# File(type='File', stmts=[<Stmt ...>])
+
+# Drill in, one level at a time:
+print(tree.stmts[0].cmd)
+# BinaryCmd(type='BinaryCmd', op='|', left=<CallExpr ...>, right=<CallExpr ...>)
+print(tree.stmts[0].cmd.left.args[0].parts[0])
+# Lit(type='Lit', value='ls')
 ```
+
+Fields left at their default (`None`, `""`, `[]`) are omitted entirely, so a node's repr shows only what the parse actually found.
 
 ### Node type reference
 
@@ -120,14 +130,15 @@ print(tree)
 | `Lit` | Plain literal string (`hello`, `file.txt`) | `value` |
 | `SglQuoted` | Single-quoted string `'...'` | `value` |
 | `DblQuoted` | Double-quoted string `"..."` | `parts`, `value` |
-| `ParamExp` | Parameter expansion `$VAR`, `${VAR}`, `${VAR:-def}`, `${VAR/pat/rep}`, `${VAR:off:len}` | `param`, `short`, `exp`, `index`, `length`, `all`, `orig`, `replacement`, `slice` |
+| `ParamExp` | Parameter expansion `$VAR`, `${VAR}`, `${VAR:-def}`, `${VAR/pat/rep}`, `${VAR:off:len}` | `param`, `short`, `excl`, `names`, `length`, `all`, `exp`, `index`, `orig`, `replacement`, `slice` |
 | `ParamExpExp` | The operand/word part of a parameter expansion (the `word` in `${VAR:-word}`, `${VAR%word}`, ...) | `op`, `word` |
 | `ParamExpSlice` | The slicing part `${VAR:offset:length}` | `offset`, `length` |
 | `CmdSubst` | Command substitution `$(...)` / backticks | `stmts`, `backquotes` |
 | `ProcSubst` | Process substitution `<(...)` / `>(...)` | `op`, `stmts` |
 | `ArithmExp` | Arithmetic expansion `$((...))` | `x` |
-| `BraceExp` | Brace expansion `{a,b}` / `{1..5}` | `sequence`, `elems` |
-| `ExtGlob` | Extended globbing `@(pat | pat)` | `op`, `pattern` |
+| `ExtGlob` | Extended globbing `@(pat \| pat)` | `op`, `pattern` |
+
+`ParamExp` carries three flags that make a given expansion a *different* expression from the plain `${x}` they resemble: `length` (`${#x}`, string length), `excl` (`${!x}` indirect, and the `${!prefix*}` prefix form whose glob lives in `names`), and `all` (`${x//a/b}`, replace-all). A brace expansion (`{a,b}`, `{1..5}`) is not a node - shfmt does not expand it, so it arrives as ordinary `Lit` parts.
 
 **Commands & assignments**
 
@@ -137,16 +148,18 @@ print(tree)
 | `Stmt` | Single statement wrapping a command | `cmd`, `position`, `redirs` |
 | `CallExpr` | Command invocation (`ls -la`) | `args`, `assigns` |
 | `Assign` | Variable assignment `var=val`, `a[i]=v`, `x+=v` | `name`, `index`, `value`, `array`, `append`, `naked` |
-| `DeclClause` | Declaration builtin (`export`, `local`, `readonly`) | `variant`, `args`, `assigns` |
+| `DeclClause` | Declaration builtin (`export`, `local`, `readonly`, `declare`, `typeset`) | `variant`, `args`, `assigns` |
 | `ArrayExpr` / `ArrayElem` | Array literal `(a b c)` and an element | `elems` / `index`, `value` |
 
 **Sequences & operators**
 
+There is one node type for every two-operand operator; read `op` to tell them apart. `;`, `&` and newline are *not* operators here - each is a separate `Stmt` in `File.stmts`.
+
 | Type | Description | Key fields |
 | ------ | ------------- | ------------ |
-| `BinaryCmd` | Pipe or sequence (`\|\|` pipelines, `;`, `&`) | `op`, `left`, `right`, `left_redirs`, `right_redirs`, `redirs` |
-| `AndCmd` | Logical AND `&&` | `left`, `right` |
-| `OrCmd` | Logical OR `\|\|` | `left`, `right` |
+| `BinaryCmd` | Two operands joined by `\|`, `\|&`, `&&` or `\|\|` | `op`, `left`, `right`, `left_redirs`, `right_redirs`, `redirs` |
+
+`left_redirs` / `right_redirs` are the redirections belonging to the `X` and `Y` operands respectively; `redirs` is both lists concatenated, kept for convenience. Prefer the per-side fields when you need to know which side owns a redirection.
 
 **Control flow**
 
@@ -156,13 +169,11 @@ print(tree)
 | `Block` | Braced group `{ ...; }` | `stmts` |
 | `IfClause` | `if` / `elif` / `else` | `cond_stmts`, `then_stmts`, `elif_branches`, `else_stmts` |
 | `ElifBranch` | One `elif` branch | `cond`, `body` |
-| `ForClause` | `for` loop over words | `var`, `words`, `body` |
-| `WordIter` | The `for var in ...` foreach part | `name`, `items` |
-| `CStyleLoop` | C-style loop `for ((...))` | `init`, `cond`, `post` |
+| `ForClause` | `for` loop over words | `var`, `words`, `body`, `cstyle` |
+| `CStyleLoop` | C-style loop prelude `for ((init; cond; post))`, held in `ForClause.cstyle` | `init`, `cond`, `post` |
 | `WhileClause` | `while` loop | `cond_stmts`, `body` |
 | `CaseClause` | `case` / `switch` statement | `expr`, `branches` |
-| `CaseBranch` | A `case` branch (patterns + body) | `patterns`, `body` |
-| `CaseItem` | A `case` item (`patterns) stmts;;`) | `op`, `patterns`, `stmts` |
+| `CaseBranch` | One `case` branch (its match patterns + body) | `patterns`, `body` |
 | `FuncDecl` | Function definition | `name`, `body`, `parens`, `rsrv_word` |
 | `CoprocClause` | Coprocess `coproc NAME { cmd; }` | `name`, `stmt` |
 
@@ -178,6 +189,7 @@ print(tree)
 | `BinaryArithm` | Binary arithmetic | `op`, `left`, `right` |
 | `UnaryArithm` | Unary arithmetic (`-x`, `x++`) | `op`, `post`, `x` |
 | `ParenArithm` | Parenthesized arithmetic | `body` |
+| `FlagsArithm` | Zsh subscript flags, `${array[(flags)expr]}` | `flags`, `x` |
 | `LetClause` | `let` statement | `exprs` |
 | `TimeClause` | `time`-prefixed command | `stmt`, `posix_format` |
 | `TestDecl` | Bats `@test "desc" { ... }` | `description`, `body` |
@@ -187,8 +199,11 @@ print(tree)
 | Type | Description | Key fields |
 | ------ | ------------- | ------------ |
 | `Redir` | Redirection (`>`, `>>`, `<`, `2>`) | `op`, `n`, `word`, `hdoc`, `op_pos` |
-| `Comment` | Shell comment | `text` |
-| `Node` | Base class; also used for unmapped shfmt types | `type` |
+| `Node` | Base class; also the defensive fallback for any shfmt type the converter does not map | `type` |
+
+shfmt keeps comments in a side channel of its own (`Last` / `Comments` lists carrying `Hash` and `Text`), and this library does not convert them. A comment therefore contributes no node: `parse_ast("# note")` is a `File` with no statements, and a trailing `# note` leaves the preceding command untouched. Strip comments yourself if you need them.
+
+Most nodes also carry `*_pos` fields (`op_pos`, `value_pos`, `dollar_pos`, ...) that mark where a sub-part starts. They are excluded from `repr` output and from `structurally_equal`.
 
 ### Redirections
 
@@ -244,7 +259,7 @@ print(len(args))  # 1
 print(len(args[0]))  # 2 (two arguments: '-la' and '/tmp')
 ```
 
-Word values are best-effort and **quote delimiters are stripped** - `"hello"` and `'hello'` both yield `hello`. Variable and substitution parts are rendered in lossy form (e.g. `$VAR`, `$(...)`).
+Word values are best-effort and **quote delimiters are stripped** - `"hello"` and `'hello'` both yield `hello`. Variable and substitution parts are rendered in lossy form (`$VAR`, `${VAR:-def}`, `$(...)`), and a double-quoted region is rendered from its parts rather than from its stored `value`, so `"pre${x}y"` comes back as `pre$xy` - the expansion stays visible instead of collapsing to text the user never typed.
 
 ### Feature checks
 
@@ -280,6 +295,10 @@ print(get_redirections(parse_ast("ls 2>&1")))  # [{'op': '>&', 'target': '1'}]
 print(get_target_files(parse_ast("cat file.txt > output.txt")))  # ['output.txt']
 ```
 
+Each record is a `RedirectionInfo` typed dict with two keys, `op` and `target`. Note that `op` never carries an fd prefix - `2>file` reports `op: ">"`, not `"2>"` - so a pattern that wants to distinguish stderr from stdout has to read `Redir.n` off the AST instead. `target` is the executed form (`"$D/out.txt"` gives `$D/out.txt`), and a redirection with no word at all is skipped.
+
+These records are a deliberately small, display-friendly view. For the shape the permission engine works on - which splits the fd into its own `N` key and adds the normalized argument list - see [`parse_segments`](#segments-parse_segments).
+
 ### Traversal semantics
 
 The inspection functions differ in how they walk the tree:
@@ -311,6 +330,46 @@ print(structurally_equal(parse_ast("echo hi"), parse_ast("echo ho")))  # False
 ```
 
 `structurally_equal` is useful in tests and when diffing trees produced from different source locations, since it ignores all position fields.
+
+## Segments: `parse_segments`
+
+`parse_segments(command, dialect="bash")` is the flat, execution-order view of a command: one dict per thing bash actually runs, split at every `|`, `|&`, `&&`, `||`, `;` and `&`. It is the input the Devin half's policy engine consumes, and it imports from the subpackage rather than the package root:
+
+```python
+from lovely_bash_permissions.segments import parse_segments
+
+print(parse_segments("cat file.txt > output.txt | grep -i pattern"))
+# [{'command': 'cat', 'arguments': ['file.txt'], 'normalized_arguments': ['file.txt'],
+#   'redirections': [{'Op': '>', 'N': {}, 'Target': 'output.txt'}]},
+#  {'command': 'grep', 'arguments': ['-i', 'pattern'], 'normalized_arguments': ['-i', 'pattern'],
+#   'redirections': []}]
+```
+
+| Key | Meaning |
+| ---- | ------- |
+| `command` | Command name, or `""` for a pseudo-command (a bare assignment, a declaration operand, a redirection-only statement) |
+| `arguments` | Argument words **as written**, quotes intact |
+| `normalized_arguments` | The same words in their *executed* form - quotes removed, backslashes unescaped. Omitted for pseudo-commands, which have no real argument list; read it with `segment.get("normalized_arguments", segment["arguments"])` |
+| `redirections` | List of redirection records (below) |
+
+Each redirection record has exactly three keys:
+
+| Key | Meaning |
+| ---- | ------- |
+| `Op` | The operator with any fd prefix split off: `2>` arrives as `Op: ">"` with `N` set |
+| `N` | `{"Value": "<fd>"}` when the operator carried an explicit descriptor, `{}` when it did not |
+| `Target` | The redirect target in its executed form - every word part joined, quotes removed, backslashes unescaped |
+
+`Target` is the only field policy is decided on, because it is the string bash actually opens. `"$DIR/out.txt"`, `"/dev""/null"` and `/etc\/passwd` all resolve through it to the path that would really be used.
+
+```python
+print(parse_segments('echo hi 2>"/dev""/null"'))
+# ... 'redirections': [{'Op': '>', 'N': {'Value': '2'}, 'Target': '/dev/null'}] ...
+```
+
+An empty list from `parse_segments` is ambiguous: it means either "no commands here" or "the command could not be parsed", because a parse failure is swallowed and reported as zero segments. If you need to tell those apart, call `parse` (or `parse_ast`) first and handle the exception it raises.
+
+The `Segment` and `SegmentRedirection` types exported from `lovely_bash_permissions.segments` are `TypedDict`s describing this shape; the runtime values are plain dicts, so subscript access works as shown.
 
 ## CLI: lovely-bash-inspection
 
@@ -480,7 +539,8 @@ from lovely_bash_permissions import parse_ast, get_redirections
 def check_write_permissions(tree):
     """Check if a command writes to files (output redirections)."""
     redirs = get_redirections(tree)
-    write_ops = {">", ">>", "2>", "2>>", "&>", "&>>"}
+    # `op` never carries an fd prefix, so "2>" and "2>>" are spelled ">"/">>".
+    write_ops = {">", ">>", ">|", "<>", "&>", "&>>", ">&"}
     return [r for r in redirs if r["op"] in write_ops]
 
 

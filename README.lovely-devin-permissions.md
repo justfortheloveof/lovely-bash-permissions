@@ -103,7 +103,7 @@ If either source approves the command, the hook lets it run. If neither matches,
 - Patterns are unanchored substring matches unless you anchor them. For example, `git` also matches `echo git`. Anchor with `^git log$` or similar. Anchoring is honored **literally** — a pattern is never "stretched" to cover more of the line than you asked for.
 - `blocked_cmds_regex` is matched against the **whole raw command string** as well as per segment. Consequences: comments and quoted text are in scope (a blocked pattern matching inside a comment or inside a quoted string denies the command), and an end-anchored pattern such as `\.env$` matches only when the command actually *ends* in `.env` — `echo foo.env` is denied, but `echo ${BAR:-foo.env}` and `for f in foo.env; do :; done` are not. Use `\.env` or `\b\.env\b` if you want every mention blocked.
 - `allowed_cmds_regex` is matched **per segment**, against the executed form of that segment's command line (quotes removed, backslash escapes resolved). Anchoring is literal there too, so `^git\s+log$` approves `git log` and not `git log --oneline`.
-- Allowed matching is deliberately **not** done against the whole command string. We measured that whole-string matching for `allowed_cmds_regex` defeats both guard patterns the per-segment matcher exists for: the negative-lookahead guards stop working (e.g. `^find(?!.*\s-(exec|delete|ok)\b).*$` no longer catches `find /tmp -"exec" rm`, because the raw string still shows the quotes the executed form would have removed), and a prefix pattern approves an entire compound line (`^ls` would approve `ls && rm -rf /`). Per-segment granularity is what prevents both. Do not "simplify" this to a single whole-command match.
+- Allowed matching is deliberately **not** done against the whole command string. We measured that whole-string matching for `allowed_cmds_regex` defeats both guard patterns the per-segment matcher exists for: the negative-lookahead guards stop working (e.g. `^find(?!.*\s-(exec|delete|ok)\b).*$` would fail to catch `find /tmp -"exec" rm`, because the raw string still shows the quotes the executed form removes), and a prefix pattern approves an entire compound line (`^ls` would approve `ls && rm -rf /`). Per-segment granularity is what prevents both. Do not "simplify" this to a single whole-command match.
 - Guard patterns (negative lookaheads, e.g. `^find(?!.*\s-(exec|delete|ok)\b)`) are matched against the **executed** form of the command, where quotes are removed and backslash escapes are resolved — so write them in executed form, as you would write the command unquoted. Flags that may be quote- or backslash-split (e.g. `find -exec` as `-e"x"ec` / `-ex\ec`) must be covered with a character class such as `-e["x]ec` or a plain executed-form token — a guard with a **literal** quote character (e.g. `(?!.*-e"xec)`) can never trip, because the executed form contains no quotes.
 - **Nothing is auto-approved by default, and that includes bash's own conditionals.** `[` (and its `test` spelling), `true`, `false` and `:` do no work — `[ -f x ]` compares strings, it never runs anything — but bash implements them as real builtins, so the evaluator reports them as commands and they must be allow-listed like any other. So `[ -n "$p" ] && ls`, `if true; then ...; fi` and `while false; do ...; done` all prompt until the builtin itself is listed. This is deliberate: an allow-list you did not write is not a decision you made. See [Shell conditionals and status builtins](#shell-conditionals-and-status-builtins) for the patterns to add. The asymmetry with `[[ ... ]]` and `(( ... ))` is real but not a hole — those are parsed as expressions rather than commands, so they produce no command segment at all and never appear in an allow-list. All of these are still fully checked by `blocked_cmds_regex`: `[ -f /etc/passwd ]` is denied by a `\/etc` pattern whether or not `[` is allow-listed.
 - This is a policy layer, not a sandbox. It statically analyzes the command as written: backtick and `$(...)` command substitutions, process substitutions, brace groups (`{ ...; }`), subshells, functions, loops, conditionals, and heredoc bodies are all walked and their inner commands checked, so no syntax form silently skips evaluation. Environment assignment prefixes like `a=1 rm -rf /` are detected and evaluated separately via the `variable_assignment` policy. It is still best-effort static analysis, not a runtime boundary: things bash only reveals at runtime (expansion results, substitution output) cannot be verified, and anything the parser cannot analyze falls through to the `error` policy. Use it as guard-rails against accidental execution, not as a security boundary around untrusted input.
@@ -112,11 +112,13 @@ If either source approves the command, the hook lets it run. If neither matches,
 
 ### `lovely-permissions.jsonc`
 
-The primary config is `lovely-permissions.jsonc`. It is read from three locations, in order of precedence:
+The primary config is `lovely-permissions.jsonc`. It is read from three locations, **lowest precedence first** (each one overrides the one before it):
 
 - `~/.config/devin/lovely-permissions.jsonc` (global)
 - `.devin/lovely-permissions.jsonc` (project - to commit/share)
 - `.devin/lovely-permissions.local.jsonc` (personal local override - not to commit/share)
+
+The merge is deep: nested objects merge key by key, and **regex lists are concatenated rather than replaced**, so a `blocked_cmds_regex` in the project config adds to the global one instead of shadowing it. A key defined at two levels with a different scalar value logs a conflict warning.
 
 On Windows, the global path is `%APPDATA%\devin\lovely-permissions.jsonc`.
 
@@ -191,7 +193,7 @@ Listing a builtin only approves *it*. Everything the conditional guards still ha
 
 Two things this does **not** weaken. Blocked patterns are checked independently and still reach these segments — `[ -f /etc/passwd ]` is denied by a `\/etc` pattern whether or not `[` is allow-listed. And substitutions nested inside a conditional are still extracted as the commands they run: `[ "$(cat secret)" = x ]` reports `cat`, which is checked on its own.
 
-For contrast, `[[ ... ]]` and `(( ... ))` are parsed as bash *expressions* rather than commands, so they produce no command segment and never need allow-listing. Only the single-bracket `[ ... ]` form — which really is a command — appears in an allow-list. If a command using `[ ... ]` or `if true; ...` prompts unexpectedly, that is this policy working as intended, not a misparse.
+For contrast, `[[ ... ]]` and `(( ... ))` are parsed as bash *expressions* rather than commands, so the construct itself produces no command segment and never needs allow-listing. (A substitution *inside* one still runs and is still extracted: `[[ $x == $(cmd) ]]` reports `cmd`, and `(( x=$(cmd) ))` reports `cmd`. It is the brackets that are invisible, not what they contain.) Only the single-bracket `[ ... ]` form — which really is a command — appears in an allow-list. If a command using `[ ... ]` or `if true; ...` prompts unexpectedly, that is this policy working as intended, not a misparse.
 
 ### Wrapper and interpreter commands
 
@@ -251,13 +253,13 @@ Every bash option takes `"allow"`, `"ask"` or `"deny"`, and they do not all mean
 So a `deny` is inert only when the command never reaches the evaluation that would apply it (for example a policy on a construct the command does not contain).
 
 > [!IMPORTANT]
-> Setting `"deny"` on a construct key while leaving the wildcard at `"ask"` now **hard-blocks** the command rather than prompting. That is the point — previously a `deny` there was only consulted when the verdict was still `allow`, so under the default wildcard it did nothing at all. If you want a prompt instead, use `"ask"`.
+> Setting `"deny"` on a construct key while leaving the wildcard at `"ask"` **hard-blocks** the command rather than prompting. A construct `deny` is absolute: it is applied whatever verdict the wildcard produced, and no approval at runtime can lift it — only a config change can. If you want a prompt instead, use `"ask"`.
 
 When a construct policy blocks, the reason says so explicitly — `command substitution denied in config`, `subshell (...) denied in config` — so a blocked command is never reported as merely "requires approval". The same wording appears when a nested command inside a substitution fails the allow-list and the policy is `deny`.
 
 ### Devin config
 
-Devin config is read from the same places Devin uses:
+Devin config is read from the same places Devin uses, lowest precedence first:
 
 - `~/.config/devin/config.json` (global; `%APPDATA%\devin\config.json` on Windows)
 - `.devin/config.json` (project)
@@ -281,8 +283,8 @@ From the example above, the hook adds `^git log(\s|$)` and `^git ls-files(\s|$)`
 ## How the merge works
 
 - Devin `Exec(...)` allow rules are appended to any `allowed_cmds_regex` from `lovely-permissions.jsonc`.
-- If `lovely-permissions.jsonc` has no bash config but Devin has `Exec(...)` rules, the hook synthesizes a bash config with `"*": "ask"` and the Devin-derived regexes, so Devin-allowed commands auto-approve while everything else still prompts.
-- Malformed `Exec(...)` entries (for example `Exec()` or `Exec((unclosed`) make the effective bash config fail to load, so every command falls back to **ask** (`config error (fallback to ask)`) until they are fixed. `--show-config` reports the error explicitly.
+- If `lovely-permissions.jsonc` has no bash config but Devin has `Exec(...)` rules, the hook synthesizes a bash config with the config-root `*` as its wildcard (so `"*": "ask"` unless you set otherwise) plus the Devin-derived regexes, so Devin-allowed commands auto-approve while everything else follows the root wildcard.
+- Malformed `Exec(...)` entries (for example `Exec()` or `Exec((unclosed`) make the effective bash config fail to load, so **every command is blocked** (`config error (blocked)`, exit code 2) until they are fixed. `--show-config` reports the error explicitly and exits 1. Note this is the block, not the ask, fallback - a broken Devin config would also break the hook's own `Exec(:)` label auto-approval, so failing open on it would run commands nobody approved.
 
 ## Devin CLI Hook
 
