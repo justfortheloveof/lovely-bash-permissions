@@ -11,52 +11,33 @@ import re
 from functools import lru_cache
 from typing import Any
 
+from .segments import Segment, SegmentRedirection
+
+#: Redirection operators that open a file for writing (or for reading *and*
+#: writing, as ``<>`` does).  Gates the ``output_redirection`` policy.
 WRITE_REDIRECT_OPS: frozenset[str] = frozenset({">", ">>", ">|", "&>", ">&", "&>>", "<>"})
+
 COMBINED_OPS: frozenset[str] = frozenset({">&", "&>", "&>>"})
 DEV_NULL: str = "/dev/null"
 
 
-def _raw_word_target(word: dict[str, Any]) -> str:
-    """Reconstruct a full redirection target from a raw shfmt Word dict.
+def _redir_target(redir: SegmentRedirection) -> str:
+    """Redirection target for policy decisions.
 
-    Joins ALL parts (not just the first) so multi-part targets like
-    ``"$DIR/out"`` or ``"/dev""/null"`` are identified. Lit values are
-    backslash-unescaped (unquoted context); DblQuoted parts use their
-    best-effort ``Value`` or their nested parts.
+    Reads the segment-level ``Target`` key, which ``segments._redir_dicts``
+    always sets: the full executed form (all word parts joined, quotes
+    removed, backslashes unescaped) of the redirect target.  That is the string
+    bash actually opens, which is the only thing a policy can be decided on.
+
+    A part-wise projection of the target must not be reconstructed here: it
+    reduces every word part to a bare ``Value`` string and so has already
+    lost the quoting, escapes and expansions that distinguish
+    ``/dev""/null`` from ``/dev/xnull``, which makes it strictly lossier than
+    the ``Target`` computed from the intact word.  ``_redir_dicts`` populates
+    ``Target`` unconditionally for every redirection it emits, so there is no
+    case where a reconstruction would have anything to add.
     """
-    chunks: list[str] = []
-    for part in word.get("Parts", []) if isinstance(word, dict) else []:
-        if not isinstance(part, dict):
-            continue
-        ptype = part.get("Type")
-        if ptype == "Lit":
-            chunks.append(re.sub(r"\\([^\n])", r"\1", part.get("Value", "")))
-        elif ptype == "SglQuoted":
-            chunks.append(part.get("Value", ""))
-        elif ptype == "DblQuoted":
-            if part.get("Parts"):
-                for sub in part["Parts"]:
-                    if isinstance(sub, dict):
-                        chunks.append(str(sub.get("Value", "")))
-            else:
-                chunks.append(part.get("Value") or "")
-        else:
-            v = part.get("Value")
-            if isinstance(v, str):
-                chunks.append(v)
-    return "".join(chunks)
-
-
-def _redir_target(redir: dict[str, Any]) -> str:
-    """Best redirection target for policy decisions.
-
-    Prefers the segment-level ``Target`` key (full executed form, produced
-    by segments.py); falls back to reconstructing from raw Word parts.
-    """
-    t = redir.get("Target")
-    if isinstance(t, str) and t:
-        return t
-    return _raw_word_target(redir.get("Word", {}) or {})
+    return redir.get("Target", "")
 
 
 @lru_cache(maxsize=512)
@@ -85,75 +66,6 @@ def _find_blocked_path(value: str, blocked_patterns: list[str]) -> tuple[bool, s
         if _match_pattern(value, pattern):
             return True, pattern
     return False, ""
-
-
-def _find_redirs(node: dict[str, Any]) -> list[dict[str, Any]]:
-    """Recursively collect all redirection dicts from an AST node.
-
-    Walks CallExpr.Redirs, BinaryCmd.X/Y/Redirs (merged list), and recurses into
-    AndCmd/OrCmd operands so redirections nested inside pipes are found.
-
-    Also recurses into heredoc bodies (``Hdoc.Parts``) so that command
-    substitutions inside unquoted heredocs (``<<EOF … $(cmd) … EOF``)
-    are discovered - bash expands these at runtime.
-
-    Args:
-        node: A dict representing an AST node from shfmt's JSON output.
-
-    Returns:
-        List of redirection dicts (each with "Op" and "Word").
-    """
-    redirs: list[dict[str, Any]] = []
-
-    # Redirection-only compound operand (no Type/Cmd, just Redirs) - see
-    # converter.node_from_json handling for `> f && cmd` (NEW_BUGS #3).
-    if not node.get("Type") and node.get("Redirs"):
-        redirs.extend(node["Redirs"])
-
-    # CallExpr has Redirs directly on the node itself
-    if node.get("Type") == "CallExpr":
-        redirs.extend(node.get("Redirs", []))
-        # Recurse into arguments to find CmdSubst/ProcSubst redirections
-        for arg in node.get("Args", []):
-            redirs.extend(_find_redirs(arg))
-
-    # BinaryCmd: redirects live on X/Y wrapper nodes (left/right operands).
-    # The converter merges these into a single ``redirs`` field for the
-    # typed AST, but in raw JSON there is no merged list - only X/Y.
-    if node.get("Type") == "BinaryCmd":
-        x = node.get("X", {})
-        redirs.extend(x.get("Redirs", []))
-        y = node.get("Y", {})
-        redirs.extend(y.get("Redirs", []))
-
-    # AndCmd / OrCmd operands may also carry redirections
-    if node.get("Type") in ("AndCmd", "OrCmd"):
-        left = node.get("Left", {})
-        redirs.extend(_find_redirs(left))
-        right = node.get("Right", {})
-        redirs.extend(_find_redirs(right))
-
-    # CmdSubst / ProcSubst: recurse into each stmt's Cmd (raw JSON has "Stmts")
-    if node.get("Type") in ("CmdSubst", "ProcSubst"):
-        for stmt in node.get("Stmts", []):
-            redirs.extend(stmt.get("Redirs", []))
-            redirs.extend(_find_redirs(stmt.get("Cmd", {}) or {}))
-
-    # Word: recurse into parts (may contain CmdSubst/ProcSubst).
-    # Word nodes lack a "Type" field, so detect by presence of "Parts".
-    if node.get("Parts"):
-        for part in node["Parts"]:
-            redirs.extend(_find_redirs(part))
-
-    # Redir: recurse into Hdoc.Parts so heredoc body command substitutions
-    # (e.g. $(cat /etc/passwd) inside <<EOF … EOF) are discovered.
-    if node.get("Type") == "Redir":
-        hdoc = node.get("Hdoc", {})
-        if isinstance(hdoc, dict):
-            for part in hdoc.get("Parts", []):
-                redirs.extend(_find_redirs(part))
-
-    return redirs
 
 
 def _find_background_flags(node: dict[str, Any]) -> list[str]:
@@ -189,27 +101,7 @@ def _find_background_flags(node: dict[str, Any]) -> list[str]:
     return results
 
 
-def check_allowed_patterns(command_name: str, allowed_patterns: list[str]) -> bool:
-    """Test command name against allowed_cmds_regex patterns.
-
-    Uses cached regex compilation via _compile_pattern(). Returns True if the command
-    name matches any pattern, False otherwise.
-
-    Args:
-        command_name: The name of the command to check.
-        allowed_patterns: List of regex patterns to test against.
-
-    Returns:
-        True if command matches ANY pattern, False if matches none
-        or patterns list is empty.
-    """
-    try:
-        return any(_compile_pattern(p).search(command_name) for p in allowed_patterns)
-    except ValueError:
-        return False
-
-
-def classify_output_redirection(redir: dict[str, Any]) -> list[str]:
+def classify_output_redirection(redir: SegmentRedirection) -> list[str]:
     """Classify a single write redirection into policy-kind keys.
 
     Returns one of: 'other', 'stdout_to_dev_null', 'stderr_to_dev_null',
@@ -217,7 +109,8 @@ def classify_output_redirection(redir: dict[str, Any]) -> list[str]:
     /dev/null yield both stdout+stderr kinds.
 
     Args:
-        redir: A redirection dict from shfmt with keys 'Op' and 'Word'.
+        redir: A :class:`~lovely_bash_permissions.segments.SegmentRedirection`
+            as carried by a segment.
 
     Returns:
         List of kind strings this redirection triggers.
@@ -227,10 +120,7 @@ def classify_output_redirection(redir: dict[str, Any]) -> list[str]:
         return []
 
     # For >&/&>/& >> ops, shfmt puts fd in N.Value when present
-    n = redir.get("N", {})
-    fd: str | None = None
-    if isinstance(n, dict):
-        fd = n.get("Value")
+    fd: str | None = redir.get("N", {}).get("Value")
 
     # Determine target value (full target reconstructed from all parts)
     target: str = _redir_target(redir)
@@ -248,85 +138,6 @@ def classify_output_redirection(redir: dict[str, Any]) -> list[str]:
         return ["stdout_to_dev_null"]  # fd=1 or default
 
     return ["other"]
-
-
-def check_output_redirection(tree: dict[str, Any], rules: dict[str, Any]) -> dict[str, Any]:
-    """Evaluate output redirections against rules.
-
-    Extracts output redirections (> or >>) from the AST and applies
-    the configured allow/ask/deny policy.
-
-    When rules["output_redirection"] is a dict, kind-specific keys
-    (stderr_to_dev_null, stderr_to_stdout, stdout_to_dev_null) are
-    checked first, falling back to "*".
-
-    Args:
-        tree: The shfmt JSON AST representation of the bash command.
-        rules: Policy dict with "output_redirection" key set to
-            "allow", "ask", or "deny" (or object form with per-type policies).
-
-    Returns:
-        dict with "status" ("allow"/"ask"/"deny") and
-        "reason" string.
-        If no output redirection is found, returns
-        {"status": "allow", "reason": "no output redirection"}.
-    """
-    policy = rules.get("output_redirection", "ask")
-
-    redirs = []
-    for stmt in tree.get("Stmts", []):
-        # Redirs on the statement node itself (simple statements)
-        redirs.extend(stmt.get("Redirs", []))
-        # Redirs inside Cmd (pipes BinaryCmd, etc.)
-        cmd = stmt.get("Cmd", {})
-        redirs.extend(_find_redirs(cmd))
-
-    redirections = []
-    for redir in redirs:
-        op = redir.get("Op", "")
-        if op in WRITE_REDIRECT_OPS:
-            redirections.append(redir)
-
-    if not redirections:
-        return {
-            "status": "allow",
-            "reason": "no output redirection",
-        }
-
-    targets = []
-    kinds: list[str] = []
-    for redir in redirections:
-        targets.append(_redir_target(redir))
-        kinds.extend(classify_output_redirection(redir))
-
-    # Check redirect targets against blocked paths (security check, applies to all policies).
-    blocked_patterns = rules.get("blocked_cmds_regex", [])
-    if blocked_patterns:
-        for target in targets:
-            matched, pattern = _find_blocked_path(target, blocked_patterns)
-            if matched:
-                return {
-                    "status": "deny",
-                    "reason": f'Redirect target "{target}" matches blocked pattern {pattern}',
-                }
-
-    level = _resolve_output_level(kinds, policy) if isinstance(policy, dict) else policy
-
-    if level == "allow":
-        return {
-            "status": "allow",
-            "reason": f"output redirection allowed to {', '.join(targets)}",
-        }
-    elif level == "ask":
-        return {
-            "status": "ask",
-            "reason": "output redirection requires approval",
-        }
-    else:  # deny
-        return {
-            "status": "deny",
-            "reason": f"output redirection denied to {', '.join(targets)}",
-        }
 
 
 def _resolve_output_level(kinds: list[str], policy: dict[str, Any]) -> str:
@@ -360,94 +171,15 @@ def _resolve_output_level(kinds: list[str], policy: dict[str, Any]) -> str:
     return "allow"
 
 
-def check_input_redirection(tree: dict[str, Any], rules: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Evaluate input redirections against rules.
-
-    Extracts input redirections (< or <<) from the AST and applies
-    the configured allow/ask/deny policy.
-
-    When rules["input_redirection"] is a dict, uses wildcard "*" level.
-
-    When input redirection policy is "ask", redirect targets are also checked
-    against blocked_cmds_regex from rules. If any target matches a blocked
-    pattern, the status is escalated to "deny" (overrides ask).
-
-    Args:
-        tree: The shfmt JSON AST representation of the bash command.
-        rules: Policy dict with "input_redirection" key set to
-            "allow", "ask", or "deny" (or object form with per-type policies).
-            May also contain "blocked_cmds_regex" for target validation.
-
-    Returns:
-        dict with "status" ("allow"/"ask"/"deny") and
-        "reason" string.
-        If no input redirection is found, returns
-        {"status": "allow", "reason": "no input redirection"}.
-    """
-    rules = rules or {}
-    policy = rules.get("input_redirection", "ask")
-
-    # If policy is an object, use the wildcard level.
-    # (TS version only uses wildcard for input redirection)
-    level = policy.get("*", "ask") if isinstance(policy, dict) else policy
-
-    redirs = []
-    for stmt in tree.get("Stmts", []):
-        # Redirs on the statement node itself (simple statements)
-        redirs.extend(stmt.get("Redirs", []))
-        # Redirs inside Cmd (pipes BinaryCmd, etc.)
-        cmd = stmt.get("Cmd", {})
-        redirs.extend(_find_redirs(cmd))
-
-    redirections = []
-    for redir in redirs:
-        op = redir.get("Op", "")
-        if op in ("<", "<<", "<<<", "<&"):
-            redirections.append({"op": op, "target": _redir_target(redir)})
-
-    if not redirections:
-        return {
-            "status": "allow",
-            "reason": "no input redirection",
-        }
-
-    targets = [r["target"] for r in redirections]
-
-    # Check redirect targets against blocked_paths (security check, applies to all policies).
-    blocked_patterns = rules.get("blocked_cmds_regex", [])
-    if blocked_patterns:
-        for target in targets:
-            matched, pattern = _find_blocked_path(target, blocked_patterns)
-            if matched:
-                return {
-                    "status": "deny",
-                    "reason": f'Redirect target "{target}" matches blocked pattern {pattern}',
-                }
-
-    if level == "allow":
-        return {
-            "status": "allow",
-            "reason": f"input redirection allowed from {', '.join(targets)}",
-        }
-    elif level == "ask":
-        return {
-            "status": "ask",
-            "reason": "input redirection requires approval",
-        }
-    else:  # deny
-        return {
-            "status": "deny",
-            "reason": f"input redirection denied from {', '.join(targets)}",
-        }
-
-
-def _check_segments_output_redirs(segments: list[dict[str, Any]], rules: dict[str, Any]) -> dict[str, Any]:
+def _check_segments_output_redirs(segments: list[Segment], rules: dict[str, Any]) -> dict[str, Any]:
     """Evaluate output redirections collected from segments.
 
     Works on segment dicts produced by ``parse_segments`` - each segment's
-    ``"redirections"`` list contains dicts with ``Op``, ``N``, and ``Word``.
-    Applies the same policy logic as :func:`check_output_redirection` but
-    operates on segment-level data (single source of truth, issue #2/#3).
+    ``"redirections"`` list holds :class:`SegmentRedirection` records.  This is
+    the single source of truth for output redirection policy: the segment parser
+    has already walked the whole command, including redirections nested inside
+    pipes, subshells and command substitutions, so a second raw-AST traversal
+    would be redundant and would risk missing the nested ones.
 
     Args:
         segments: List of segment dicts from parse_segments.
@@ -461,17 +193,15 @@ def _check_segments_output_redirs(segments: list[dict[str, Any]], rules: dict[st
     # compound-command redirections (while/until/if/{ } group) are
     # attributed to every inner segment - the same redirection appears once per
     # segment. Dedupe by (op, fd, target); distinct descriptors are preserved.
-    redirections: list[dict[str, Any]] = []
+    redirections: list[SegmentRedirection] = []
     seen_output: set[tuple[str, str, str]] = set()
     for seg in segments:
-        for r in seg.get("redirections", []):
+        for r in seg.get("redirections") or []:
             if r.get("Op") in WRITE_REDIRECT_OPS:
                 target = _redir_target(r)
-                # segment redirection dicts serialize the fd as a dict
-                # ({} when absent, {"Value": "2"} for `2>`) - extract the scalar
-                # fd so the dedupe key is hashable.
-                n = r.get("N")
-                fd = n.get("Value", "") if isinstance(n, dict) else ("" if n is None else str(n))
+                # the segment producers serialize the fd as a str
+                # ("" when absent, "2" for `2>`) - that scalar is the dedupe key.
+                fd = r.get("N", {}).get("Value", "")
                 key = (r.get("Op", ""), fd, target)
                 if key not in seen_output:
                     seen_output.add(key)
@@ -507,10 +237,11 @@ def _check_segments_output_redirs(segments: list[dict[str, Any]], rules: dict[st
         return {"status": "deny", "reason": f"output redirection denied to {', '.join(targets)}"}
 
 
-def _check_segments_input_redirs(segments: list[dict[str, Any]], rules: dict[str, Any]) -> dict[str, Any]:
+def _check_segments_input_redirs(segments: list[Segment], rules: dict[str, Any]) -> dict[str, Any]:
     """Evaluate input redirections collected from segments.
 
-    Segment-level counterpart to :func:`check_input_redirection`.
+    Segment-level counterpart to :func:`_check_segments_output_redirs`, and
+    the single source of truth for input redirection policy.
 
     Args:
         segments: List of segment dicts from parse_segments.
@@ -525,10 +256,10 @@ def _check_segments_input_redirs(segments: list[dict[str, Any]], rules: dict[str
 
     # dedupe by (op, target) - compound-command redirections are
     # attributed to every inner segment.
-    input_redirs: list[dict[str, Any]] = []
+    input_redirs: list[dict[str, str]] = []
     seen_input: set[tuple[str, str]] = set()
     for seg in segments:
-        for r in seg.get("redirections", []):
+        for r in seg.get("redirections") or []:
             if r.get("Op") in ("<", "<<", "<<<", "<&"):
                 target = _redir_target(r)
                 key = (r["Op"], target)
