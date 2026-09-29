@@ -10,10 +10,10 @@ from unittest.mock import patch
 
 import pytest
 
+from lovely_bash_permissions import decide
 from lovely_bash_permissions.config.devin import exec_permission_to_regex
 from lovely_bash_permissions.evaluate import evaluate_bash_command
 from lovely_bash_permissions.hook import (
-    _error_action,
     _hook_command,
     generate_hook_response,
     process_hook_event,
@@ -22,17 +22,49 @@ from lovely_bash_permissions.segments import parse_segments
 from tests.conftest import _permission_request_event, _pretooluse_exec_event
 
 
-def test_error_action_fallback_to_wildcard() -> None:
-    """Config without an 'error' key falls back to '*' then 'ask'."""
-    assert _error_action({"*": "deny"}, ValueError("x"))["action"] == "block"
-    assert _error_action({}, ValueError("x"))["action"] == "ask"
+class TestDenyToBlockTranslationAtTheSeam:
+    """``deny`` is this product's vocabulary; ``block`` is Devin's wire vocabulary.
 
+    Pinned from *both* sides, because the failure is asymmetric: a ``deny``
+    forwarded where ``block`` is expected misses every ``elif action ==
+    "block"`` branch in ``generate_hook_response``, so the response is None,
+    the CLI never reaches ``sys.exit(2)``, and the denied command runs. No
+    error is raised on that path, which is what makes it worth two assertions
+    rather than one.
+    """
 
-def test_error_action_invalid_level_falls_back_to_ask() -> None:
-    """An unparseable error level degrades to ask, never crashes."""
-    result = _error_action({"error": "banana", "*": "deny"}, ValueError("x"))
-    assert result["action"] == "ask"
-    assert "policy 'banana'" in result["reason"]
+    def test_decide_never_speaks_block(self) -> None:
+        assert decide.decide_bash_command("rm -rf /", {"*": "deny"})["action"] == "deny"
+
+    def test_the_seam_speaks_block(self, bash_project: Path) -> None:
+        (bash_project / ".devin" / "lovely-permissions.jsonc").write_text('{"bash": {"*": "deny"}}')
+        event = _pretooluse_exec_event("rm -rf /")
+        event["project_dir"] = str(bash_project)
+        assert process_hook_event(event)["action"] == "block"
+
+    def test_error_action_is_deny_on_the_product_side(self) -> None:
+        assert decide.error_action({"*": "deny"}, ValueError("x"))["action"] == "deny"
+        assert decide.error_action({}, ValueError("x"))["action"] == "ask"
+
+    def test_error_action_invalid_level_falls_back_to_ask(self) -> None:
+        """An unparseable error level degrades to ask, never crashes."""
+        result = decide.error_action({"error": "banana", "*": "deny"}, ValueError("x"))
+        assert result["action"] == "ask"
+        assert "policy 'banana'" in result["reason"]
+
+    def test_an_unparseable_command_blocks_at_the_seam(self, bash_project: Path) -> None:
+        """The `error` policy routed through the whole path, in Devin's words.
+
+        `{"*": "allow", "error": "deny"}` is the case where an unresolved
+        config would fall through to the wildcard and report `allow` - the
+        fail-open the resolution step in `decide_bash_command` exists to close.
+        """
+        (bash_project / ".devin" / "lovely-permissions.jsonc").write_text('{"bash": {"*": "allow", "error": "deny"}}')
+        event = _pretooluse_exec_event("'unterminated")
+        event["project_dir"] = str(bash_project)
+        decision = process_hook_event(event)
+        assert decision["action"] == "block"
+        assert "error evaluating command" in decision["reason"]
 
 
 # ---------------------------------------------------------------------------
@@ -354,13 +386,18 @@ def test_error_policy_allow_overrides_deny_wildcard() -> None:
 
 
 def test_unexpected_exception_routed_through_error_policy() -> None:
-    """Unexpected internal exceptions also map via the error policy."""
+    """Unexpected internal exceptions also map via the error policy.
+
+    Patched at `decide.evaluate_bash_command`, where the evaluator is called
+    from now that the decision logic moved out of the hook; the exception is
+    still caught and translated at the seam, so this still covers the same path.
+    """
     event = _pretooluse_exec_event("ls")
 
     with (
         patch("lovely_bash_permissions.hook.PermissionsManager") as MockMgr,
         patch("lovely_bash_permissions.hook.get_effective_bash_config", return_value=_effective_config(error="deny")),
-        patch("lovely_bash_permissions.hook.evaluate_bash_command", side_effect=RuntimeError("internal bug")),
+        patch("lovely_bash_permissions.decide.evaluate_bash_command", side_effect=RuntimeError("internal bug")),
     ):
         instance = MockMgr.return_value
         instance.get_lovely_config.return_value = {"bash": {}}

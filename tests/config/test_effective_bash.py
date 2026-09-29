@@ -5,7 +5,11 @@ Verifies that blocked_cmds_regex from config is loaded correctly.
 
 import pytest
 
-from lovely_bash_permissions.config.effective_bash import get_effective_bash_config
+from lovely_bash_permissions.config.effective_bash import (
+    get_effective_bash_config,
+    resolve_bash_config,
+)
+from lovely_bash_permissions.policy import NON_CONSTRUCT_KEYS, POLICY_KEYS
 
 pytestmark = pytest.mark.usefixtures("devin_global_config_dir")
 
@@ -175,3 +179,76 @@ class TestGetEffectiveBashConfig:
         result = get_effective_bash_config(None, "/project", top_level_wildcard="deny")
 
         assert result["error"] == "deny"
+
+
+class TestResolveBashConfig:
+    """The host-agnostic half, on its own.
+
+    ``resolve_bash_config`` exists so a host with no Devin ``Exec()`` concept
+    can resolve a block. The tests below are therefore also the evidence that
+    the split is a split: the wrapper is this plus a merge, nothing else.
+    """
+
+    def test_matches_the_devin_wrapper_where_devin_adds_nothing(self) -> None:
+        for raw in (None, {}, {"*": "ask"}, {"*": "allow", "allowed_cmds_regex": ["^ls"]}):
+            assert resolve_bash_config(raw) == get_effective_bash_config(raw, "/project")
+
+    def test_absent_and_empty_take_the_same_branch(self) -> None:
+        """`if not raw_bash:`, not `if raw_bash is None:` - see resolve's docstring.
+
+        An empty block is a documented no-op, so it must return the bare
+        four-key default and never be spread or resolved. The natural-looking
+        `is None` would resolve every policy key against the wildcard and
+        change the output here, which is the drift the refactor exists to
+        prevent.
+        """
+        assert resolve_bash_config({}) == resolve_bash_config(None)
+        assert resolve_bash_config({}) == {
+            "*": "ask",
+            "error": "ask",
+            "allowed_cmds_regex": [],
+            "blocked_cmds_regex": [],
+        }
+
+    def test_empty_block_ignores_the_top_level_wildcard_for_its_keys(self) -> None:
+        """`{}` returns the default under the *default* wildcard, not the mode's."""
+        assert resolve_bash_config({}, "allow") == {
+            "*": "allow",
+            "error": "allow",
+            "allowed_cmds_regex": [],
+            "blocked_cmds_regex": [],
+        }
+
+    def test_every_policy_key_is_resolved_against_the_wildcard(self) -> None:
+        result = resolve_bash_config({"blocked_cmds_regex": ["/etc/passwd"]}, "deny")
+        for key in (*POLICY_KEYS, *NON_CONSTRUCT_KEYS):
+            assert result[key] == "deny", key
+
+    def test_an_explicit_key_beats_the_wildcard(self) -> None:
+        assert resolve_bash_config({"*": "deny", "subshell": "allow"})["subshell"] == "allow"
+
+    def test_a_dict_policy_gets_the_wildcard_as_its_own(self) -> None:
+        result = resolve_bash_config({"*": "deny", "output_redirection": {"other": "allow"}})
+        assert result["output_redirection"] == {"other": "allow", "*": "deny"}
+
+    def test_unknown_keys_pass_through(self) -> None:
+        """The `{**bash}` spread is load-bearing and is preserved byte for byte.
+
+        After Phase 1 the validated path cannot carry an unknown key, but this
+        function is still called directly with raw dicts by ``--show-config``
+        and by the golden harness. A host that resolved a block itself and
+        lost a key it passed on would be a different function, not a refactor.
+        """
+        result = resolve_bash_config({"*": "ask", "nonsense": 1})
+        assert result["nonsense"] == 1
+
+    def test_the_wrapper_only_adds_devin_patterns(self) -> None:
+        """The Devin half is the resolution plus a merge - nothing more."""
+        raw = {"*": "ask", "allowed_cmds_regex": ["^ls"], "blocked_cmds_regex": ["/etc/shadow"]}
+        resolved = resolve_bash_config(raw)
+        merged = get_effective_bash_config(raw, "/project")
+        assert set(merged) == set(resolved)
+        assert {k: v for k, v in merged.items() if k != "allowed_cmds_regex"} == {
+            k: v for k, v in resolved.items() if k != "allowed_cmds_regex"
+        }
+        assert merged["allowed_cmds_regex"][:1] == ["^ls"]

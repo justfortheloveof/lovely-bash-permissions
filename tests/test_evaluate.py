@@ -3013,6 +3013,7 @@ class TestEvaluateEmptySegmentSubstitutionGateIsUnreachable:
         assert result == {
             "status": "ask",
             "reason": "command substitution requires approval",
+            "reasons": ["command substitution requires approval"],
             "segments": [],
         }
 
@@ -3050,6 +3051,7 @@ class TestEvaluateEmptySegmentSubstitutionGateIsUnreachable:
         assert result == {
             "status": "deny",
             "reason": "command substitution denied in config",
+            "reasons": ["command substitution denied in config"],
             "segments": [],
         }
 
@@ -3069,6 +3071,7 @@ class TestEvaluateEmptySegmentSubstitutionGateIsUnreachable:
         assert result == {
             "status": "deny",
             "reason": "process substitution denied in config",
+            "reasons": ["process substitution denied in config"],
             "segments": [],
         }
 

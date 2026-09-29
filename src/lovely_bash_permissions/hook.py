@@ -8,9 +8,9 @@ import re
 import shlex
 from typing import Any
 
+from . import decide
 from .config.effective_bash import get_effective_bash_config
 from .config.manager import PermissionsManager
-from .evaluate import evaluate_bash_command
 
 HOOK_LABEL_PREFIX = "[♡ perms: "
 
@@ -136,19 +136,16 @@ def generate_hook_response(event: dict[str, Any], decision: dict[str, Any]) -> d
     return None
 
 
-_LEVEL_TO_ACTION = {"allow": "allow", "ask": "ask", "deny": "block"}
-
-
-def _error_action(config: dict[str, Any], exc: BaseException) -> dict[str, Any]:
-    """Map a failure to the configured ``error`` policy.
-
-    ``bash.error`` (or its wildcard default, resolved by
-    :func:`get_effective_bash_config`) decides the action for any command we
-    could not analyse.  Falls back to ask when the config is unavailable.
-    """
-    level = config.get("error") or config.get("*") or "ask"
-    action = _LEVEL_TO_ACTION.get(level, "ask")
-    return {"action": action, "reason": f"error evaluating command (policy '{level}'): {exc}"}
+#: The product's policy vocabulary -> Devin's wire vocabulary. The only place
+#: the two are related, and the only place ``block`` may be produced.
+#:
+#: ``decide_bash_command`` answers ``deny``; Devin branches on ``block`` to
+#: decide the command's fate. Forwarding a ``deny`` verbatim misses both
+#: ``elif action == "block"`` branches in :func:`generate_hook_response`, so the
+#: response is ``None``, ``devin_cli.handle_hook_event`` returns ``None``, and
+#: ``main`` never reaches ``sys.exit(2)`` - the denied command runs, silently.
+#: Translating here, once, is what makes that impossible. See D12.
+_DEVIN_ACTION = {"allow": "allow", "ask": "ask", "deny": "block"}
 
 
 def process_hook_event(event: dict[str, Any]) -> dict[str, Any]:
@@ -204,13 +201,10 @@ def process_hook_event(event: dict[str, Any]) -> dict[str, Any]:
         reason = manager.get_error() or f"effective bash config load failed: {exc}"
         return {"action": "block", "reason": f"config error (blocked): {reason}"}
 
-    try:
-        result = evaluate_bash_command(command, config)
-    except Exception as exc:  # noqa: BLE001 - uniform routing through the `error` policy
-        return _error_action(config, exc)
-
-    status = result.get("status", "ask")
-    reason = result.get("reason", "")
-
-    action = _LEVEL_TO_ACTION[status]
-    return {"action": action, "reason": reason}
+    # `config` is already resolved, so `decide_bash_command` re-resolving it is
+    # idempotent: every key carries its level and the wildcards agree.
+    decision = decide.decide_bash_command(command, config, raw_config.get("*", "ask"))
+    # Translated here, at the seam, and nowhere else - see D12. `reasons` is
+    # dropped rather than forwarded: the Devin contract is exactly these two
+    # keys, and `pinned by tests/test_hook.py`.
+    return {"action": _DEVIN_ACTION[decision["action"]], "reason": decision["reason"]}

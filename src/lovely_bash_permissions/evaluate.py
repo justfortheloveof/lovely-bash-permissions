@@ -541,6 +541,12 @@ def _empty_segment_result(
     cannot bypass the blocked-path rules just because they produce no exec
     segments.  A hit on any of them denies outright; only when nothing
     matched does the wildcard / substitution policy decide.
+
+    The fourth return path of :func:`evaluate_bash_command`, alongside
+    :func:`_finalize_reasons`. It carries ``reasons`` on every branch for the
+    same reason that one does: a verdict a host has to explain cannot leave
+    the explanation list empty, and 120 of these rows across the golden corpus
+    are ``ask``.
     """
     blocked_patterns: list[str] = config.get("blocked_cmds_regex", [])
     has_cmd_subst = flags["command_substitution"]
@@ -555,12 +561,16 @@ def _empty_segment_result(
     for pattern, text in whole_command_hits:
         reasons.append(_blocked_reason(text, pattern))
     if reasons:
-        return {"status": "deny", "reason": "; ".join(dict.fromkeys(reasons)), "segments": []}
+        deduped = list(dict.fromkeys(reasons))
+        return {"status": "deny", "reason": "; ".join(deduped), "reasons": deduped, "segments": []}
+
+    empty_reason = f"<empty command> produced no parseable segments - defaulting to wildcard policy ({wildcard})"
 
     if not (has_cmd_subst or has_proc_subst):
         return {
             "status": wildcard,
-            "reason": f"<empty command> produced no parseable segments - defaulting to wildcard policy ({wildcard})",
+            "reason": empty_reason,
+            "reasons": [empty_reason],
             "segments": [],
         }
 
@@ -578,15 +588,18 @@ def _empty_segment_result(
     if policy == "allow":
         return {
             "status": wildcard,
-            "reason": f"<empty command> produced no parseable segments - defaulting to wildcard policy ({wildcard})",
+            "reason": empty_reason,
+            "reasons": [empty_reason],
             "segments": [],
         }
     subst_label = "command substitution" if has_cmd_subst else "process substitution"
     # A `deny` here is an absolute block, so the reason must not claim the
     # user can still approve it at runtime.
+    reason = f"{subst_label} denied in config" if policy == "deny" else f"{subst_label} requires approval"
     return {
         "status": policy,
-        "reason": f"{subst_label} denied in config" if policy == "deny" else f"{subst_label} requires approval",
+        "reason": reason,
+        "reasons": [reason],
         "segments": [],
     }
 
@@ -859,11 +872,17 @@ def _apply_construct_policies(flags: dict[str, bool], rules: dict[str, Any], ver
             verdict.reasons.append(added_reason)
 
 
-def _finalize_reason(verdict: _Verdict, config: dict[str, Any]) -> str:
-    """Assemble the human-readable reason, de-duplicated, in append order.
+def _finalize_reasons(verdict: _Verdict) -> list[str]:
+    """The de-duplicated reasons, in append order, or nothing to say.
 
-    Approval reasons are only included when the status is ``allow``; when there
-    is nothing to say at all, the verdict falls back to describing the wildcard.
+    Returns a *list*, and the two fallback shapes below are exactly the cases
+    where it is empty: an allow that matched patterns the verdict did not
+    otherwise have anything to say about, and an allow decided by the wildcard
+    alone. Both produce a ``reason`` string; neither produces reasons to show.
+
+    An empty list therefore means "allow, nothing to explain", never "verdict
+    reached, explanation lost" - no ``ask`` or ``deny`` reaches the fallbacks,
+    because a non-allow verdict always carries the reason that produced it.
     """
     if verdict.status == "allow" and verdict.all_matched_patterns:
         # Build approval reason from ALL matched patterns (top-level + nested)
@@ -874,7 +893,19 @@ def _finalize_reason(verdict: _Verdict, config: dict[str, Any]) -> str:
         for r in verdict.reasons:
             if r not in seen:
                 seen.append(r)
-        return "; ".join(seen)
+        return seen
+    return []
+
+
+def _finalize_reason(verdict: _Verdict, config: dict[str, Any], reasons: list[str]) -> str:
+    """Assemble the human-readable reason from an already-finalized reason list.
+
+    Approval reasons are only included when the status is ``allow``; when there
+    is nothing to say at all, the verdict falls back to describing the pattern
+    or the wildcard that allowed it.
+    """
+    if reasons:
+        return "; ".join(reasons)
     if verdict.all_matched_patterns:
         noun = "pattern" if len(verdict.all_matched_patterns) == 1 else "patterns"
         return f"command matches allowed {noun}: {', '.join(verdict.all_matched_patterns)}"
@@ -909,7 +940,15 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     Returns:
         dict with keys:
             - 'status': 'allow', 'ask', or 'deny'
-            - 'reason': human-readable explanation
+            - 'reason': human-readable explanation, the reasons joined on "; "
+            - 'reasons': the same explanations as a list, de-duplicated in
+              append order. A consumer that renders them must not re-split
+              'reason' on "; ": most reasons contain a semicolon themselves,
+              and a one-element list like ['"ls" command is not allowlisted;
+              wildcard policy is ask'] would tear into two bullets. Empty only
+              when the verdict is an 'allow' with nothing to explain - a
+              matched pattern or the wildcard, see _finalize_reasons - and
+              never for an 'ask' or 'deny'.
             - 'segments': list of per-segment results, each with 'command',
               'arguments', 'allowed', 'blocked' (allowed/blocked are
               evaluate-added metadata, absent from parse_segments output)
@@ -979,8 +1018,10 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
 
     _apply_construct_policies(flags, rules, verdict)
 
+    reasons = _finalize_reasons(verdict)
     return {
         "status": verdict.status,
-        "reason": _finalize_reason(verdict, config),
+        "reason": _finalize_reason(verdict, config, reasons),
+        "reasons": reasons,
         "segments": segment_results,
     }

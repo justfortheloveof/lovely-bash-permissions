@@ -110,6 +110,30 @@ def tmp_project(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def bash_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A project dir whose only config is the one a test writes, plus an empty global.
+
+    Two things are isolated, and a test that misses either one is testing the
+    developer's machine rather than the code: the *global* config dir (patched
+    empty, or a real ``~/.devin`` on the box would merge in) and the *project*
+    dir, which the test populates itself. Yields the project dir.
+    """
+    empty_global = tmp_path / ".config" / "devin"
+    empty_global.mkdir(parents=True)
+    monkeypatch.setattr(
+        "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+        lambda: empty_global,
+    )
+    monkeypatch.setattr(
+        "lovely_bash_permissions.config.devin.get_devin_global_config_dir",
+        lambda: empty_global,
+    )
+    project = tmp_path / "proj"
+    (project / ".devin").mkdir(parents=True)
+    return project
+
+
+@pytest.fixture
 def project_with_bash_config(tmp_project: Path) -> Path:
     """Create a project directory with a devin config for bash rules."""
     project_dir = tmp_project
