@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .errors import LovelyDevinPermissionsError
+from .errors import ShfmtError
 
 _VALID_DIALECTS = frozenset({"bash", "posix", "mksh", "bats", "zsh"})
 
@@ -41,8 +41,8 @@ def parse(command: str, dialect: str = "bash") -> dict[str, Any]:
 
     Raises:
         ParseError: If parsing fails (syntax error, invalid JSON).
-        LovelyDevinPermissionsError: If the shfmt binary is missing or
-            shfmt could not be run (timeout, OS error).
+        ShfmtError: If the shfmt binary is missing or shfmt could not be run
+            (timeout, OS error).
         ValueError: If *dialect* is not a recognised shell dialect.
     """
     if dialect not in _VALID_DIALECTS:
@@ -51,7 +51,7 @@ def parse(command: str, dialect: str = "bash") -> dict[str, Any]:
     try:
         shfmt_path = find_shfmt()
     except FileNotFoundError as e:
-        raise LovelyDevinPermissionsError(str(e)) from e
+        raise ShfmtError(str(e)) from e
 
     if not command.strip():
         raise ParseError("Empty command", command=command)
@@ -70,9 +70,9 @@ def parse(command: str, dialect: str = "bash") -> dict[str, Any]:
             check=False,
         )
     except subprocess.TimeoutExpired as e:
-        raise LovelyDevinPermissionsError(f"shfmt timed out while parsing command: {e}") from e
+        raise ShfmtError(f"shfmt timed out while parsing command: {e}") from e
     except OSError as e:
-        raise LovelyDevinPermissionsError(f"failed to run shfmt: {e}") from e
+        raise ShfmtError(f"failed to run shfmt: {e}") from e
 
     if result.returncode != 0:
         raise ParseError(
@@ -152,7 +152,7 @@ def find_shfmt() -> str:
     return _shfmt_cache
 
 
-class ParseError(LovelyDevinPermissionsError):
+class ParseError(ShfmtError):
     """Exception raised when bash command parsing fails.
 
     Attributes:

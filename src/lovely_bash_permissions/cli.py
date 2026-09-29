@@ -37,7 +37,7 @@ from .ast import (
     Word,
 )
 from .converter import parse_ast
-from .errors import LovelyDevinPermissionsError
+from .errors import ShfmtError
 from .inspect import _word_value, has_pipe, has_variable, iter_children
 from .segments import _assign_operand_text
 
@@ -493,7 +493,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         tree = parse_ast(source)
-    except LovelyDevinPermissionsError as exc:
+    except ShfmtError as exc:
         print(f"{PROG}: error: failed to parse input: {exc}", file=sys.stderr)
         return 3
 
