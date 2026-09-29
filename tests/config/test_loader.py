@@ -4,7 +4,6 @@ Tests deep merge behavior, file loading, and merge precedence.
 """
 
 import json
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -119,7 +118,7 @@ class TestLoadPermissionsConfig:
     """Integration tests for config loading."""
 
     @pytest.fixture
-    def temp_project(self) -> tuple[Path, Path]:
+    def temp_project(self, tmp_path: Path) -> tuple[Path, Path]:
         """Create a temporary project directory structure.
 
         Kept distinct from the conftest `mock_project`: that one hands back a
@@ -129,14 +128,17 @@ class TestLoadPermissionsConfig:
         itself, and they assert on the exact merged dict - a pre-seeded file
         would change what those assertions are about.  Collapsing the two would
         mean editing ~40 assertions, not just the fixture bodies.
+
+        Rooted in pytest's `tmp_path` rather than `tempfile.mkdtemp()`, which
+        returns a path it never cleans up - it leaked a directory per test,
+        roughly forty per run.
         """
-        tmpdir = tempfile.mkdtemp()
-        devin_dir = Path(tmpdir) / ".devin"
+        devin_dir = tmp_path / ".devin"
         devin_dir.mkdir()
-        return Path(tmpdir), devin_dir
+        return tmp_path, devin_dir
 
     @pytest.fixture
-    def temp_global(self) -> tuple[Path, Path]:
+    def temp_global(self, tmp_path: Path) -> tuple[Path, Path]:
         """A (root, .config/devin) pair for the GLOBAL half of the merge.
 
         Not a project fixture at all: `load_permissions_config` resolves the
@@ -146,10 +148,9 @@ class TestLoadPermissionsConfig:
         in for it: that one is an env-var string for subprocesses, not a
         `(root, dir)` pair for in-process monkeypatching.
         """
-        tmpdir = tempfile.mkdtemp()
-        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir = tmp_path / ".config" / "devin"
         config_dir.mkdir(parents=True)
-        return Path(tmpdir), config_dir
+        return tmp_path, config_dir
 
     def _write_jsonc(self, path: Path, data: dict[str, Any]) -> None:
         """Write data as JSONC to path."""
@@ -179,10 +180,11 @@ class TestLoadPermissionsConfig:
         merged, _, _ = load_permissions_config(str(temp_global[0]))
         assert merged == {"read": {"permission": "allow"}}
 
-    def test_project_only(self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]) -> None:
+    def test_project_only(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
+    ) -> None:
         """Only project config exists."""
-        tmpdir = tempfile.mkdtemp()
-        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir = tmp_path / ".config" / "devin"
         config_dir.mkdir(parents=True)
         monkeypatch.setattr(
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
@@ -193,10 +195,9 @@ class TestLoadPermissionsConfig:
         merged, _, _ = load_permissions_config(str(temp_project[0]))
         assert merged == {"bash": {"*": "ask"}}
 
-    def test_local_only(self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]) -> None:
+    def test_local_only(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]) -> None:
         """Only local config exists."""
-        tmpdir = tempfile.mkdtemp()
-        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir = tmp_path / ".config" / "devin"
         config_dir.mkdir(parents=True)
         monkeypatch.setattr(
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
@@ -207,14 +208,15 @@ class TestLoadPermissionsConfig:
         merged, _, _ = load_permissions_config(str(temp_project[0]))
         assert merged == {"write": {"permission": "deny"}}
 
-    def test_project_overrides_global(self, monkeypatch: pytest.MonkeyPatch, temp_global: tuple[Path, Path]) -> None:
+    def test_project_overrides_global(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, temp_global: tuple[Path, Path]
+    ) -> None:
         """Project config overrides global per tool."""
         global_file = temp_global[1] / "lovely-permissions.jsonc"
         self._write_jsonc(global_file, {"read": {"permission": "deny"}})
 
         # Use a real project dir
-        project_dir = tempfile.mkdtemp()
-        devin_dir = Path(project_dir) / ".devin"
+        devin_dir = tmp_path / ".devin"
         devin_dir.mkdir()
         project_file = devin_dir / "lovely-permissions.jsonc"
         self._write_jsonc(project_file, {"read": {"permission": "allow"}})
@@ -223,13 +225,14 @@ class TestLoadPermissionsConfig:
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
             lambda: temp_global[1],
         )
-        merged, _, _ = load_permissions_config(project_dir)
+        merged, _, _ = load_permissions_config(str(tmp_path))
         assert merged == {"read": {"permission": "allow"}}
 
-    def test_local_overrides_project(self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]) -> None:
+    def test_local_overrides_project(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
+    ) -> None:
         """Local config overrides project per tool."""
-        tmpdir = tempfile.mkdtemp()
-        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir = tmp_path / ".config" / "devin"
         config_dir.mkdir(parents=True)
         monkeypatch.setattr(
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
@@ -244,13 +247,14 @@ class TestLoadPermissionsConfig:
         merged, _, _ = load_permissions_config(str(temp_project[0]))
         assert merged == {"read": {"permission": "ask"}}
 
-    def test_three_level_override(self, monkeypatch: pytest.MonkeyPatch, temp_global: tuple[Path, Path]) -> None:
+    def test_three_level_override(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, temp_global: tuple[Path, Path]
+    ) -> None:
         """Global < project < local precedence."""
         global_file = temp_global[1] / "lovely-permissions.jsonc"
         self._write_jsonc(global_file, {"tool": {"perm": "deny"}})
 
-        project_dir = tempfile.mkdtemp()
-        devin_dir = Path(project_dir) / ".devin"
+        devin_dir = tmp_path / ".devin"
         devin_dir.mkdir()
         project_file = devin_dir / "lovely-permissions.jsonc"
         self._write_jsonc(project_file, {"tool": {"perm": "ask"}})
@@ -261,16 +265,17 @@ class TestLoadPermissionsConfig:
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
             lambda: temp_global[1],
         )
-        merged, _, _ = load_permissions_config(project_dir)
+        merged, _, _ = load_permissions_config(str(tmp_path))
         assert merged == {"tool": {"perm": "allow"}}
 
-    def test_merge_different_tools(self, monkeypatch: pytest.MonkeyPatch, temp_global: tuple[Path, Path]) -> None:
+    def test_merge_different_tools(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, temp_global: tuple[Path, Path]
+    ) -> None:
         """Different tool configs from different files merge together."""
         global_file = temp_global[1] / "lovely-permissions.jsonc"
         self._write_jsonc(global_file, {"read": {"permission": "allow"}})
 
-        project_dir = tempfile.mkdtemp()
-        devin_dir = Path(project_dir) / ".devin"
+        devin_dir = tmp_path / ".devin"
         devin_dir.mkdir()
         project_file = devin_dir / "lovely-permissions.jsonc"
         self._write_jsonc(project_file, {"bash": {"*": "ask"}})
@@ -279,13 +284,15 @@ class TestLoadPermissionsConfig:
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
             lambda: temp_global[1],
         )
-        merged, _, _ = load_permissions_config(project_dir)
+        merged, _, _ = load_permissions_config(str(tmp_path))
         assert merged == {
             "read": {"permission": "allow"},
             "bash": {"*": "ask"},
         }
 
-    def test_deep_merge_nested_objects(self, monkeypatch: pytest.MonkeyPatch, temp_global: tuple[Path, Path]) -> None:
+    def test_deep_merge_nested_objects(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, temp_global: tuple[Path, Path]
+    ) -> None:
         """Nested objects are merged, not replaced."""
         global_file = temp_global[1] / "lovely-permissions.jsonc"
         self._write_jsonc(
@@ -293,8 +300,7 @@ class TestLoadPermissionsConfig:
             {"bash": {"*": "ask", "allowed_cmds_regex": ["^ls", "^cat"]}},
         )
 
-        project_dir = tempfile.mkdtemp()
-        devin_dir = Path(project_dir) / ".devin"
+        devin_dir = tmp_path / ".devin"
         devin_dir.mkdir()
         project_file = devin_dir / "lovely-permissions.jsonc"
         self._write_jsonc(
@@ -306,13 +312,13 @@ class TestLoadPermissionsConfig:
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
             lambda: temp_global[1],
         )
-        merged, _, _ = load_permissions_config(project_dir)
+        merged, _, _ = load_permissions_config(str(tmp_path))
         assert merged["bash"]["*"] == "ask"
         assert merged["bash"]["allowed_cmds_regex"] == ["^ls", "^cat"]
         assert merged["bash"]["blocked_cmds_regex"] == ["/tmp/"]
 
     def test_arrays_concatenated_across_files(
-        self, monkeypatch: pytest.MonkeyPatch, temp_global: tuple[Path, Path]
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, temp_global: tuple[Path, Path]
     ) -> None:
         """Arrays from different files are concatenated."""
         global_file = temp_global[1] / "lovely-permissions.jsonc"
@@ -321,8 +327,7 @@ class TestLoadPermissionsConfig:
             {"bash": {"allowed_cmds_regex": ["^ls", "^cat"]}},
         )
 
-        project_dir = tempfile.mkdtemp()
-        devin_dir = Path(project_dir) / ".devin"
+        devin_dir = tmp_path / ".devin"
         devin_dir.mkdir()
         project_file = devin_dir / "lovely-permissions.jsonc"
         self._write_jsonc(
@@ -334,15 +339,14 @@ class TestLoadPermissionsConfig:
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
             lambda: temp_global[1],
         )
-        merged, _, _ = load_permissions_config(project_dir)
+        merged, _, _ = load_permissions_config(str(tmp_path))
         assert merged["bash"]["allowed_cmds_regex"] == ["^ls", "^cat", "^mkdir"]
 
     def test_invalid_json_all_files_raises(
-        self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
     ) -> None:
         """All files invalid JSON -> raises meaningful error."""
-        tmpdir = tempfile.mkdtemp()
-        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir = tmp_path / ".config" / "devin"
         config_dir.mkdir(parents=True)
         monkeypatch.setattr(
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
@@ -355,11 +359,10 @@ class TestLoadPermissionsConfig:
         assert any("no valid lovely-permissions config found" in e for e in validation_errors)
 
     def test_invalid_json_all_files_includes_paths(
-        self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
     ) -> None:
         """All files invalid JSON -> error message contains all three paths."""
-        tmpdir = tempfile.mkdtemp()
-        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir = tmp_path / ".config" / "devin"
         config_dir.mkdir(parents=True)
         monkeypatch.setattr(
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
@@ -379,16 +382,15 @@ class TestLoadPermissionsConfig:
         for path in paths:
             assert path in error_msg
 
-    def test_non_dict_value_all_files_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_non_dict_value_all_files_raises(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """All config files contain non-dict values (arrays) → error message lists paths."""
-        tmpdir = tempfile.mkdtemp()
-        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir = tmp_path / ".config" / "devin"
         config_dir.mkdir(parents=True)
         monkeypatch.setattr(
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
             lambda: config_dir,
         )
-        project_dir = Path(tmpdir) / "project"
+        project_dir = tmp_path / "project"
         project_dir.mkdir()
         devin_dir = project_dir / ".devin"
         devin_dir.mkdir()
@@ -405,11 +407,10 @@ class TestLoadPermissionsConfig:
             assert path in error_msg
 
     def test_invalid_permission_returns_warning(
-        self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
     ) -> None:
         """Typo in the wildcard value is returned as a warning, not raised."""
-        tmpdir = tempfile.mkdtemp()
-        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir = tmp_path / ".config" / "devin"
         config_dir.mkdir(parents=True)
         monkeypatch.setattr(
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
@@ -422,7 +423,7 @@ class TestLoadPermissionsConfig:
         assert any("alow" in w.lower() for w in warnings)
 
     def test_permission_key_becomes_validation_error(
-        self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
     ) -> None:
         """A `permission` key in a real config file surfaces as a validation error.
 
@@ -432,8 +433,7 @@ class TestLoadPermissionsConfig:
         PermissionsManager reports the config as invalid and the hook fails
         closed rather than silently running under the wildcard.
         """
-        tmpdir = tempfile.mkdtemp()
-        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir = tmp_path / ".config" / "devin"
         config_dir.mkdir(parents=True)
         monkeypatch.setattr(
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
@@ -449,10 +449,11 @@ class TestLoadPermissionsConfig:
         # The raw merge is unchanged - only validation flags it.
         assert merged == {"bash": {"permission": "allow"}}
 
-    def test_bad_regex_returns_warning(self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]) -> None:
+    def test_bad_regex_returns_warning(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
+    ) -> None:
         """Invalid regex pattern is returned as a warning mentioning the field."""
-        tmpdir = tempfile.mkdtemp()
-        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir = tmp_path / ".config" / "devin"
         config_dir.mkdir(parents=True)
         monkeypatch.setattr(
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
@@ -466,11 +467,10 @@ class TestLoadPermissionsConfig:
         assert "blocked_cmds_regex" in combined
 
     def test_multiple_errors_all_reported(
-        self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
     ) -> None:
         """Multiple issues are returned as warnings and validation errors."""
-        tmpdir = tempfile.mkdtemp()
-        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir = tmp_path / ".config" / "devin"
         config_dir.mkdir(parents=True)
         monkeypatch.setattr(
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
@@ -488,10 +488,11 @@ class TestLoadPermissionsConfig:
         assert len(tool_lines) >= 1
         assert len(errors) >= 1
 
-    def test_json_with_comments_works(self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]) -> None:
+    def test_json_with_comments_works(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
+    ) -> None:
         """JSONC files with comments parse correctly."""
-        tmpdir = tempfile.mkdtemp()
-        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir = tmp_path / ".config" / "devin"
         config_dir.mkdir(parents=True)
         monkeypatch.setattr(
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
@@ -503,11 +504,10 @@ class TestLoadPermissionsConfig:
         assert merged == {"bash": {"*": "allow"}}
 
     def test_load_returns_validation_errors_list(
-        self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
     ) -> None:
         """Config with invalid regex returns non-empty validation_errors list."""
-        tmpdir = tempfile.mkdtemp()
-        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir = tmp_path / ".config" / "devin"
         config_dir.mkdir(parents=True)
         monkeypatch.setattr(
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
@@ -522,13 +522,12 @@ class TestLoadPermissionsConfig:
         assert "blocked_cmds_regex" in combined
 
     def test_manager_validation_errors_property(
-        self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
     ) -> None:
         """PermissionsManager exposes validation_errors property."""
         from lovely_bash_permissions.config.manager import PermissionsManager
 
-        tmpdir = tempfile.mkdtemp()
-        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir = tmp_path / ".config" / "devin"
         config_dir.mkdir(parents=True)
         monkeypatch.setattr(
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
@@ -543,13 +542,12 @@ class TestLoadPermissionsConfig:
         assert "blocked_cmds_regex" in combined
 
     def test_get_lovely_config_raises_on_errors(
-        self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
     ) -> None:
         """get_lovely_config returns config; errors exposed via validation_errors property."""
         from lovely_bash_permissions.config.manager import PermissionsManager
 
-        tmpdir = tempfile.mkdtemp()
-        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir = tmp_path / ".config" / "devin"
         config_dir.mkdir(parents=True)
         monkeypatch.setattr(
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
@@ -564,13 +562,12 @@ class TestLoadPermissionsConfig:
         assert "blocked_cmds_regex" in combined
 
     def test_has_validation_errors_property(
-        self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
     ) -> None:
         """has_validation_errors returns True when config has errors."""
         from lovely_bash_permissions.config.manager import PermissionsManager
 
-        tmpdir = tempfile.mkdtemp()
-        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir = tmp_path / ".config" / "devin"
         config_dir.mkdir(parents=True)
         monkeypatch.setattr(
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
@@ -583,13 +580,12 @@ class TestLoadPermissionsConfig:
         assert manager.has_validation_errors is True
 
     def test_manager_no_errors_for_valid_config(
-        self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
     ) -> None:
         """has_validation_errors returns False when config is valid."""
         from lovely_bash_permissions.config.manager import PermissionsManager
 
-        tmpdir = tempfile.mkdtemp()
-        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir = tmp_path / ".config" / "devin"
         config_dir.mkdir(parents=True)
         monkeypatch.setattr(
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
