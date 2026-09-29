@@ -34,7 +34,7 @@ from lovely_bash_permissions.parser import ParseError, parse
 from lovely_bash_permissions.segments import parse_segments
 
 
-class TestSimpleCommands:
+class TestParserSimpleCommands:
     """Test simple command parsing."""
 
     def test_single_command(self) -> None:
@@ -58,7 +58,7 @@ class TestSimpleCommands:
         assert get_arguments(tree) == [["hello"]]
 
 
-class TestPipes:
+class TestParserPipes:
     """Test pipe parsing."""
 
     def test_single_pipe(self) -> None:
@@ -77,7 +77,7 @@ class TestPipes:
         assert get_arguments(tree) == [["-la"], ["-i", "txt"]]
 
 
-class TestRedirections:
+class TestParserRedirections:
     """Test redirection parsing."""
 
     def test_output_redirect(self) -> None:
@@ -148,7 +148,7 @@ class TestRedirections:
         assert rw_part.value == "out"
 
 
-class TestVariables:
+class TestParserVariables:
     """Test variable detection."""
 
     def test_no_variables(self) -> None:
@@ -176,7 +176,7 @@ class TestVariables:
         assert has_variable(tree)
 
 
-class TestComplexCommands:
+class TestParserComplexCommands:
     """Test complex command parsing."""
 
     def test_complex_pipeline(self) -> None:
@@ -216,7 +216,7 @@ class TestComplexCommands:
         assert has_variable(tree)
 
 
-class TestEdgeCases:
+class TestParserEdgeCases:
     """Test edge cases."""
 
     def test_empty_command(self) -> None:
@@ -236,7 +236,7 @@ class TestEdgeCases:
         assert get_commands(tree) == ["echo"]
 
 
-class TestErrorTypes:
+class TestParserErrorTypes:
     """ShfmtError hierarchy and infra-failure wrapping."""
 
     def test_parse_error_is_shfmt_error(self) -> None:
@@ -271,7 +271,7 @@ class TestErrorTypes:
             parse("ls")
 
 
-class TestASTStructure:
+class TestParserASTStructure:
     """Test AST structure and types."""
 
     def test_file_node_type(self) -> None:
@@ -301,7 +301,7 @@ class TestASTStructure:
         assert cmd.op == "|"
 
 
-class TestLitNodes:
+class TestParserLitNodes:
     """Tests for the Lit node type."""
 
     def test_simple_literal_value(self) -> None:
@@ -566,7 +566,7 @@ class TestLitNodes:
         assert Lit is not None
 
 
-class TestSglQuotedNodes:
+class TestParserSglQuotedNodes:
     """Tests for the SglQuoted node type."""
 
     def test_simple_single_quoted(self) -> None:
@@ -702,7 +702,7 @@ class TestSglQuotedNodes:
         assert SglQuoted is not None
 
 
-class TestParamExpNodes:
+class TestParserParamExpNodes:
     """Tests for the ParamExp node type."""
 
     def test_short_param_expansion(self) -> None:
@@ -972,7 +972,7 @@ class TestParamExpNodes:
         assert part.slice.length is None
 
 
-class TestDblQuotedNodes:
+class TestParserDblQuotedNodes:
     """Tests for the DblQuoted node type."""
 
     def test_simple_double_quoted(self) -> None:
@@ -1150,7 +1150,7 @@ class TestDblQuotedNodes:
         assert DblQuoted is not None
 
 
-class TestCmdSubstNodes:
+class TestParserCmdSubstNodes:
     """Tests for the CmdSubst node type."""
 
     def test_simple_cmdsubst_syntax(self) -> None:
@@ -1335,7 +1335,7 @@ class TestCmdSubstNodes:
         assert CmdSubst is not None
 
 
-class TestArithmExpNodes:
+class TestParserArithmExpNodes:
     """Tests for the ArithmExp node type."""
 
     def test_simple_arithmetic_expression(self) -> None:
@@ -1492,7 +1492,7 @@ class TestArithmExpNodes:
         assert BinaryArithm is not None
 
 
-class TestProcSubstNodes:
+class TestParserProcSubstNodes:
     """Tests for the ProcSubst node type."""
 
     def test_input_process_substitution(self) -> None:
@@ -1611,7 +1611,7 @@ class TestProcSubstNodes:
         assert ProcSubst is not None
 
 
-class TestExtGlobNodes:
+class TestParserExtGlobNodes:
     """Tests for the ExtGlob node type.
 
     Extended globs require `shopt -s extglob` in bash. shfmt parses
@@ -1734,7 +1734,7 @@ class TestExtGlobNodes:
         assert isinstance(ExtGlob, type)
 
 
-class TestBlockNodes:
+class TestParserBlockNodes:
     """Tests for the Block node type.
 
     Blocks are curly-brace groups: { cmd1; cmd2; }. They execute
@@ -2049,7 +2049,7 @@ class TestBlockNodes:
         assert isinstance(Block, type)
 
 
-class TestFuncDeclNodes:
+class TestParserFuncDeclNodes:
     """Tests for the FuncDecl node type.
 
     Bash function declarations: name() { body }, function name { body },
@@ -2500,7 +2500,7 @@ class TestFuncDeclNodes:
         assert FuncDecl is not None
 
 
-class TestDeepNestingRecursion:
+class TestParserDeepNestingRecursion:
     """deep nesting must convert instead of raising RecursionError."""
 
     def test_deep_cmdsubst_does_not_crash(self) -> None:

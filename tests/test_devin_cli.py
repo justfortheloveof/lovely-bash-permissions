@@ -114,7 +114,7 @@ def run_cli_in_process(
     return captured.getvalue()
 
 
-class TestLabelExecEntry:
+class TestDevinCliLabelExecEntry:
     r"""The ``--setup`` entry must be a pattern the matcher can actually match.
 
     ``--setup`` writes ``Exec(:)``.  A pattern that embeds the label text,
@@ -165,7 +165,7 @@ class TestLabelExecEntry:
         assert not re.search(exec_permission_to_regex("Exec(: '[♡ perms:)"), executed)
 
 
-class TestCliSetup:
+class TestDevinCliCliSetup:
     """Test --setup flag: adds label exec permission to devin global config."""
 
     def test_setup_creates_config_dir(self, tmp_path: Path) -> None:
@@ -312,7 +312,7 @@ class TestCliSetup:
             assert f.read() == original
 
 
-class TestCliTest:
+class TestDevinCliCliTest:
     """Test --test flag: test a command as a PreToolUse event."""
 
     def test_test_allowed_command(self, project_with_bash_config: Path) -> None:
@@ -429,7 +429,7 @@ class _NodeCoverageBase:
         return cmd[b + 1 :].strip()
 
 
-class TestCliTestMultipleApprovalReasons(_NodeCoverageBase):
+class TestDevinCliCliTestMultipleApprovalReasons(_NodeCoverageBase):
     """A command tripping several ask-level rules reports all reasons."""
 
     def test_output_redirection_and_background(self, tmp_project: Path, tmp_path: Path) -> None:
@@ -474,7 +474,7 @@ class TestCliTestMultipleApprovalReasons(_NodeCoverageBase):
         assert "background execution requires approval: cat" in label
 
 
-class TestCliTestAutoApprovalReasons(_NodeCoverageBase):
+class TestDevinCliCliTestAutoApprovalReasons(_NodeCoverageBase):
     """An auto-approved command reports every reason it was approved."""
 
     def test_output_redirection_allowed_reported(self, tmp_project: Path, tmp_path: Path) -> None:
@@ -518,7 +518,7 @@ class TestCliTestAutoApprovalReasons(_NodeCoverageBase):
         assert "background execution allowed: ls" in label
 
 
-class TestCliTestNodeCoverage(_NodeCoverageBase):
+class TestDevinCliCliTestNodeCoverage(_NodeCoverageBase):
     """Exercise AST node handlers (DeclClause, conditionals, tests) via --test/-t."""
 
     def test_declclause_export_is_a_command(self, tmp_project: Path, tmp_path: Path) -> None:
@@ -623,7 +623,7 @@ class TestCliTestNodeCoverage(_NodeCoverageBase):
         assert '"cat"' in label
 
 
-class TestCliTestRemainingNodes(_NodeCoverageBase):
+class TestDevinCliCliTestRemainingNodes(_NodeCoverageBase):
     """Exercise every other supported AST node handler via --test/-t.
 
     DeclClause, IfClause/ElifBranch, WhileClause, and UnaryTest are covered in
@@ -774,7 +774,7 @@ class TestCliTestRemainingNodes(_NodeCoverageBase):
         assert "variable assignment" in label
 
 
-class TestCliTestMultilineCommands(_NodeCoverageBase):
+class TestDevinCliCliTestMultilineCommands(_NodeCoverageBase):
     """Exercise multiline commands via --test/-t.
 
     Covers simple newline-separated statements and heredoc-fed interpreters
@@ -832,7 +832,7 @@ class TestCliTestMultilineCommands(_NodeCoverageBase):
         assert "input redirection requires approval" in label
 
 
-class TestCliShowConfig:
+class TestDevinCliCliShowConfig:
     """Test --show-config flag: show effective config and file paths."""
 
     def test_show_config_valid_project(self, project_with_bash_config: Path) -> None:
@@ -870,7 +870,7 @@ class TestCliShowConfig:
                 assert f["exists"] is True
 
 
-class TestHookMode:
+class TestDevinCliHookMode:
     """Test hook mode: receives JSON events on stdin."""
 
     def test_hook_pretooluse_allowed(self, project_with_bash_config: Path) -> None:
@@ -1126,7 +1126,7 @@ class TestHookMode:
         assert "config error (blocked)" in response["reason"]
 
 
-class TestFlagPrecedence:
+class TestDevinCliFlagPrecedence:
     """Test that CLI flags take precedence over stdin."""
 
     def test_setup_takes_precedence_over_stdin(self, tmp_path: Path) -> None:
@@ -1146,7 +1146,7 @@ class TestFlagPrecedence:
         assert 'Added "Exec(:)' in result
 
 
-class TestErrorHandling:
+class TestDevinCliErrorHandling:
     """Test error handling and error output."""
 
     def test_cli_errors_use_prefix(self, tmp_project: Path) -> None:
@@ -1185,7 +1185,7 @@ class TestErrorHandling:
         assert "unexpected error: internal boom" in err
 
 
-class TestCliTestErrorPolicy(_NodeCoverageBase):
+class TestDevinCliCliTestErrorPolicy(_NodeCoverageBase):
     """Malformed bash routes through the bash `error` policy."""
 
     def test_error_deny_blocks_malformed(self, tmp_project: Path, tmp_path: Path) -> None:

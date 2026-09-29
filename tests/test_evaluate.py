@@ -16,7 +16,7 @@ from lovely_bash_permissions.parser import parse as parser_parse
 from tests.conftest import make_config
 
 
-class TestAllowedPatterns:
+class TestEvaluateAllowedPatterns:
     """Tests for allowed_cmds_regex evaluation."""
 
     def test_allowed_pattern_matches(self) -> None:
@@ -159,7 +159,7 @@ class TestAllowedPatterns:
         assert _subst_flags(tree)["command_substitution"] is True
 
 
-class TestBlockedPatterns:
+class TestEvaluateBlockedPatterns:
     """Tests for blocked_cmds_regex evaluation."""
 
     def test_blocked_pattern_matches(self) -> None:
@@ -208,7 +208,7 @@ class TestBlockedPatterns:
         assert result["status"] == "ask"
 
 
-class TestBlockedJoinedLineSemantics:
+class TestEvaluateBlockedJoinedLineSemantics:
     """Blocked patterns use the same joined-line logic as allowed patterns.
 
     Anchoring is honored literally against the ``"name arg1 arg2"`` segment
@@ -306,7 +306,7 @@ class TestBlockedJoinedLineSemantics:
         assert result["status"] == "allow"
 
 
-class TestWholeCommandBlockedScan:
+class TestEvaluateWholeCommandBlockedScan:
     """`blocked_cmds_regex` is matched against the WHOLE raw command string.
 
     The per-segment checks only see a segment's *executed* command line, so
@@ -422,7 +422,7 @@ class TestWholeCommandBlockedScan:
         assert result["status"] == "deny"
 
 
-class TestWildcardIsBaseline:
+class TestEvaluateWildcardIsBaseline:
     """The wildcard is the per-command baseline; specific policies add constraints only.
 
     A command is auto-approved only by an allowed-pattern match or an explicit
@@ -554,7 +554,7 @@ class TestWildcardIsBaseline:
         assert result["status"] == "deny"
 
 
-class TestBlockedReasonDedup:
+class TestEvaluateBlockedReasonDedup:
     """Blocked reason messages must not repeat identically.
 
     The same blocked hit was reported once per pass: the segment loop and the
@@ -613,7 +613,7 @@ class TestBlockedReasonDedup:
         assert r"\/etc/shadow" in result["reason"]
 
 
-class TestAggregation:
+class TestEvaluateAggregation:
     """Tests for combined allow/deny/ask aggregation."""
 
     def test_all_allowed(self) -> None:
@@ -745,7 +745,7 @@ class TestAggregation:
             assert fragment in result["reason"]
 
 
-class TestWildcardPolicy:
+class TestEvaluateWildcardPolicy:
     """Tests for wildcard ('*') policy."""
 
     def test_wildcard_ask(self) -> None:
@@ -777,7 +777,7 @@ class TestWildcardPolicy:
         assert result["status"] == "deny"
 
 
-class TestInheritance:
+class TestEvaluateInheritance:
     """Options inherit their immediate wildcard parent, falling back to '*' (default ask)."""
 
     def test_subshell_inherits_wildcard_deny(self) -> None:
@@ -832,7 +832,7 @@ class TestInheritance:
         assert result["status"] == "deny"
 
 
-class TestSubshellHandling:
+class TestEvaluateSubshellHandling:
     """Tests for subshell/command substitution handling."""
 
     def test_subshell_detected(self) -> None:
@@ -1033,7 +1033,7 @@ class TestSubshellHandling:
         assert result["status"] == "deny"
 
 
-class TestParamExpansionSubstitutions:
+class TestEvaluateParamExpansionSubstitutions:
     """Substitutions inside parameter expansions are enforced.
 
     `${var/pat/$(cmd)}` (and `${var:-$(cmd)}`, `${var%$(cmd)}`,
@@ -1107,7 +1107,7 @@ class TestParamExpansionSubstitutions:
         assert result["status"] == "deny"
 
 
-class TestOpaqueSubstitutionPatternGuard:
+class TestEvaluateOpaqueSubstitutionPatternGuard:
     """Opaque `$(...)` args must not slip past restrictive allow patterns.
     `find . $(echo -delete)` must not be approved by matching the outer
     command as `find . $(...)` - the negative lookahead would never see
@@ -1146,7 +1146,7 @@ class TestOpaqueSubstitutionPatternGuard:
         assert evaluate_bash_command("ls $(echo -la)", cfg)["status"] == "allow"
 
 
-class TestEdgeCases:
+class TestEvaluateEdgeCases:
     """Tests for edge cases."""
 
     def test_empty_command(self) -> None:
@@ -1238,7 +1238,7 @@ class TestEdgeCases:
         assert result["status"] == "allow"
 
 
-class TestHookLabelRecognition:
+class TestEvaluateHookLabelRecognition:
     """The hook's `:` label is gated like any other command, not exempted.
 
     The hook rewrites commands as ``: '<label>' <emoji> ; <cmd>`` and Devin
@@ -1345,7 +1345,7 @@ class TestHookLabelRecognition:
             assert evaluate_bash_command(label, config)["status"] == expected, payload
 
 
-class TestPerKindOutputRedirection:
+class TestEvaluatePerKindOutputRedirection:
     """Tests for per-kind output redirection policy resolution."""
 
     def test_stderr_to_dev_null_allow_with_ask_wildcard(self) -> None:
@@ -1445,7 +1445,7 @@ class TestPerKindOutputRedirection:
         assert result["status"] == "ask"
 
 
-class TestResultStructure:
+class TestEvaluateResultStructure:
     """Tests for result dictionary structure."""
 
     def test_result_has_status(self) -> None:
@@ -1871,7 +1871,7 @@ class TestResultStructure:
         assert result["status"] == "allow"
 
 
-class TestTestClausePolicies:
+class TestEvaluateTestClausePolicies:
     """[[ ]] with attached redirections must honor redirection policies."""
 
     def test_testclause_output_redirection_denied(self) -> None:
@@ -1946,7 +1946,7 @@ class TestTestClausePolicies:
         assert "output redirection denied" in result["reason"]
 
 
-class TestVariableAssignment:
+class TestEvaluateVariableAssignment:
     """Tests for variable_assignment policy (standalone vs command-prefixed assignments)."""
 
     def test_standalone_variable_assignment_requires_approval(self) -> None:
@@ -2143,7 +2143,7 @@ class TestVariableAssignment:
         assert result["status"] == "allow"
 
 
-class TestDeclarationOperandsAreVariableAssignments:
+class TestEvaluateDeclarationOperandsAreVariableAssignments:
     """A declaration builtin's operands reach the variable_assignment policy.
 
     The operands are split into their own variable-assignment segment rather
@@ -2212,7 +2212,7 @@ class TestDeclarationOperandsAreVariableAssignments:
         assert [(s["command"], s["arguments"]) for s in result["segments"]] == [("", ["x=1"]), ("local", [])]
 
 
-class TestCaptureOutputIsAlsoAVariableAssignment:
+class TestEvaluateCaptureOutputIsAlsoAVariableAssignment:
     """`x=$(cmd)` is an assignment *and* a substitution - both policies apply.
 
     Every assignment
@@ -2268,7 +2268,7 @@ class TestCaptureOutputIsAlsoAVariableAssignment:
         assert "variable assignment denied: ['A=($(...))']" in result["reason"]
 
 
-class TestBackgroundExecutionCompound:
+class TestEvaluateBackgroundExecutionCompound:
     """background_execution policy covers coproc and compound & forms.
 
     Configs are built inline because make_config() only emits
@@ -2341,7 +2341,7 @@ class TestBackgroundExecutionCompound:
         assert result["status"] == "deny"
 
 
-class TestCompoundCommandRedirections:
+class TestEvaluateCompoundCommandRedirections:
     """Redirections on time/funcdef/coproc statements are not dropped: the inner
     Stmt's redirections survive, so `time echo hi > /etc/passwd` is gated.
     """
@@ -2393,7 +2393,7 @@ class TestCompoundCommandRedirections:
         assert result["status"] == "deny"
 
 
-class TestTrickyRedirectionPatterns:
+class TestEvaluateTrickyRedirectionPatterns:
     """Tests for uncommon or ambiguous bash syntax with redirections.
 
     These patterns often trip up parsers with no spaces, mixed direction
@@ -2541,7 +2541,7 @@ class TestTrickyRedirectionPatterns:
         assert result["status"] == "ask"
 
 
-class TestNestedCompoundExpressions:
+class TestEvaluateNestedCompoundExpressions:
     """Tests for deeply nested and compound bash expressions with redirections.
 
     Verifies the tool correctly handles complex nested structures.
@@ -2658,7 +2658,7 @@ class TestNestedCompoundExpressions:
         assert result["status"] == "ask"
 
 
-class TestComplexNestedConstructs:
+class TestEvaluateComplexNestedConstructs:
     """Tests for deeply nested and compound bash expressions with redirections.
 
     Verifies the tool correctly handles complex nested structures including
@@ -2728,7 +2728,7 @@ class TestComplexNestedConstructs:
         assert result["status"] == "ask"
 
 
-class TestAdvancedBashConstructs:
+class TestEvaluateAdvancedBashConstructs:
     """Tests for advanced bash constructs (process substitution, coproc, trap, functions, builtins)."""
 
     def test_procsub_cat_echo_empty(self) -> None:
@@ -2857,7 +2857,7 @@ class TestAdvancedBashConstructs:
         assert result["status"] == "ask"
 
 
-class TestArithmeticCommandSubstitutionPolicy:
+class TestEvaluateArithmeticCommandSubstitutionPolicy:
     """`(( ... $(...) ))` is gated by the command_substitution policy.
 
     The substituted command is a real segment, so the command is judged like
@@ -2923,7 +2923,7 @@ class TestArithmeticCommandSubstitutionPolicy:
         assert evaluate_bash_command("(( x = 5 ))", {"*": "allow", "command_substitution": "deny"})["status"] == "allow"
 
 
-class TestEmptySegmentSubstitutionGateIsUnreachable:
+class TestEvaluateEmptySegmentSubstitutionGateIsUnreachable:
     """`_empty_segment_result`'s substitution arm is a dead security gate - pin it.
 
     `_empty_segment_result` is reached only when segment extraction produced
@@ -3082,7 +3082,7 @@ class TestEmptySegmentSubstitutionGateIsUnreachable:
         assert "/etc/shadow" in result["reason"]
 
 
-class TestDeepNestingRecursion:
+class TestEvaluateDeepNestingRecursion:
     """deep nesting converts and evaluates; past the cap, fail closed."""
 
     def test_deep_command_substitution_evaluates_without_crash(self) -> None:
@@ -3101,7 +3101,7 @@ class TestDeepNestingRecursion:
             conv.parse_ast(deep)
 
 
-class TestExecutedFormMatching:
+class TestEvaluateExecutedFormMatching:
     """Quote-split / backslash-escaped spellings cannot dodge blocked-path
     checks or guard patterns.
 
@@ -3160,7 +3160,7 @@ class TestExecutedFormMatching:
         assert result["status"] == "allow"
 
 
-class TestRedirectionOnlyOperands:
+class TestEvaluateRedirectionOnlyOperands:
     """Redirection-only operands of && / || / | must not bypass policy.
 
     shfmt emits e.g. `> /etc/x && cat file` as an operand dict with Redirs but
@@ -3201,7 +3201,7 @@ class TestRedirectionOnlyOperands:
         assert result["status"] == "deny"
 
 
-class TestSubstitutionKeySplit:
+class TestEvaluateSubstitutionKeySplit:
     """Behavioral tests for the `subshell` key split into three keys.
 
     `command_substitution` gates `$(...)` / backticks, `process_substitution`
@@ -3286,7 +3286,7 @@ class TestSubstitutionKeySplit:
         assert [s["command"] for s in result["segments"]] == ["rm"]
 
 
-class TestDenyIsAbsolute:
+class TestEvaluateDenyIsAbsolute:
     """A `deny` on any policy key is an absolute block.
 
     The three construct keys - `command_substitution`, `process_substitution`
@@ -3397,7 +3397,7 @@ class TestDenyIsAbsolute:
         assert "command substitution denied in config" in result["reason"]
 
 
-class TestParseOnce:
+class TestEvaluateParseOnce:
     """The evaluator parses and converts each command exactly once.
 
     ``evaluate_bash_command`` needs the raw shfmt JSON (the heredoc-body and
@@ -3478,7 +3478,7 @@ class TestParseOnce:
         assert self._count("   ", {}, monkeypatch, expect_error=True) == (1, 0)
 
 
-class TestConstructPolicyVerdict:
+class TestEvaluateConstructPolicyVerdict:
     """The construct-policy gate, hoisted out of evaluate_bash_command."""
 
     def test_absent_flag_is_a_no_op(self) -> None:

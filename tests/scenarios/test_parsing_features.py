@@ -13,7 +13,7 @@ from lovely_bash_permissions import (
 from lovely_bash_permissions.parser import ParseError
 
 
-class TestSubshells:
+class TestParsingFeaturesSubshells:
     def test_basic_subshell(self) -> None:
         tree = parse_ast("(cd /tmp && ls)")
         assert get_commands(tree) == ["cd", "ls"]
@@ -27,7 +27,7 @@ class TestSubshells:
         assert get_commands(tree) == ["cat"]
 
 
-class TestIfStatements:
+class TestParsingFeaturesIfStatements:
     def test_simple_if(self) -> None:
         tree = parse_ast("if [ -f file.txt ]; then cat file.txt; fi")
         assert get_commands(tree) == ["[", "cat"]
@@ -49,7 +49,7 @@ class TestIfStatements:
         assert has_pipe(tree)
 
 
-class TestForLoops:
+class TestParsingFeaturesForLoops:
     def test_basic_for_loop(self) -> None:
         tree = parse_ast('for file in *.txt; do cat "$file"; done')
         assert get_commands(tree) == ["cat"]
@@ -63,7 +63,7 @@ class TestForLoops:
         assert get_commands(tree) == ["echo"]
 
 
-class TestWhileLoops:
+class TestParsingFeaturesWhileLoops:
     def test_basic_while(self) -> None:
         tree = parse_ast('while [ "$i" -lt 10 ]; do echo "$i"; done')
         assert get_commands(tree) == ["[", "echo"]
@@ -73,7 +73,7 @@ class TestWhileLoops:
         assert get_commands(tree) == ["read", "echo"]
 
 
-class TestAndOrOperators:
+class TestParsingFeaturesAndOrOperators:
     def test_and_operator(self) -> None:
         tree = parse_ast("cd /tmp && ls")
         assert get_commands(tree) == ["cd", "ls"]
@@ -91,7 +91,7 @@ class TestAndOrOperators:
         assert get_commands(tree) == ["[", "cat", "grep", "echo"]
 
 
-class TestMultiLineCommands:
+class TestParsingFeaturesMultiLineCommands:
     def test_multiline_if(self) -> None:
         cmd = 'if [ -f file.txt ]; then\n    cat file.txt\nelse\n    echo "file not found"\nfi'
         tree = parse_ast(cmd)
@@ -108,7 +108,7 @@ class TestMultiLineCommands:
         assert get_commands(tree) == ["find", "grep", "echo"]
 
 
-class TestComplexNestedStructures:
+class TestParsingFeaturesComplexNestedStructures:
     def test_nested_subshell_with_pipe(self) -> None:
         tree = parse_ast("( (cat file1.txt) | (cat file2.txt) ) | sort | uniq")
         assert get_commands(tree) == ["cat", "cat", "sort", "uniq"]
@@ -118,7 +118,7 @@ class TestComplexNestedStructures:
         assert get_commands(tree) == ["find", "grep", "sort", "head"]
 
 
-class TestEdgeCases:
+class TestParsingFeaturesEdgeCases:
     def test_command_with_equals(self) -> None:
         tree = parse_ast("export FOO=bar")
         assert get_commands(tree) == []
@@ -128,7 +128,7 @@ class TestEdgeCases:
         assert get_commands(tree) == ["ls", "grep"]
 
 
-class TestCommandSubstitution:
+class TestParsingFeaturesCommandSubstitution:
     def test_backtick_substitution(self) -> None:
         tree = parse_ast("echo `date`")
         assert get_commands(tree) == ["echo", "date"]
@@ -142,14 +142,14 @@ class TestCommandSubstitution:
         assert get_commands(tree) == ["echo", "ls"]
 
 
-class TestRedirectionComplex:
+class TestParsingFeaturesRedirectionComplex:
     def test_multiple_redirections(self) -> None:
         tree = parse_ast("cat input.txt > output.txt 2> error.txt")
         redirs = get_redirections(tree)
         assert len(redirs) == 2
 
 
-class TestVariablesComplex:
+class TestParsingFeaturesVariablesComplex:
     def test_nested_variable(self) -> None:
         tree = parse_ast('echo "${HOME:-default}"')
         assert has_variable(tree)
@@ -159,13 +159,13 @@ class TestVariablesComplex:
         assert has_variable(tree)
 
 
-class TestErrorMessages:
+class TestParsingFeaturesErrorMessages:
     def test_unbalanced_quotes(self) -> None:
         with pytest.raises(ParseError):
             parse_ast("echo 'unclosed")
 
 
-class TestParseErrorAttributes:
+class TestParsingFeaturesParseErrorAttributes:
     def test_parse_error_has_command(self) -> None:
         with pytest.raises(ParseError) as exc_info:
             parse_ast("")

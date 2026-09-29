@@ -8,7 +8,7 @@ from lovely_bash_permissions.evaluate import evaluate_bash_command
 from lovely_bash_permissions.segments import parse_segments
 
 
-class TestSimpleCommands:
+class TestSegmentsSimpleCommands:
     """Tests for simple commands."""
 
     def test_single_command(self) -> None:
@@ -47,7 +47,7 @@ class TestSimpleCommands:
         assert segs[0]["redirections"] == []
 
 
-class TestPipes:
+class TestSegmentsPipes:
     """Tests for pipe operations."""
 
     def test_simple_pipe(self) -> None:
@@ -77,7 +77,7 @@ class TestPipes:
         assert segs[2]["arguments"] == ["-5"]
 
 
-class TestLogicalAnd:
+class TestSegmentsLogicalAnd:
     """Tests for logical AND (&&) operations."""
 
     def test_simple_and(self) -> None:
@@ -107,7 +107,7 @@ class TestLogicalAnd:
         assert segs[2]["arguments"] == ["file"]
 
 
-class TestLogicalOr:
+class TestSegmentsLogicalOr:
     """Tests for logical OR (||) operations."""
 
     def test_simple_or(self) -> None:
@@ -129,7 +129,7 @@ class TestLogicalOr:
         assert segs[2]["arguments"] == ["none"]
 
 
-class TestBackground:
+class TestSegmentsBackground:
     """Tests for background execution."""
 
     def test_simple_background(self) -> None:
@@ -147,7 +147,7 @@ class TestBackground:
         assert segs[1]["arguments"] == []
 
 
-class TestSequentialStatements:
+class TestSegmentsSequentialStatements:
     """Tests for sequential commands."""
 
     def test_sequential_commands(self) -> None:
@@ -169,7 +169,7 @@ class TestSequentialStatements:
         assert segs[2]["arguments"] == ["file"]
 
 
-class TestComplexExpressions:
+class TestSegmentsComplexExpressions:
     """Tests for complex command expressions."""
 
     def test_and_then_or(self) -> None:
@@ -217,7 +217,7 @@ class TestComplexExpressions:
         assert segs[2]["arguments"] == ["txt"]
 
 
-class TestEdgeCases:
+class TestSegmentsEdgeCases:
     """Tests for edge cases."""
 
     def test_empty_command(self) -> None:
@@ -264,7 +264,7 @@ class TestEdgeCases:
         assert segs[1]["command"] == "cat"
 
 
-class TestDialect:
+class TestSegmentsDialect:
     """Tests for shell dialect handling."""
 
     def test_default_dialect_is_bash(self) -> None:
@@ -278,7 +278,7 @@ class TestDialect:
         assert segs[0]["command"] == "ls"
 
 
-class TestDeclClause:
+class TestSegmentsDeclClause:
     """DeclClause (export/readonly/local/declare/typeset) segment extraction.
 
     A declaration builtin's operands *are* variable assignments - `export
@@ -381,7 +381,7 @@ class TestDeclClause:
         assert parse_segments("readonly") == []
 
 
-class TestConditionals:
+class TestSegmentsConditionals:
     """if/elif/else and while segment extraction."""
 
     def test_if_then_extracted(self) -> None:
@@ -400,7 +400,7 @@ class TestConditionals:
         assert [s["command"] for s in segs] == ["true", "echo", "rm"]
 
 
-class TestTestClauses:
+class TestSegmentsTestClauses:
     """[[ ]] test-expression segment extraction."""
 
     def test_bare_unary_test_no_phantom_command(self) -> None:
@@ -416,7 +416,7 @@ class TestTestClauses:
         assert parse_segments("[[ -d /tmp && ls ]]") == []
 
 
-class TestTestClauseRedirections:
+class TestSegmentsTestClauseRedirections:
     """[[ ]] statements with attached redirections."""
 
     def test_testclause_output_redirection_synthetic_segment(self) -> None:
@@ -460,7 +460,7 @@ class TestTestClauseRedirections:
         assert segs[0]["redirections"][0]["Target"] == "/tmp/out"
 
 
-class TestTestClauseRegexOperands:
+class TestSegmentsTestClauseRegexOperands:
     """[[ ]] =~ and comparison operands must not be treated as commands."""
 
     def test_regex_match_rhs_not_a_command(self) -> None:
@@ -493,7 +493,7 @@ class TestTestClauseRegexOperands:
         assert any(s["redirections"] for s in segs)
 
 
-class TestNestedSubstitutionExtraction:
+class TestSegmentsNestedSubstitutionExtraction:
     """Nested command/process substitutions inside parts are extracted."""
 
     def test_cmdsubst_in_output_redirect_target(self) -> None:
@@ -568,7 +568,7 @@ class TestNestedSubstitutionExtraction:
         assert [s["command"] for s in segs] == ["ls"]
 
 
-class TestCompoundCommandRedirections:
+class TestSegmentsCompoundCommandRedirections:
     """Redirections on time/funcdef/coproc compound commands are kept.
 
     The Stmt-shaped body/statement of TimeClause/CoprocClause/FuncDecl keeps
@@ -597,7 +597,7 @@ class TestCompoundCommandRedirections:
         assert segs[0]["redirections"][0]["Target"] == "/etc/passwd"
 
 
-class TestRedirectionOnlyOperands:
+class TestSegmentsRedirectionOnlyOperands:
     """Redirection-only operands of && / || / |.
 
     shfmt emits these as operand dicts with Redirs but no Type and no Cmd,
@@ -636,7 +636,7 @@ class TestRedirectionOnlyOperands:
         assert redir["Target"] == "/etc/x"
 
 
-class TestErrorHandling:
+class TestSegmentsErrorHandling:
     """Tests for error handling."""
 
     def test_parse_error_returns_empty(self) -> None:
@@ -644,7 +644,7 @@ class TestErrorHandling:
         assert segs == []
 
 
-class TestForLoopListSegments:
+class TestSegmentsForLoopListSegments:
     """for-loop list words are evaluated before the body."""
 
     def test_cmdsubst_in_loop_list_extracted(self) -> None:
@@ -657,7 +657,7 @@ class TestForLoopListSegments:
         assert [s["command"] for s in parse_segments("for i in 1 2 3; do echo hi; done")] == ["echo"]
 
 
-class TestArithmeticCommandSubstitutions:
+class TestSegmentsArithmeticCommandSubstitutions:
     """``(( expr ))`` runs no command, but still evaluates substitutions.
 
     A command substitution inside ``(( ... ))`` must produce a segment, like
@@ -717,7 +717,7 @@ class TestArithmeticCommandSubstitutions:
         assert result["status"] == "deny"
 
 
-class TestAssignOperandSubstitutions:
+class TestSegmentsAssignOperandSubstitutions:
     """Command substitutions inside assignment operands are always walked.
 
     An assignment's value, subscript or array elements can contain command
@@ -774,7 +774,7 @@ class TestAssignOperandSubstitutions:
             assert evaluate_bash_command(source, cfg)["status"] == "deny", source
 
 
-class TestCommandNameSubstitutions:
+class TestSegmentsCommandNameSubstitutions:
     """A command name that is an expansion still runs what it expands to.
 
     `CallExpr` recursed into `args[1:]` but not `args[0]`, so a substitution in
@@ -824,7 +824,7 @@ class TestCommandNameSubstitutions:
         )
 
 
-class TestCStyleLoopSegments:
+class TestSegmentsCStyleLoopSegments:
     """C-style for ((init; cond; post)) preludes are extracted (security-critical)."""
 
     def test_prelude_cmdsubst_extracted(self) -> None:
@@ -838,7 +838,7 @@ class TestCStyleLoopSegments:
         assert [s["command"] for s in parse_segments("for ((;;)); do :; done")] == [":"]
 
 
-class TestBinaryTestLeftOperand:
+class TestSegmentsBinaryTestLeftOperand:
     """Left operands of [[ ]] binary tests hold nested substitutions."""
 
     def test_left_operand_cmdsubst_extracted(self) -> None:
@@ -852,7 +852,7 @@ class TestBinaryTestLeftOperand:
         assert [s["command"] for s in parse_segments("[[ -d /tmp && ls ]]")] == []
 
 
-class TestNoPhantomTestCommands:
+class TestSegmentsNoPhantomTestCommands:
     """$(...)/$var inside [[ ]] are not emitted as literal command names."""
 
     def test_cmdsubst_operand_is_real_command(self) -> None:
@@ -882,7 +882,7 @@ class TestNoPhantomTestCommands:
         assert [s["command"] for s in parse_segments("[[ foo ]]")] == []
 
 
-class TestCaseCommandSubstitution:
+class TestSegmentsCaseCommandSubstitution:
     """case subject word and branch patterns are segments."""
 
     def test_case_word_command_substitution_extracted(self) -> None:
@@ -896,7 +896,7 @@ class TestCaseCommandSubstitution:
         assert [s["command"] for s in result] == ["evil", "echo"]
 
 
-class TestNormalizedArguments:
+class TestSegmentsNormalizedArguments:
     """normalized_arguments: quote/backslash-normalized (executed) form of args."""
 
     def test_quote_split_argument_normalized(self) -> None:
@@ -912,7 +912,7 @@ class TestNormalizedArguments:
         assert segs[0]["normalized_arguments"][1] == "-exec"
 
 
-class TestRedirTarget:
+class TestSegmentsRedirTarget:
     """redirections carry the full executed-form target (all word parts)."""
 
     def test_quoted_param_exp_target(self) -> None:

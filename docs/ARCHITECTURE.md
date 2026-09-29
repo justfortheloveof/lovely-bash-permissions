@@ -28,6 +28,17 @@ across the two halves — lives with the side it is about rather than in
 are the example: their subject is the config surface, and they reach into
 `evaluate` only to check that what the schema accepts is acted on.
 
+Test classes carry the module they cover: `TestSegmentsEdgeCases`,
+`TestParserSimpleCommands`, `TestEvaluateEdgeCases`. The same input is often
+asserted at several layers - `""` raises from `parse_ast`, yields `[]` from
+`parse_segments`, and raises again from `evaluate_bash_command` - and those
+three tests were once all `TestEdgeCases::test_empty_command`, so a name
+matched three different tests and `pytest -k` could not tell them apart. The
+prefix makes `Class::test` unique across the suite and makes
+`pytest -k TestSegments` select one module's tests. The five files that had a
+collision were renamed in full so no file mixes the two conventions; the
+twenty-three files that never collided keep their bare class names.
+
 All shared fixtures and helpers live in a single `tests/conftest.py`. The tree is
 split by subject, not by audience, so one root conftest serves all of it and
 there is nowhere else to look.
