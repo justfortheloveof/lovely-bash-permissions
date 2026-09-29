@@ -10,7 +10,10 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 .coverage
+coverage.xml
+htmlcov/
 dist/
 build/
 venv/
 .fuzz/
+*.golden.json
