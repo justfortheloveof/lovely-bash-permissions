@@ -7,6 +7,7 @@ Captures a deterministic fingerprint of observable behavior across a wide corpus
   - inspection API results
   - CLI rendered output
   - config loading / effective config
+  - a ground-truth cross-check of extracted segments against shfmt's own output
 
 Usage:
     python harness.py capture <out.json>
@@ -20,6 +21,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from collections import Counter
 
 sys.path.insert(0, "src")
 
@@ -153,6 +155,62 @@ def _norm(obj):
     return f"<{type(obj).__name__}>"
 
 
+def ground_truth_commands(raw):
+    """All command names shfmt itself sees, including inside substitutions.
+
+    Ported from a short-lived local fuzz harness, with one correction. That harness
+    read the literal with ``p["Lit"]``; shfmt v3.14 encodes a literal's text under
+    ``"Value"`` (``"Lit"`` is the node *Type*, mapped in ``converter.py``). Copied
+    verbatim, this function returns ``[]`` for every command and the section it
+    feeds is silently vacuous - which is how it survived ten days unrun.
+
+    This is the authoritative view: shfmt is the parser, so whatever it reports as
+    a ``CallExpr`` head is a command the shell will actually run. Comparing it
+    against our extracted segments is the only check in this harness that can
+    detect extraction that is *wrong* rather than merely *changed*.
+    """
+    out = []
+
+    def walk(node):
+        if not isinstance(node, dict):
+            return
+        if node.get("Type") == "CallExpr":
+            args = node.get("Args") or []
+            first = args[0] if args else {}
+            for p in first.get("Parts", []):
+                if isinstance(p, dict) and "Value" in p:
+                    out.append(p["Value"])
+                    break
+        for v in node.values():
+            if isinstance(v, dict):
+                walk(v)
+            elif isinstance(v, list):
+                for i in v:
+                    if isinstance(i, dict):
+                        walk(i)
+
+    walk(raw)
+    return out
+
+
+def _ground_truth_observation(cmd):
+    """Recorded, not asserted - see the section comment in ``capture``.
+
+    Multiset, not set: ``echo a; echo b`` has two ``echo`` commands, so dropping
+    one is a real extraction bug that a set comparison cannot see. Compared as
+    ``Counter`` over the full command list, order never matters and duplicates
+    are counted on both sides.
+    """
+    from lovely_bash_permissions import parse
+    from lovely_bash_permissions.segments import parse_segments
+
+    truth = Counter(ground_truth_commands(parse(cmd)))
+    segs = parse_segments(cmd)
+    got = Counter(s["command"] for s in segs)
+    empty = sum(1 for s in segs if not str(s.get("command") or "").strip())
+    return {"missing": sorted((truth - got).elements()), "empty": empty}
+
+
 def capture() -> dict:
     from lovely_bash_permissions import parse_ast, parse, get_commands, get_arguments
     from lovely_bash_permissions import (
@@ -163,7 +221,14 @@ def capture() -> dict:
     from lovely_bash_permissions.segments import parse_segments
     from lovely_bash_permissions import cli
 
-    out: dict = {"commands": {}, "configs": {}, "dialects": {}, "cli": {}, "ast": {}}
+    out: dict = {
+        "commands": {},
+        "configs": {},
+        "dialects": {},
+        "cli": {},
+        "ast": {},
+        "ground_truth": {},
+    }
 
     # 1. evaluate_bash_command across commands x configs
     evals: dict = {}
@@ -234,6 +299,23 @@ def capture() -> dict:
         )
         cli_out[cmd] = {"rc": r.returncode, "out": r.stdout, "err": r.stderr}
     out["cli"] = _norm(cli_out)
+
+    # 6. Ground-truth cross-check of segment extraction. Every other section
+    #    fingerprints output; this one records a *discrepancy*, so it is the only
+    #    place in the harness that can catch an extraction which is wrong rather
+    #    than merely changed.
+    #
+    #    Recorded, never raised, and deliberately so: a variable assignment
+    #    legitimately yields an empty-command segment (`x=1` -> command ''), so
+    #    treating `empty > 0` as a failure would be red on a correct run. The value
+    #    is in the movement - a regression in extraction shifts these numbers even
+    #    when every other section is untouched.
+    #
+    #    The original harness also pre-validated commands with `bash -n`. That is
+    #    deliberately NOT ported: it would add a shell dependency this harness does
+    #    not have and would break where bash is absent. shfmt already rejects
+    #    invalid syntax, and those commands land here as `{"err": ...}`.
+    out["ground_truth"] = _norm({cmd: _safe(_ground_truth_observation, cmd) for cmd in COMMANDS})
 
     return out
 
@@ -422,9 +504,30 @@ def diff(a, b, path="") -> list[str]:
     return out
 
 
+def _print_shfmt_version() -> None:
+    """Label the baseline with the shfmt that produced it.
+
+    The fingerprint is a function of the shfmt binary as much as of this code, and
+    `shfmt-py>=4.1.0` is a floor rather than a pin - a bump can change parsing and
+    make every `compare` against an older baseline show a large diff that is not a
+    regression. Goes to stderr deliberately: putting it in the JSON would change the
+    fingerprint and invalidate the baseline it is labelling.
+    """
+    import subprocess as _sp
+    from lovely_bash_permissions.parser import find_shfmt
+
+    try:
+        out = _sp.run([find_shfmt(), "--version"], capture_output=True, text=True, timeout=10)
+        version = out.stdout.strip() or out.stderr.strip() or "unknown"
+    except Exception as exc:  # noqa: BLE001 - a label must never fail a capture
+        version = f"unresolved ({type(exc).__name__})"
+    print(f"shfmt: {version}", file=sys.stderr)
+
+
 def main() -> int:
     mode = sys.argv[1]
     if mode == "capture":
+        _print_shfmt_version()
         data = capture()
         data["config_layer"] = capture_config_layer()
         with open(sys.argv[2], "w") as f:

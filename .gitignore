@@ -15,5 +15,4 @@ htmlcov/
 dist/
 build/
 venv/
-.fuzz/
 *.golden.json
