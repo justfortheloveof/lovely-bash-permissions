@@ -54,7 +54,7 @@ class TestGetEffectiveBashConfig:
 
     def test_hook_label_regex_not_injected(self) -> None:
         """The hook `:` label is recognized structurally by the evaluator, not
-        via a quote-anchored regex in allowed patterns (bug #4 fix)."""
+        via a quote-anchored regex in allowed patterns."""
 
         result = get_effective_bash_config(None, "/project")
         assert not any("♡ perms" in p for p in result["allowed_cmds_regex"])

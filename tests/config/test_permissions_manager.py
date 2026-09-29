@@ -20,12 +20,12 @@ class TestPermissionsManagerConstruction:
 
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(config_path, "w") as f:
-            json.dump({"bash": {"permission": "ask"}}, f)
+            json.dump({"bash": {"*": "ask"}}, f)
 
         manager = PermissionsManager(str(mock_project))
 
         assert manager.is_valid()
-        assert manager.get_lovely_config() == {"bash": {"permission": "ask"}}
+        assert manager.get_lovely_config() == {"bash": {"*": "ask"}}
         assert manager.get_devin_exec_regexes() == []
 
     def test_defaults_when_loader_throws(self, mock_project: Path) -> None:
@@ -63,13 +63,13 @@ class TestPermissionsManagerReload:
 
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(config_path, "w") as f:
-            json.dump({"bash": {"permission": "ask"}}, f)
+            json.dump({"bash": {"*": "ask"}}, f)
 
         manager = PermissionsManager(str(mock_project))
 
         # Overwrite with new config
         with open(config_path, "w") as f:
-            json.dump({"bash": {"permission": "allow"}}, f)
+            json.dump({"bash": {"*": "allow"}}, f)
 
         manager.reload()
 
@@ -89,7 +89,7 @@ class TestPermissionsManagerReload:
 
         # Now write valid config and reload
         with open(config_path, "w") as f:
-            json.dump({"bash": {"permission": "ask"}}, f)
+            json.dump({"bash": {"*": "ask"}}, f)
 
         manager.reload()
 
@@ -104,7 +104,7 @@ class TestPermissionsManagerReload:
 
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(config_path, "w") as f:
-            json.dump({"bash": {"permission": "ask"}}, f)
+            json.dump({"bash": {"*": "ask"}}, f)
 
         manager = PermissionsManager(str(mock_project))
         assert manager.is_valid()
@@ -121,14 +121,14 @@ class TestPermissionsManagerReload:
         """reload() should load from project dir."""
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(config_path, "w") as f:
-            json.dump({"bash": {"permission": "allow"}}, f)
+            json.dump({"bash": {"*": "allow"}}, f)
 
         manager = PermissionsManager(str(mock_project))
         assert "bash" in manager.get_lovely_config()
 
         # Change file and reload
         with open(config_path, "w") as f:
-            json.dump({"bash": {"permission": "ask"}}, f)
+            json.dump({"bash": {"*": "ask"}}, f)
 
         manager.reload()
         assert "bash" in manager.get_lovely_config()
@@ -141,7 +141,7 @@ class TestPermissionsManagerGetMethods:
         """get_lovely_config() should always return a dict."""
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(config_path, "w") as f:
-            json.dump({"bash": {"permission": "allow"}}, f)
+            json.dump({"bash": {"*": "allow"}}, f)
 
         manager = PermissionsManager(str(mock_project))
 
@@ -153,7 +153,7 @@ class TestPermissionsManagerGetMethods:
         # Valid lovely-permissions, but no valid devin config (devin loader will fail)
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(config_path, "w") as f:
-            json.dump({"bash": {"permission": "allow"}}, f)
+            json.dump({"bash": {"*": "allow"}}, f)
 
         manager = PermissionsManager(str(mock_project))
 
@@ -165,7 +165,7 @@ class TestPermissionsManagerGetMethods:
         """get_devin_exec_regexes() should return a list."""
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(config_path, "w") as f:
-            json.dump({"bash": {"permission": "allow"}}, f)
+            json.dump({"bash": {"*": "allow"}}, f)
 
         manager = PermissionsManager(str(mock_project))
 
@@ -177,7 +177,7 @@ class TestPermissionsManagerGetMethods:
 
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(config_path, "w") as f:
-            json.dump({"bash": {"permission": "ask"}}, f)
+            json.dump({"bash": {"*": "ask"}}, f)
 
         manager = PermissionsManager(str(mock_project))
         assert manager.is_valid()
@@ -201,7 +201,7 @@ class TestPermissionsManagerWarnings:
 
         # Project config exists and is valid; global/local don't (will be skipped with warnings)
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
-        config_data = {"bash": {"permission": "allow", "allowed_cmds_regex": ["^git"]}}
+        config_data = {"bash": {"*": "allow", "allowed_cmds_regex": ["^git"]}}
         with open(config_path, "w") as f:
             json.dump(config_data, f)
 
@@ -224,7 +224,7 @@ class TestPermissionsManagerWarnings:
 
         project_config = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(project_config, "w") as f:
-            json.dump({"bash": {"permission": "allow"}}, f)
+            json.dump({"bash": {"*": "allow"}}, f)
 
         # Create local config too
         local_config = mock_project / ".devin" / "lovely-permissions.local.jsonc"
@@ -241,7 +241,7 @@ class TestPermissionsManagerWarnings:
 
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(config_path, "w") as f:
-            json.dump({"bash": {"permission": "allow"}}, f)
+            json.dump({"bash": {"*": "allow"}}, f)
 
         manager = PermissionsManager(str(mock_project))
         assert len(manager.get_warnings()) >= 1
@@ -268,7 +268,7 @@ class TestPermissionsManagerEndToEnd:
 
         # Create project lovely-permissions.jsonc
         config_path = mock_project / ".devin" / "lovely-permissions.jsonc"
-        config_data = {"bash": {"permission": "allow", "allowed_cmds_regex": ["^git"]}}
+        config_data = {"bash": {"*": "allow", "allowed_cmds_regex": ["^git"]}}
         with open(config_path, "w") as f:
             json.dump(config_data, f)
 
@@ -277,7 +277,7 @@ class TestPermissionsManagerEndToEnd:
         assert manager.is_valid()
         assert "bash" in manager.get_lovely_config()
         bash_cfg = manager.get_lovely_config()["bash"]
-        assert bash_cfg["permission"] == "allow"
+        assert bash_cfg["*"] == "allow"
         assert bash_cfg["allowed_cmds_regex"] == ["^git"]
 
     def test_config_file_paths_generated_correctly(self, mock_project: Path) -> None:
@@ -292,28 +292,28 @@ class TestPermissionsManagerEndToEnd:
 
         global_config = Path(devin_global_config_dir) / "lovely-permissions.jsonc"
         with open(global_config, "w") as f:
-            json.dump({"bash": {"permission": "allow"}}, f)
+            json.dump({"bash": {"*": "allow"}}, f)
 
         project_config = mock_project / ".devin" / "lovely-permissions.jsonc"
         with open(project_config, "w") as f:
-            json.dump({"bash": {"permission": "ask"}}, f)
+            json.dump({"bash": {"*": "ask"}}, f)
 
         local_config = mock_project / ".devin" / "lovely-permissions.local.jsonc"
         with open(local_config, "w") as f:
-            json.dump({"bash": {"permission": "deny"}}, f)
+            json.dump({"bash": {"*": "deny"}}, f)
 
         manager = PermissionsManager(str(mock_project))
 
         assert manager.is_valid()
         bash_cfg = manager.get_lovely_config()["bash"]
-        assert bash_cfg["permission"] == "deny", f"expected local precedence (deny), got {bash_cfg['permission']}"
+        assert bash_cfg["*"] == "deny", f"expected local precedence (deny), got {bash_cfg['*']}"
 
     def test_cross_level_merge_both_keys(self, mock_project: Path, devin_global_config_dir: str) -> None:
         """Keys from global and local both survive when they are different keys"""
 
         global_config = Path(devin_global_config_dir) / "lovely-permissions.jsonc"
         with open(global_config, "w") as f:
-            json.dump({"bash": {"permission": "allow", "allowed_cmds_regex": ["^git"]}}, f)
+            json.dump({"bash": {"*": "allow", "allowed_cmds_regex": ["^git"]}}, f)
 
         local_config = mock_project / ".devin" / "lovely-permissions.local.jsonc"
         with open(local_config, "w") as f:
@@ -323,6 +323,6 @@ class TestPermissionsManagerEndToEnd:
 
         assert manager.is_valid()
         bash_cfg = manager.get_lovely_config()["bash"]
-        assert bash_cfg["permission"] == "allow"
+        assert bash_cfg["*"] == "allow"
         assert bash_cfg["allowed_cmds_regex"] == ["^git"]
         assert bash_cfg["blocked_cmds_regex"] == ["/etc"]

@@ -29,7 +29,7 @@ from lovely_bash_permissions import (
     has_variable,
     parse_ast,
 )
-from lovely_bash_permissions.errors import LovelyDevinPermissionsError
+from lovely_bash_permissions.errors import ShfmtError
 from lovely_bash_permissions.parser import ParseError, parse
 from lovely_bash_permissions.segments import parse_segments
 
@@ -237,17 +237,17 @@ class TestEdgeCases:
 
 
 class TestErrorTypes:
-    """LovelyDevinPermissionsError hierarchy and infra-failure wrapping."""
+    """ShfmtError hierarchy and infra-failure wrapping."""
 
-    def test_parse_error_is_lovely_devin_permissions_error(self) -> None:
-        assert issubclass(ParseError, LovelyDevinPermissionsError)
+    def test_parse_error_is_shfmt_error(self) -> None:
+        assert issubclass(ParseError, ShfmtError)
 
     def test_missing_shfmt_wrapped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def _raise_missing() -> str:
             raise FileNotFoundError("shfmt binary not found")
 
         monkeypatch.setattr("lovely_bash_permissions.parser.find_shfmt", _raise_missing)
-        with pytest.raises(LovelyDevinPermissionsError, match="shfmt binary not found"):
+        with pytest.raises(ShfmtError, match="shfmt binary not found"):
             parse("ls")
 
     def test_timeout_wrapped(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -258,7 +258,7 @@ class TestErrorTypes:
 
         monkeypatch.setattr("lovely_bash_permissions.parser.find_shfmt", lambda: "/usr/bin/shfmt")
         monkeypatch.setattr("lovely_bash_permissions.parser.subprocess.run", _fake_run)
-        with pytest.raises(LovelyDevinPermissionsError, match="timed out"):
+        with pytest.raises(ShfmtError, match="timed out"):
             parse("ls")
 
     def test_os_error_wrapped(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -267,7 +267,7 @@ class TestErrorTypes:
 
         monkeypatch.setattr("lovely_bash_permissions.parser.find_shfmt", lambda: "/usr/bin/shfmt")
         monkeypatch.setattr("lovely_bash_permissions.parser.subprocess.run", _fake_run)
-        with pytest.raises(LovelyDevinPermissionsError, match="failed to run shfmt"):
+        with pytest.raises(ShfmtError, match="failed to run shfmt"):
             parse("ls")
 
 
@@ -1922,8 +1922,8 @@ class TestBlockNodes:
     def test_block_andcmd_inside(self) -> None:
         """Parse { test -f file && cat file; } with BinaryCmd(op='&&') inside Block
 
-        shfmt represents && as BinaryCmd with Op='&&', not AndCmd
-        AndCmd is used at statement level (across semicolons), not within blocks
+        shfmt represents && as BinaryCmd with Op='&&'; there is no separate
+        AndCmd node type, inside a block or at statement level.
         """
         tree = parse_ast("{ test -f file && cat file; }")
         cmd = tree.stmts[0].cmd

@@ -172,9 +172,9 @@ class TestLoadPermissionsConfig:
             lambda: config_dir,
         )
         project_file = temp_project[1] / "lovely-permissions.jsonc"
-        self._write_jsonc(project_file, {"bash": {"permission": "ask"}})
+        self._write_jsonc(project_file, {"bash": {"*": "ask"}})
         merged, _, _ = load_permissions_config(str(temp_project[0]))
-        assert merged == {"bash": {"permission": "ask"}}
+        assert merged == {"bash": {"*": "ask"}}
 
     def test_local_only(self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]) -> None:
         """Only local config exists."""
@@ -256,7 +256,7 @@ class TestLoadPermissionsConfig:
         devin_dir = Path(project_dir) / ".devin"
         devin_dir.mkdir()
         project_file = devin_dir / "lovely-permissions.jsonc"
-        self._write_jsonc(project_file, {"bash": {"permission": "ask"}})
+        self._write_jsonc(project_file, {"bash": {"*": "ask"}})
 
         monkeypatch.setattr(
             "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
@@ -265,7 +265,7 @@ class TestLoadPermissionsConfig:
         merged, _, _ = load_permissions_config(project_dir)
         assert merged == {
             "read": {"permission": "allow"},
-            "bash": {"permission": "ask"},
+            "bash": {"*": "ask"},
         }
 
     def test_deep_merge_nested_objects(self, monkeypatch: pytest.MonkeyPatch, temp_global: tuple[Path, Path]) -> None:
@@ -273,7 +273,7 @@ class TestLoadPermissionsConfig:
         global_file = temp_global[1] / "lovely-permissions.jsonc"
         self._write_jsonc(
             global_file,
-            {"bash": {"permission": "ask", "allowed_cmds_regex": ["^ls", "^cat"]}},
+            {"bash": {"*": "ask", "allowed_cmds_regex": ["^ls", "^cat"]}},
         )
 
         project_dir = tempfile.mkdtemp()
@@ -290,7 +290,7 @@ class TestLoadPermissionsConfig:
             lambda: temp_global[1],
         )
         merged, _, _ = load_permissions_config(project_dir)
-        assert merged["bash"]["permission"] == "ask"
+        assert merged["bash"]["*"] == "ask"
         assert merged["bash"]["allowed_cmds_regex"] == ["^ls", "^cat"]
         assert merged["bash"]["blocked_cmds_regex"] == ["/tmp/"]
 
@@ -390,7 +390,7 @@ class TestLoadPermissionsConfig:
     def test_invalid_permission_returns_warning(
         self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
     ) -> None:
-        """Typo in permission value is returned as a warning, not raised."""
+        """Typo in the wildcard value is returned as a warning, not raised."""
         tmpdir = tempfile.mkdtemp()
         config_dir = Path(tmpdir) / ".config" / "devin"
         config_dir.mkdir(parents=True)
@@ -399,10 +399,38 @@ class TestLoadPermissionsConfig:
             lambda: config_dir,
         )
         project_file = temp_project[1] / "lovely-permissions.jsonc"
-        self._write_jsonc(project_file, {"bash": {"permission": "alow"}})
+        self._write_jsonc(project_file, {"bash": {"*": "alow"}})
         _, warnings, _errors = load_permissions_config(str(temp_project[0]))
         assert len(warnings) >= 1
         assert any("alow" in w.lower() for w in warnings)
+
+    def test_permission_key_becomes_validation_error(
+        self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
+    ) -> None:
+        """A `permission` key in a real config file surfaces as a validation error.
+
+        The loader validates the merged config, so rejecting the key at schema
+        level reaches users as a named error rather than a silent no-op: the
+        merged dict still comes back, but `validation_errors` is populated, so
+        PermissionsManager reports the config as invalid and the hook fails
+        closed rather than silently running under the wildcard.
+        """
+        tmpdir = tempfile.mkdtemp()
+        config_dir = Path(tmpdir) / ".config" / "devin"
+        config_dir.mkdir(parents=True)
+        monkeypatch.setattr(
+            "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+            lambda: config_dir,
+        )
+        project_file = temp_project[1] / "lovely-permissions.jsonc"
+        self._write_jsonc(project_file, {"bash": {"permission": "allow"}})
+
+        merged, _warnings, errors = load_permissions_config(str(temp_project[0]))
+
+        assert len(errors) == 1
+        assert "config key 'permission' is not supported - use * instead" in errors[0]
+        # The raw merge is unchanged - only validation flags it.
+        assert merged == {"bash": {"permission": "allow"}}
 
     def test_bad_regex_returns_warning(self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]) -> None:
         """Invalid regex pattern is returned as a warning mentioning the field."""
@@ -434,7 +462,7 @@ class TestLoadPermissionsConfig:
         project_file = temp_project[1] / "lovely-permissions.jsonc"
         self._write_jsonc(
             project_file,
-            {"bash": {"permission": "alow", "blocked_cmds_regex": ["["]}},
+            {"bash": {"*": "alow", "blocked_cmds_regex": ["["]}},
         )
         _, warnings, errors = load_permissions_config(str(temp_project[0]))
         assert len(warnings) >= 1
@@ -453,9 +481,9 @@ class TestLoadPermissionsConfig:
             lambda: config_dir,
         )
         project_file = temp_project[1] / "lovely-permissions.jsonc"
-        project_file.write_text('{\n  // This is a comment\n  "bash": {\n    "permission": "allow"\n  }\n}')
+        project_file.write_text('{\n  // This is a comment\n  "bash": {\n    "*": "allow"\n  }\n}')
         merged, _, _ = load_permissions_config(str(temp_project[0]))
-        assert merged == {"bash": {"permission": "allow"}}
+        assert merged == {"bash": {"*": "allow"}}
 
     def test_load_returns_validation_errors_list(
         self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path]
@@ -551,7 +579,7 @@ class TestLoadPermissionsConfig:
             lambda: config_dir,
         )
         project_file = temp_project[1] / "lovely-permissions.jsonc"
-        self._write_jsonc(project_file, {"bash": {"permission": "allow"}})
+        self._write_jsonc(project_file, {"bash": {"*": "allow"}})
         local_file = temp_project[1] / "lovely-permissions.local.jsonc"
         self._write_jsonc(local_file, {})
         global_file = config_dir / "lovely-permissions.jsonc"

@@ -307,7 +307,7 @@ class TestJsonOutputFormat:
                 ),
                 patch(
                     "lovely_bash_permissions.config.manager.load_permissions_config",
-                    return_value=({"bash": {"permission": "allow"}}, [], []),
+                    return_value=({"bash": {"*": "allow"}}, [], []),
                 ),
             ):
                 captured = io.StringIO()

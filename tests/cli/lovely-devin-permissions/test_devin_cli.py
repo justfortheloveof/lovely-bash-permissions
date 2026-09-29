@@ -120,12 +120,13 @@ def run_cli_in_process(
 class TestLabelExecEntry:
     r"""The ``--setup`` entry must be a pattern the matcher can actually match.
 
-    ``--setup`` used to write ``Exec(: '[♡ perms:)``. That is a no-op: the
-    allowed-matcher compares against each segment's *executed* command line,
-    which has its quotes stripped, so the entry resolved to ``^: '\[♡ perms:(\s|$)``
-    while the executed line is ``: [♡ perms: ...`` - it never matched. A hidden
-    exemption in the evaluator was what actually kept re-evaluation working, so
-    the bug was invisible. The entry is now ``Exec(:)``.
+    ``--setup`` writes ``Exec(:)``.  A pattern that embeds the label text,
+    such as ``Exec(: '[♡ perms:)``, can never match: the allowed-matcher
+    compares against each segment's *executed* command line, which has its
+    quotes stripped, so such a pattern would resolve to
+    ``^: '\[♡ perms:(\s|$)``
+    while the executed line is ``: [♡ perms: ...``.  The bare ``Exec(:)`` is
+    the only form that matches the label-emitting command.
     """
 
     def test_setup_writes_exec_colon(self, tmp_path: Path) -> None:
@@ -1188,7 +1189,7 @@ class TestErrorHandling:
 
 
 class TestCliTestErrorPolicy(_NodeCoverageBase):
-    """Malformed bash routes through the bash `error` policy (bug #2)."""
+    """Malformed bash routes through the bash `error` policy."""
 
     def test_error_deny_blocks_malformed(self, tmp_project: Path, tmp_path: Path) -> None:
         """/-t: error=deny blocks unparseable bash even under wildcard allow."""

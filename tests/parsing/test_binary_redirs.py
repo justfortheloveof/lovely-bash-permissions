@@ -1,11 +1,10 @@
 """
 Library-level tests for per-operand redirection data on BinaryCmd.
 
-Regression coverage for the converter/ast change that splits a BinaryCmd's
-redirections into ``left_redirs``/``right_redirs`` (per operand) while keeping
-the merged ``redirs`` list for backwards compatibility. This supports the CLI
-rendering fix so each pipeline segment's redirection can be attributed to the
-command that owns it.
+A BinaryCmd exposes its redirections twice: once split into
+``left_redirs``/``right_redirs`` (per operand) and once as the merged
+``redirs`` list.  The per-operand split is what lets the CLI attribute each
+pipeline segment's redirection to the command that owns it.
 """
 
 from lovely_bash_permissions import BinaryCmd, Lit, parse_ast

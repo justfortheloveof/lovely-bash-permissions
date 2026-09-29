@@ -14,12 +14,12 @@ def test_valid_config() -> None:
 
 
 def test_valid_bash_config() -> None:
-    config = {"bash": {"permission": "allow", "blocked_cmds_regex": ["^/tmp/"]}}
+    config = {"bash": {"*": "allow", "blocked_cmds_regex": ["^/tmp/"]}}
     PermissionsConfig.model_validate(config)
 
 
 def test_invalid_permission_value() -> None:
-    config = {"bash": {"permission": "alow"}}
+    config = {"bash": {"*": "alow"}}
     try:
         PermissionsConfig.model_validate(config)
         raise AssertionError("expected ValidationError")
@@ -66,10 +66,9 @@ def test_valid_allowed_cmds_regex() -> None:
     PermissionsConfig.model_validate(config)
 
 
-def test_tool_permission_enum() -> None:
-    assert ToolConfig(permission=PermissionLevel.allow).permission == PermissionLevel.allow  # type: ignore[call-arg]
-    assert ToolConfig(permission=PermissionLevel.deny).permission == PermissionLevel.deny  # type: ignore[call-arg]
-    assert ToolConfig(permission=PermissionLevel.ask).permission == PermissionLevel.ask  # type: ignore[call-arg]
+def test_tool_wildcard_enum() -> None:
+    for level in (PermissionLevel.allow, PermissionLevel.deny, PermissionLevel.ask):
+        assert ToolConfig.model_validate({"*": level}).wildcard == level
 
 
 def test_tool_string_instead_of_object_rejected() -> None:
@@ -84,8 +83,8 @@ def test_tool_string_instead_of_object_rejected() -> None:
 
 
 def test_invalid_regex_rejected_with_path() -> None:
-    # A list, not a bare string: a string used to be iterated into characters,
-    # which is what made this test pass at all.
+    # A list, not a bare string: a string would be iterated into characters,
+    # which is what would make this test pass at all.
     config = {"bash": {"blocked_cmds_regex": ["["]}}
     try:
         PermissionsConfig.model_validate(config)
@@ -98,12 +97,12 @@ def test_invalid_regex_rejected_with_path() -> None:
 
 
 def test_tool_config_model() -> None:
-    config = {"bash": {"permission": "allow", "allowed_cmds_regex": ["^ls"]}}
+    config = {"bash": {"*": "allow", "allowed_cmds_regex": ["^ls"]}}
     ToolConfig.model_validate(config["bash"])
 
 
 def test_permissions_config_model_valid() -> None:
-    PermissionsConfig.model_validate({"bash": {"permission": "allow"}})
+    PermissionsConfig.model_validate({"bash": {"*": "allow"}})
 
 
 def test_permissions_config_model_invalid() -> None:
@@ -234,11 +233,47 @@ def test_tool_config_output_redirection_dict() -> None:
 
 
 def test_allow_deny_shorthand_rejected() -> None:
-    """Legacy allow/deny shortcut fields are rejected as config errors."""
+    """The allow/deny shortcut fields are rejected as config errors."""
     with pytest.raises(ValueError, match="config key 'allow' is not supported.*allowed_cmds_regex"):
         PermissionsConfig.model_validate({"bash": {"allow": ["git"]}})
     with pytest.raises(ValueError, match="config key 'deny' is not supported.*blocked_cmds_regex"):
         PermissionsConfig.model_validate({"bash": {"deny": ["rm"]}})
+
+
+def test_permission_key_rejected() -> None:
+    """`permission` is rejected: it is validated but never read.
+
+    It looks like it sets the tool's default level, but nothing consults it:
+    `{"bash": {"permission": "allow"}}` must not validate, because a
+    ``"bash"`` block whose wildcard is absent has nothing that could set a
+    per-tool default.  A key that reads as "configured" while
+    changing nothing is worse than an unknown key, which at least warns, so it
+    joins `allow` / `deny` in the rejection list.  The message points at `*`,
+    the wildcard that does set a per-tool default and is inherited.
+    """
+    with pytest.raises(ValueError, match=r"config key 'permission' is not supported - use \* instead"):
+        PermissionsConfig.model_validate({"bash": {"permission": "allow"}})
+
+
+def test_permission_key_rejected_at_every_level() -> None:
+    """The rejection is about the key, not the value - any level is refused."""
+    for level in ("allow", "deny", "ask", "bogus", None, True):
+        with pytest.raises(ValueError, match="config key 'permission' is not supported"):
+            PermissionsConfig.model_validate({"bash": {"permission": level}})
+
+
+def test_permission_key_rejection_precedes_unknown_key_warning(caplog: pytest.LogCaptureFixture) -> None:
+    """`permission` raises; it must not fall through to the unknown-key warning path."""
+    with pytest.raises(ValueError, match="config key 'permission' is not supported"):
+        PermissionsConfig.model_validate({"bash": {"permission": "allow"}})
+    assert not [r for r in caplog.record_tuples if "unknown config key 'permission'" in r[2]]
+
+
+def test_wildcard_is_not_rejected() -> None:
+    """Guard against over-rejection: `*` is the documented replacement and still works."""
+    config = PermissionsConfig.model_validate({"bash": {"*": "allow"}})
+    assert config.bash is not None
+    assert config.bash.wildcard == PermissionLevel.allow
 
 
 def test_tool_config_input_background_subshell_levels() -> None:
@@ -278,12 +313,12 @@ def test_renamed_blocked_key_ignored_with_warning(caplog: pytest.LogCaptureFixtu
 
 
 def test_known_tool_bash_accepted() -> None:
-    config = {"bash": {"permission": "allow"}}
+    config = {"bash": {"*": "allow"}}
     PermissionsConfig.model_validate(config)
 
 
 def test_unknown_tool_name_rejected(caplog: pytest.LogCaptureFixture) -> None:
-    config = {"git": {"permission": "allow"}}
+    config = {"git": {"*": "allow"}}
     result = PermissionsConfig.model_validate(config)
     assert result is not None
     assert len(caplog.record_tuples) == 1
@@ -311,7 +346,7 @@ class TestRegexListMustBeAList:
     def test_bare_string_never_becomes_char_patterns(self) -> None:
         with pytest.raises(ValidationError):
             PermissionsConfig.model_validate({"bash": {"allowed_cmds_regex": "not-a-list"}})
-        # The old behaviour, for contrast: every character a pattern.
+        # The inverse hazard, for contrast: a list entry stays one pattern.
         parsed = ToolConfig.model_validate({"allowed_cmds_regex": ["n", "o", "t"]})
         assert parsed.allowed_cmds_regex == ["n", "o", "t"]
 
@@ -352,7 +387,7 @@ class TestMalformedRegexListCannotInvertPolicy:
             PermissionsConfig.model_validate(config)
 
     def test_char_patterns_would_have_matched(self) -> None:
-        """Documents why the old behaviour was a real fail-open, not cosmetic."""
+        """Documents that single-character patterns are a real fail-open, not cosmetic."""
         from lovely_bash_permissions.evaluate import evaluate_bash_command
 
         result = evaluate_bash_command("ls", {"*": "deny", "allowed_cmds_regex": ["l", "s"]})

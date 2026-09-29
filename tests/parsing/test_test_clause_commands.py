@@ -120,11 +120,12 @@ class TestSubstitutionsInsideTestBodiesExecute:
         assert _commands("[[ -d $(pwd) ]]") == ["pwd"]
 
     def test_param_exp_default_substitution(self) -> None:
-        """Regression: `${x:-$(cmd)}` in a test body used to yield no segments.
+        """A substitution in a test body must yield segments.
 
-        The traversal into parameter expansions was suppressed inside a test,
-        so the inner command vanished; with zero segments the empty-segment
-        fallback applied the wildcard and approved the whole command.
+        Traversal into parameter expansions applies inside a test as elsewhere,
+        so the inner command cannot vanish; with zero segments the
+        empty-segment fallback applies the wildcard and approves the whole
+        command.
         """
         assert _commands("[[ ${x:-$(cmd)} ]]") == ["cmd"]
 

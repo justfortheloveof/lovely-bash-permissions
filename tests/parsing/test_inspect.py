@@ -150,7 +150,7 @@ class TestIntegration:
 
 
 class TestGetCommandsParamExp:
-    """Commands inside parameter expansions are reported (bugs 1 & 3)."""
+    """Commands inside parameter expansions are reported."""
 
     def test_repl_replacement(self) -> None:
         commands = get_commands(parse_ast("echo ${x//a/$(rm -rf x)}"))

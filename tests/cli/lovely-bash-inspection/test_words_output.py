@@ -1,12 +1,12 @@
 """
 Tests for the CLI's rendering of value-only words.
 
-``lovely-bash-inspection`` used to render only commands, declarations,
-redirections and assignments, so statements whose payload is data looked
-empty: ``for i in /etc/passwd; do :; done`` showed just ``cmd: :`` and
-``case /etc/passwd in x) ;; esac`` printed ``(no commands found)``.
+A statement whose payload is data must render, not read as empty:
+``for i in /etc/passwd; do :; done`` shows ``cmd: :`` plus the word list, and
+``case /etc/passwd in x) ;; esac`` reports its subject instead of printing
+``(no commands found)``.
 
-The renderer now emits three extra lines:
+Three extra lines are emitted for that:
 
 * ``words: a, b, c``   - a ``for`` loop's word list
 * ``case: <subject>``  - a ``case`` statement's subject word
@@ -16,13 +16,11 @@ Commands nested inside those words (``for i in $(cmd)``) are already
 rendered by the generic child descent, so these tests also pin that they are
 not rendered twice.
 
-The same file also covers how assignments are rendered.  The CLI used to carry
-its own copy of the assignment renderer, which dropped array elements
-(``A+=(x y)`` -> ``A+=(...)``) and appended a stray ``=`` to a name-less
-declaration flag (``declare -a`` -> ``declare =-a``).  It now delegates to the
+The same file also covers how assignments are rendered.  The CLI delegates to the
 renderer ``segments`` uses for permission evaluation, and the tests below pin
 that the inspection output agrees with :func:`parse_segments` operand for
-operand - that agreement is the point of the change.  The comparison is against
+operand - that agreement is the whole point, so the two cannot drift.  The
+comparison is against
 the variable-assignment segment (``command == ""``), which is where both a bare
 assignment and a declaration builtin's operands are reported.
 """
@@ -171,7 +169,7 @@ class TestNestedCommandsNotDuplicated:
 
 
 class TestValueOnlyStatements:
-    """A statement made only of values now renders instead of 'no commands'."""
+    """A statement made only of values renders instead of 'no commands'."""
 
     def test_empty_case_branch_body_is_reported(self, capsys: pytest.CaptureFixture[str]) -> None:
         assert main(["--string", "case /etc/passwd in x) ;; esac"]) == 0

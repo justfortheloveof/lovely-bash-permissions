@@ -46,8 +46,8 @@ class TestStatementSnippetsWithMultibyteSource:
         assert _snippet_texts(capsys) == ["echo hi;", "ls"]
 
     def test_multibyte_before_a_later_statement(self, capsys: pytest.CaptureFixture[str]) -> None:
-        # Regression: the second snippet came back empty because the slice
-        # started three bytes past the real character index.
+        # The slice must start at the real character index, not three bytes
+        # past it, or the second snippet comes back empty.
         main(["--string", f"echo {_MULTIBYTE}; ls"])
         assert _snippet_texts(capsys) == [f"echo {_MULTIBYTE};", "ls"]
 

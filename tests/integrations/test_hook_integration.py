@@ -320,7 +320,7 @@ def test_error_policy_defaults_to_wildcard_ask() -> None:
 
 
 def test_error_policy_deny_blocks_unparseable() -> None:
-    """error=deny blocks even commands the parser rejects (bug #2 fix)."""
+    """error=deny blocks even commands the parser rejects."""
     event = _pretooluse_exec_event("cat /etc/passwd '")
 
     with (
