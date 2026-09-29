@@ -4,6 +4,27 @@ A short map of `lovely_bash_permissions` for someone who has not read it before.
 Two independent halves ship in one package: a general-purpose bash parser, and a
 Devin CLI permission hook built on top of it.
 
+## Tests
+
+`tests/` mirrors the package, so "where does the test for X go" has one answer.
+
+| Location | Holds |
+| --- | --- |
+| `tests/test_<module>.py` | tests for `lovely_bash_permissions/<module>.py` |
+| `tests/config/test_<module>.py` | tests for `lovely_bash_permissions/config/<module>.py` |
+| `tests/scenarios/` | tests that span modules and exercise a whole decision |
+| `tests/tooling/` | checks on the repository, not the package |
+
+A module whose tests split by concern gets `test_<module>_<concern>.py` siblings
+rather than one large file — `cli.py` has four, `rules.py` two, `segments.py`
+four. Anything in `scenarios/` deliberately belongs to no single module: it is
+about the product's behaviour, not one module's internals. If a test only
+imports one module, it does not belong there.
+
+All shared fixtures and helpers live in a single `tests/conftest.py`. The tree is
+split by subject, not by audience, so one root conftest serves all of it and
+there is nowhere else to look.
+
 ## The two halves
 
 **Library half** — the parser and its inspection API, which is what `README.md`
