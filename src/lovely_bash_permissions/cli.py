@@ -362,7 +362,7 @@ def _render_declared(decl: DeclClause, indent: int, report: _Report) -> None:
     ``assign: export``, duplicating the variant keyword and losing the
     association between the keyword and its operand, so do not "fix" the
     rendering to match the segment list. ``TestAgreesWithSegments`` in
-    ``tests/cli/lovely-bash-inspection/test_words_output.py`` cross-checks this
+    ``tests/test_cli_words_output.py`` cross-checks this
     output against the ``command == ""`` segment, which is why it already
     tolerates the difference.
     """

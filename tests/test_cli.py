@@ -4,17 +4,13 @@ Tests for CLI output of redirection placement.
 Redirections in multi-segment bash pipelines must not be dropped by the CLI
 renderer: each segment's redirection renders immediately after the command that
 owns it.  Per-side AST data coverage lives in
-tests/parsing/test_binary_redirs.py.
+``tests/test_ast_binary_cmd.py``.
 """
 
 import pytest
 
 from lovely_bash_permissions.cli import main
-
-
-def _lines(capsys: pytest.CaptureFixture[str]) -> list[str]:
-    """Return captured stdout split into non-empty lines."""
-    return [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+from tests.conftest import _lines
 
 
 def _find_line(lines: list[str], substr: str) -> int:

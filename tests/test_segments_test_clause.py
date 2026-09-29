@@ -31,11 +31,7 @@ The invariants pinned here are:
 """
 
 from lovely_bash_permissions.segments import parse_segments
-
-
-def _commands(command: str) -> list[str]:
-    """Return the command names extracted from *command*."""
-    return [s["command"] for s in parse_segments(command)]
+from tests.conftest import _commands
 
 
 class TestTestOperandsAreValues:

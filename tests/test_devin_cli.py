@@ -74,7 +74,6 @@ def run_cli_in_process(
     *args: object,
     input_data: str | None = None,
     project_dir: str | None = None,
-    monkeypatch: pytest.MonkeyPatch | None = None,
     devin_config_dir: str | None = None,
 ) -> str:
     """Run the CLI in-process, allowing monkeypatch to work.
@@ -82,8 +81,6 @@ def run_cli_in_process(
     This captures stdout from the CLI's print statements.
     Used for setup tests where we need to override get_devin_global_config_dir.
     """
-    import os
-
     from lovely_bash_permissions.devin_cli import main
 
     # Set up environment

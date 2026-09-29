@@ -19,7 +19,7 @@ from lovely_bash_permissions.hook import (
     process_hook_event,
 )
 from lovely_bash_permissions.segments import parse_segments
-from tests.integrations.conftest import _permission_request_event, _pretooluse_exec_event
+from tests.conftest import _permission_request_event, _pretooluse_exec_event
 
 
 def test_error_action_fallback_to_wildcard() -> None:

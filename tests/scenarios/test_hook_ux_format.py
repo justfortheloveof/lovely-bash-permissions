@@ -7,8 +7,9 @@ These tests verify exact output formats match the TypeScript reference.
 import json
 import os
 import tempfile
-from typing import Any
 from unittest.mock import patch
+
+from tests.conftest import _pretooluse_exec_event
 
 
 class TestSetupOutputFormat:
@@ -67,14 +68,6 @@ class TestSetupOutputFormat:
 class TestPreToolUseResponseFormat:
     """Test PreToolUse hook responses match TypeScript reference."""
 
-    def _create_event(self, command: str) -> dict[str, Any]:
-        return {
-            "hook_event_name": "PreToolUse",
-            "tool_name": "exec",
-            "tool_input": {"command": command},
-            "project_dir": ".",
-        }
-
     def test_allow_label_format(self) -> None:
         """Allow response should have the exact label format."""
         # Create minimal config
@@ -83,7 +76,7 @@ class TestPreToolUseResponseFormat:
                 json.dump({"bash": {"allowed_cmds_regex": ["^git"]}}, f)
 
             with patch.dict(os.environ, {"DEVIN_GLOBAL_CONFIG_DIR": devin_dir}):
-                event = self._create_event("git status")
+                event = {**_pretooluse_exec_event("git status"), "project_dir": "."}
                 from lovely_bash_permissions.hook import (
                     generate_hook_response,
                     process_hook_event,
@@ -156,7 +149,7 @@ class TestPreToolUseResponseFormat:
                 json.dump({"bash": {"*": "ask", "allowed_cmds_regex": ["^git"]}}, f)
 
             with patch.dict(os.environ, {"DEVIN_GLOBAL_CONFIG_DIR": devin_dir}):
-                event = self._create_event("ls")
+                event = {**_pretooluse_exec_event("ls"), "project_dir": "."}
                 from lovely_bash_permissions.hook import (
                     generate_hook_response,
                     process_hook_event,

@@ -8,7 +8,7 @@ statement's snippet - ``echo ✓; ls`` reported statement 2 as an empty string,
 and ``echo "héllo"; ls # 日本語`` reported it as a single stray character.
 
 These tests pin the snippets, not the rendering in general; see
-``test_cli.py`` for redirection placement and ``test_words_output.py`` for
+``test_cli.py`` for redirection placement and ``test_cli_words_output.py`` for
 value-word output.
 """
 

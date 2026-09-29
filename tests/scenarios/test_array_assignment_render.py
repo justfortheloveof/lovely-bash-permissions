@@ -35,11 +35,7 @@ import pytest
 from lovely_bash_permissions.errors import ShfmtError
 from lovely_bash_permissions.evaluate import evaluate_bash_command
 from lovely_bash_permissions.segments import parse_segments
-
-
-def _commands(command: str) -> list[str]:
-    """Return the command names extracted from *command*."""
-    return [s["command"] for s in parse_segments(command)]
+from tests.conftest import _commands
 
 
 def _args(command: str) -> list[str]:

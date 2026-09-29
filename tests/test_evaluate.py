@@ -13,7 +13,7 @@ from lovely_bash_permissions.errors import ShfmtError
 from lovely_bash_permissions.evaluate import _construct_policy_verdict, evaluate_bash_command
 from lovely_bash_permissions.hook import _hook_command
 from lovely_bash_permissions.parser import parse as parser_parse
-from tests.config.conftest import make_config
+from tests.conftest import make_config
 
 
 class TestAllowedPatterns:

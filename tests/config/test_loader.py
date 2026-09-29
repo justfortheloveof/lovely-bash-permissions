@@ -120,7 +120,16 @@ class TestLoadPermissionsConfig:
 
     @pytest.fixture
     def temp_project(self) -> tuple[Path, Path]:
-        """Create a temporary project directory structure."""
+        """Create a temporary project directory structure.
+
+        Kept distinct from the conftest `mock_project`: that one hands back a
+        bare Path and pre-seeds `.devin/lovely-permissions.local.jsonc`, while
+        this one hands back a (root, .devin) pair with an empty `.devin/`.  The
+        tests below read loader output directly, so they need the `.devin` path
+        itself, and they assert on the exact merged dict - a pre-seeded file
+        would change what those assertions are about.  Collapsing the two would
+        mean editing ~40 assertions, not just the fixture bodies.
+        """
         tmpdir = tempfile.mkdtemp()
         devin_dir = Path(tmpdir) / ".devin"
         devin_dir.mkdir()
@@ -128,7 +137,15 @@ class TestLoadPermissionsConfig:
 
     @pytest.fixture
     def temp_global(self) -> tuple[Path, Path]:
-        """Create a temporary global config directory."""
+        """A (root, .config/devin) pair for the GLOBAL half of the merge.
+
+        Not a project fixture at all: `load_permissions_config` resolves the
+        global dir through a patched `get_devin_global_config_dir`, so these
+        tests need both the fake `$HOME` root and the `.config/devin` path the
+        loader will ask for.  `devin_global_config_dir` in conftest cannot stand
+        in for it: that one is an env-var string for subprocesses, not a
+        `(root, dir)` pair for in-process monkeypatching.
+        """
         tmpdir = tempfile.mkdtemp()
         config_dir = Path(tmpdir) / ".config" / "devin"
         config_dir.mkdir(parents=True)

@@ -19,9 +19,13 @@ from typing import Any
 
 import pytest
 
-from tests.redirections.conftest import run_test, write_local_config
+from tests.conftest import run_test, write_local_config
 
-ROOT = Path(__file__).resolve().parent.parent
+# tests/scenarios/<this file> -> tests/scenarios -> tests -> repo root.  The
+# extra hop matters: for years this was two `parent`s, which resolved to
+# `tests/`, so the guard in test_does_not_mutate_repo_devin_dir watched a path
+# no code path could ever write to.
+ROOT = Path(__file__).resolve().parents[2]
 
 # Valid bash output-redirection patterns under the default config.
 BASIC_PATTERNS = [
@@ -147,6 +151,9 @@ class TestOutputRedirectionValidation:
 
     def test_does_not_mutate_repo_devin_dir(self, tmp_path: Path) -> None:
         """The test environment must never write into the repo's real .devin/."""
+        # Guards the constant itself: if ROOT ever drifts off the repo root again
+        # the guard below silently watches a path nothing writes to.
+        assert (ROOT / "pyproject.toml").is_file(), f"ROOT ({ROOT}) is not the repo root"
         real_devin = ROOT / ".devin"
         before = real_devin.read_bytes() if real_devin.is_file() else None
         for _desc, cmd in BASIC_PATTERNS[:2]:

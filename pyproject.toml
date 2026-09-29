@@ -53,16 +53,6 @@ extend-exclude = ["tools"]
 extend-select = ["ANN", "E", "F", "W", "I", "UP", "B", "SIM"]
 ignore = ["E501"]
 
-[tool.ruff.lint.per-file-ignores]
-# These two test directories are named after the console scripts they cover
-# (`lovely-bash-inspection`, `lovely-devin-permissions`), so their names are not
-# valid Python identifiers.  An `__init__.py` there would make them packages and
-# mypy would refuse the tree ("contains __init__.py but is not a valid Python
-# package name"), so they stay namespace packages by necessity rather than by
-# oversight.  Every other directory in the repo is a regular package.
-"tests/cli/lovely-bash-inspection/*" = ["INP001"]
-"tests/cli/lovely-devin-permissions/*" = ["INP001"]
-
 [tool.ruff.format]
 quote-style = "double"
 

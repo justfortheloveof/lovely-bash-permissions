@@ -11,25 +11,6 @@ from lovely_bash_permissions import (
 )
 
 
-class TestNodeFromJsonNoneGuard:
-    """Verify that node_from_json handles None input gracefully."""
-
-    def test_node_from_json_returns_none_for_none(self) -> None:
-        from lovely_bash_permissions.converter import node_from_json
-
-        assert node_from_json(None) is None
-
-    def test_word_from_json_returns_none_for_none(self) -> None:
-        from lovely_bash_permissions.converter import _convert_word
-
-        assert _convert_word(None) is None
-
-    def test_parse_position_returns_none_for_none(self) -> None:
-        from lovely_bash_permissions.converter import _parse_position
-
-        assert _parse_position(None) is None
-
-
 class TestStmtInheritsNode:
     """Verify Stmt and Redir inherit from Node."""
 

@@ -11,7 +11,7 @@ from lovely_bash_permissions.config.jsonc import (
     parse_jsonc,
     read_jsonc_file,
 )
-from tests.tooling.conftest import _clean_temp_file, _write_temp_file
+from tests.conftest import _clean_temp_file, _write_temp_file
 
 
 class TestParseJsonc:

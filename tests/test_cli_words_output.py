@@ -31,11 +31,7 @@ from lovely_bash_permissions import cli
 from lovely_bash_permissions.ast import Assign
 from lovely_bash_permissions.cli import main
 from lovely_bash_permissions.segments import parse_segments
-
-
-def _lines(capsys: pytest.CaptureFixture[str]) -> list[str]:
-    """Return captured stdout split into non-empty lines."""
-    return [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+from tests.conftest import _lines
 
 
 def _payload(lines: list[str]) -> list[str]:
