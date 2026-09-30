@@ -39,6 +39,7 @@ from .ast import (
 from .converter import parse_ast
 from .errors import ShfmtError
 from .inspect import has_pipe, has_variable, iter_children
+from .parser import VALID_DIALECTS
 from .segments import assign_operand_text
 from .words import word_value
 
@@ -73,6 +74,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dialect",
         default="bash",
+        choices=sorted(VALID_DIALECTS),
         help="Shell dialect for parsing (default: bash).",
     )
     return parser
@@ -464,7 +466,7 @@ def main(argv: list[str] | None = None) -> int:
         _die("input is empty")
 
     try:
-        tree = parse_ast(source)
+        tree = parse_ast(source, args.dialect)
     except ShfmtError as exc:
         print(f"{PROG}: error: failed to parse input: {exc}", file=sys.stderr)
         return 3

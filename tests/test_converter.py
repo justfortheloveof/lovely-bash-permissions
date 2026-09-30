@@ -45,3 +45,12 @@ class TestUnknownTypeDegradesVisibly:
         node = node_from_json({"Type": "SomethingShfmtAddedLater", "Stmts": [1, 2, 3]})
         assert node is not None
         assert getattr(node, "stmts", None) is None
+
+
+class TestConverterParseAstDialect:
+    def test_dialect_is_passed_to_the_parser(self) -> None:
+        from lovely_bash_permissions.ast import CallExpr, TestClause
+        from lovely_bash_permissions.converter import parse_ast
+
+        assert isinstance(parse_ast("[[ -f x ]]").stmts[0].cmd, TestClause)
+        assert isinstance(parse_ast("[[ -f x ]]", "posix").stmts[0].cmd, CallExpr)

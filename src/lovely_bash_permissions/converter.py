@@ -923,7 +923,7 @@ def node_from_json(data: dict[str, Any] | None) -> Node | None:
         _json_conversion_depth -= 1
 
 
-def parse_ast(command: str) -> File:
+def parse_ast(command: str, dialect: str = "bash") -> File:
     """Parse a bash command string into a typed AST.
 
     This is the main entry point for parsing bash commands.  It invokes
@@ -933,6 +933,7 @@ def parse_ast(command: str) -> File:
 
     Args:
         command: Bash command string to parse
+        dialect: Shell dialect, as for :func:`~lovely_bash_permissions.parser.parse`
 
     Returns:
         Root File node of the parsed AST tree
@@ -940,8 +941,9 @@ def parse_ast(command: str) -> File:
     Raises:
         ShfmtError: If shfmt cannot parse the command or the shfmt binary is
             unavailable.
+        ValueError: If *dialect* is not a recognised shell dialect.
     """
-    raw = parse(command)
+    raw = parse(command, dialect)
     result = node_from_json(raw)
     if not isinstance(result, File):
         raise TypeError(f"Expected File node, got {type(result).__name__}")

@@ -103,3 +103,21 @@ class TestCliRedirections:
 
         _assert_adjacent(lines, "cmd: x", "redirection: > xout")
         _assert_adjacent(lines, "cmd: y", "redirection: > yout")
+
+
+class TestCliDialect:
+    """``--dialect`` reaches the parser rather than being accepted and ignored."""
+
+    def test_posix_reads_double_bracket_as_a_command(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["--dialect", "posix", "--string", "[[ -f x ]]"]) == 0
+        assert "  cmd: [[" in _lines(capsys)
+
+    def test_bash_reads_double_bracket_as_a_test(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["--dialect", "bash", "--string", "[[ -f x ]]"]) == 0
+        assert "  cmd: [[" not in _lines(capsys)
+
+    def test_unknown_dialect_is_a_usage_error(self, capsys: pytest.CaptureFixture[str]) -> None:
+        with pytest.raises(SystemExit) as exc:
+            main(["--dialect", "fish", "--string", "ls"])
+        assert exc.value.code == 2
+        assert "invalid choice" in capsys.readouterr().err

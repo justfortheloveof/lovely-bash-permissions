@@ -24,7 +24,8 @@ from typing import Any
 
 from .errors import ShfmtError
 
-_VALID_DIALECTS = frozenset({"bash", "posix", "mksh", "bats", "zsh"})
+#: The shell dialects shfmt parses.
+VALID_DIALECTS = frozenset({"bash", "posix", "mksh", "bats", "zsh"})
 
 
 def parse(command: str, dialect: str = "bash") -> dict[str, Any]:
@@ -45,8 +46,8 @@ def parse(command: str, dialect: str = "bash") -> dict[str, Any]:
             (timeout, OS error).
         ValueError: If *dialect* is not a recognised shell dialect.
     """
-    if dialect not in _VALID_DIALECTS:
-        raise ValueError(f"Unknown dialect {dialect!r}. Must be one of: {', '.join(sorted(_VALID_DIALECTS))}")
+    if dialect not in VALID_DIALECTS:
+        raise ValueError(f"Unknown dialect {dialect!r}. Must be one of: {', '.join(sorted(VALID_DIALECTS))}")
 
     try:
         shfmt_path = find_shfmt()
