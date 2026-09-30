@@ -15,16 +15,17 @@ from typing import Any, TypedDict
 
 from .ast import CallExpr, CmdSubst, Node, ProcSubst, Subshell
 from .converter import node_from_json
-from .inspect import _traverse, _word_exec, _word_raw, _word_value, iter_children
+from .inspect import iter_children, traverse
 from .matching import match_texts
 from .parser import parse
 from .policy import POLICY_KEYS, Level, wildcard_level
 from .rules import (
-    _check_segments_input_redirs,
-    _check_segments_output_redirs,
     check_background_execution,
+    check_input_redirections,
+    check_output_redirections,
 )
-from .segments import Segment, _segments_from_ast
+from .segments import Segment, segments_from_ast
+from .words import CMD_SUBST_PLACEHOLDER, word_exec, word_raw, word_value
 
 #: Human labels for the construct policy keys, as they appear in reasons.
 _CONSTRUCT_LABELS: dict[str, str] = {
@@ -121,7 +122,7 @@ def _parse_command(command: str) -> ParsedCommand:
     """
     raw = parse(command)
     tree = node_from_json(raw)
-    return ParsedCommand(raw=raw, tree=tree, segments=[] if tree is None else _segments_from_ast(tree))
+    return ParsedCommand(raw=raw, tree=tree, segments=[] if tree is None else segments_from_ast(tree))
 
 
 def _resolve_rules(config: dict[str, Any], blocked_patterns: list[str]) -> dict[str, Any]:
@@ -145,7 +146,7 @@ def _extract_subshell_contents(ast: Node | None) -> list[str]:
 
     Returns:
         List of literal text strings found inside command / process substitutions,
-        extracted via :func:`~lovely_bash_permissions.inspect._word_value`.
+        extracted via :func:`~lovely_bash_permissions.words.word_value`.
     """
     if ast is None:
         return []
@@ -158,14 +159,14 @@ def _extract_subshell_contents(ast: Node | None) -> list[str]:
                     # Extract each argument separately so blocked paths inside
                     # arguments are found - e.g. "/etc/passwd" in "cat /etc/passwd"
                     for arg in stmt.cmd.args:
-                        raw = _word_value(arg)
-                        execd = _word_exec(arg)
+                        raw = word_value(arg)
+                        execd = word_exec(arg)
                         if raw not in contents:
                             contents.append(raw)
                         if execd != raw and execd not in contents:
                             contents.append(execd)
 
-    _traverse(ast, visitor, recurse_call_expr_args=True)
+    traverse(ast, visitor, recurse_call_expr_args=True)
     return contents
 
 
@@ -233,7 +234,7 @@ def _subst_flags(ast: Node | None) -> dict[str, bool]:
         elif isinstance(node, Subshell):
             found["subshell"] = True
 
-    _traverse(ast, visitor, recurse_call_expr_args=True)
+    traverse(ast, visitor, recurse_call_expr_args=True)
     return found
 
 
@@ -270,7 +271,7 @@ def _command_string(name: str, args: list[str]) -> str:
     the arguments are opaque and matching them could only ever be guessing.
     """
     cleaned = [_strip_quotes(a) for a in args]
-    if any("$(...)" not in a for a in cleaned):
+    if any(CMD_SUBST_PLACEHOLDER not in a for a in cleaned):
         return name if not cleaned else " ".join([name, *cleaned])
     return name
 
@@ -318,7 +319,7 @@ def _match_allowed_patterns(
     Returns:
         Every matching pattern, in list order.
     """
-    has_opaque = any("$(...)" in a for a in args)
+    has_opaque = any(CMD_SUBST_PLACEHOLDER in a for a in args)
     matches = match_texts(
         _texts_for(name, args, normalized_args),
         allowed_patterns,
@@ -538,15 +539,15 @@ def _collect_allowed_matches(tree: Node | None, allowed_patterns: list[str], ver
 
     def _walk(node: Node, depth: int) -> None:
         if isinstance(node, CallExpr) and node.args:
-            name = _word_value(node.args[0])
-            raw_args = [_word_raw(a) for a in node.args[1:]]
-            exec_args = [_word_exec(a) for a in node.args[1:]]
+            name = word_value(node.args[0])
+            raw_args = [word_raw(a) for a in node.args[1:]]
+            exec_args = [word_exec(a) for a in node.args[1:]]
             verdict.visited_commands.add(_command_string(name, raw_args))
             matched = _match_allowed_patterns(name, raw_args, allowed_patterns, exec_args)
             if matched:
                 verdict.all_matched_patterns.extend(matched)
             elif depth > 0:
-                rest = " ".join(_word_value(a) for a in node.args[1:])
+                rest = " ".join(word_value(a) for a in node.args[1:])
                 full_cmd = name if not rest else f"{name} {rest}"
                 verdict.nested_non_match.add(name if name != full_cmd else full_cmd)
         new_depth = depth + (1 if isinstance(node, (CmdSubst, ProcSubst, Subshell)) else 0)
@@ -604,7 +605,7 @@ def _evaluate_one_segment(
             verdict.reasons.append(f"variable assignment requires approval: {shown}")
     elif allowed_patterns:
         # Check allowed patterns against command name.
-        # If arguments contain real values (not "$(...)" placeholders),
+        # If arguments contain real values (not CMD_SUBST_PLACEHOLDER placeholders),
         # check full command line so ^ls$ rejects "ls -la".
         norm_args = segment.get("normalized_arguments", args)
         matched_patterns = _match_allowed_patterns(cmd_name, args, allowed_patterns, norm_args)
@@ -657,8 +658,8 @@ def _apply_redirection_policies(
     results = [
         r
         for r in (
-            _check_segments_output_redirs(segments, rules),
-            _check_segments_input_redirs(segments, rules),
+            check_output_redirections(segments, rules),
+            check_input_redirections(segments, rules),
             check_background_execution(raw, rules),
         )
         if r.get("matched", True)

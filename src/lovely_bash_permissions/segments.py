@@ -69,8 +69,8 @@ from .ast import (
 )
 from .converter import node_from_json
 from .errors import ShfmtError
-from .inspect import _word_exec, _word_raw, _word_value
 from .parser import parse
+from .words import CMD_SUBST_PLACEHOLDER, word_exec, word_raw, word_value
 
 _logger = logging.getLogger(__name__)
 
@@ -137,11 +137,11 @@ def _array_text(assign: Assign) -> str:
     for elem in array.elems:
         if not isinstance(elem, ArrayElem) or (elem.value is None and elem.index is None):
             continue
-        text = _word_raw(elem.value) if elem.value is not None else ""
+        text = word_raw(elem.value) if elem.value is not None else ""
         if isinstance(elem.index, Word):
             # Sparse array (`A=([0]=x)`): keep the subscript visible so the
             # element is not silently read as a positional one.
-            text = f"[{_word_raw(elem.index)}]={text}"
+            text = f"[{word_raw(elem.index)}]={text}"
         if text:
             elems.append(text)
     if not elems:
@@ -149,7 +149,7 @@ def _array_text(assign: Assign) -> str:
     return f"({' '.join(elems)})"
 
 
-def _assign_operand_text(assign: Assign) -> str:
+def assign_operand_text(assign: Assign) -> str:
     """Render a variable assignment's operand, e.g. ``bar``, ``a[0]=bar``, ``=(a b)``.
 
     Covers every shape shfmt can produce: scalar, subscripted, array, and
@@ -176,17 +176,17 @@ def _assign_operand_text(assign: Assign) -> str:
         # whose value is the flag text (`declare -a`).
         if name:
             return name
-        return _word_raw(assign.value) if assign.value is not None else ""
+        return word_raw(assign.value) if assign.value is not None else ""
 
     # shfmt types Assign.index as the general Node; every subscript it actually
     # emits is a Word, and anything else has no renderable text.
-    index = f"[{_word_raw(assign.index)}]" if isinstance(assign.index, Word) else ""
+    index = f"[{word_raw(assign.index)}]" if isinstance(assign.index, Word) else ""
     operator = "+=" if assign.append else "="
 
     if assign.array is not None:
         operand = _array_text(assign)
     elif assign.value is not None:
-        operand = _word_raw(assign.value)
+        operand = word_raw(assign.value)
     else:
         operand = ""
 
@@ -237,7 +237,7 @@ def _redir_dicts(redirs: list[Redir]) -> list[SegmentRedirection]:
     """Serialize Redir nodes into the segment dict format.
 
     Mirrors the shape produced for CallExpr/DeclClause/LetClause segments so
-    callers (``_check_segments_output_redirs`` / ``_check_segments_input_redirs``)
+    callers (``check_output_redirections`` / ``check_input_redirections``)
     can classify them uniformly. shfmt normalizes fd-prefixed operators into the
     ``N`` field (e.g. ``2>`` -> ``Op: ">", N: {"Value": "2"}``).
 
@@ -255,7 +255,7 @@ def _redir_dicts(redirs: list[Redir]) -> list[SegmentRedirection]:
             {
                 "Op": r.op,
                 "N": {"Value": str(r.n)} if r.n is not None else {},
-                "Target": _word_exec(r.word) if r.word is not None else "",
+                "Target": word_exec(r.word) if r.word is not None else "",
             }
         )
     return redir_dicts
@@ -357,7 +357,7 @@ def _extract_segments(
             # on top of it by the evaluator, so both gates fire rather than
             # one silently standing in for the other.
             if node.assigns:
-                var_assign_args = [_assign_operand_text(a) for a in node.assigns]
+                var_assign_args = [assign_operand_text(a) for a in node.assigns]
                 var_assign_args = [arg for arg in var_assign_args if arg]
                 if var_assign_args:
                     # Add variable assignment segment before the command segment
@@ -366,9 +366,9 @@ def _extract_segments(
             redir_dicts = _redir_dicts(redirs or [])
             segments.append(
                 {
-                    "command": _word_value(node.args[0]),
-                    "arguments": [_word_raw(arg) for arg in node.args[1:]],
-                    "normalized_arguments": [_word_exec(arg) for arg in node.args[1:]],
+                    "command": word_value(node.args[0]),
+                    "arguments": [word_raw(arg) for arg in node.args[1:]],
+                    "normalized_arguments": [word_exec(arg) for arg in node.args[1:]],
                     "redirections": redir_dicts,
                 }
             )
@@ -396,7 +396,7 @@ def _extract_segments(
             # Standalone variable assignment (no Args, only Assigns)
             # Create a segment so it can be evaluated against allowed patterns.
             redir_dicts = _redir_dicts(redirs or [])
-            args = [operand for operand in (_assign_operand_text(a) for a in node.assigns) if operand]
+            args = [operand for operand in (assign_operand_text(a) for a in node.assigns) if operand]
             segments.append({"command": "", "arguments": args, "redirections": redir_dicts})
             # Recurse into assignment sub-expressions (values, indexes, arrays) so
             # the redirection in `x=$(echo hi > /etc/passwd)` surfaces for
@@ -415,7 +415,7 @@ def _extract_segments(
         redir_dicts = _redir_dicts(redirs or [])
         declares = node.assigns or []
 
-        operands: list[str] = [operand for operand in (_assign_operand_text(assign) for assign in declares) if operand]
+        operands: list[str] = [operand for operand in (assign_operand_text(assign) for assign in declares) if operand]
         if operands:
             segments.append({"command": "", "arguments": operands, "redirections": []})
             segments.append({"command": node.variant, "arguments": [], "redirections": redir_dicts})
@@ -529,7 +529,7 @@ def _extract_segments(
 
             def _arithm_to_str(node: object) -> str:
                 if isinstance(node, ArithmExp):
-                    return "$(...)"
+                    return CMD_SUBST_PLACEHOLDER
                 elif isinstance(node, BinaryArithm):
                     return f"({_arithm_to_str(node.left)}){node.op}({_arithm_to_str(node.right)})"
                 elif isinstance(node, UnaryArithm):
@@ -539,7 +539,7 @@ def _extract_segments(
                 elif isinstance(node, FlagsArithm):
                     return f"{node.flags}({_arithm_to_str(node.x)})"
                 elif isinstance(node, Word):
-                    return _word_value(node)
+                    return word_value(node)
                 elif isinstance(node, Lit):
                     return node.value
                 elif isinstance(node, ParamExp):
@@ -685,7 +685,7 @@ def _extract_segments(
     return segments
 
 
-def _segments_from_ast(ast: Node) -> list[Segment]:
+def segments_from_ast(ast: Node) -> list[Segment]:
     """Extract segments from an already-converted typed AST.
 
     The half of :func:`parse_segments` that does not need the shfmt subprocess.
@@ -746,4 +746,4 @@ def parse_segments(command: str, dialect: str = DEFAULT_DIALECT) -> list[Segment
 
     if ast is None:
         return []
-    return _segments_from_ast(ast)
+    return segments_from_ast(ast)

@@ -51,20 +51,22 @@ documents. Its dependency order is strictly one-way:
 
 ```
 errors.py            (leaf: ShfmtError)
+policy.py            (leaf: the policy vocabulary and the Level type)
+matching.py          (leaf: the one regex matcher for allow and block lists)
 parser.py            -> errors            (shfmt subprocess -> raw JSON)
 ast.py               (leaf: the typed node dataclasses)
-inspect.py           -> ast               (queries over a tree the caller holds)
+words.py             -> ast               (a word as value / raw / executed text)
+inspect.py           -> ast, words        (queries over a tree the caller holds)
 converter.py         -> ast, parser       (raw JSON -> typed tree)
-segments.py          -> ast, converter, errors, inspect, parser
-matching.py          (leaf: the one regex matcher for allow and block lists)
+segments.py          -> ast, converter, errors, parser, words
 rules.py             -> matching, policy, segments (types only; policy on segment dicts)
-evaluate.py          -> ast, converter, inspect, matching, parser, policy, rules, segments
-cli.py               -> ast, converter, errors, inspect, segments
+evaluate.py          -> ast, converter, inspect, matching, parser, policy, rules, segments, words
+cli.py               -> ast, converter, errors, inspect, segments, words
 __init__.py          re-exports the public surface
 ```
 
-`inspect.py` depends on `ast.py` alone on purpose: it answers questions about a
-tree the caller already holds, so it never parses. `converter.py` imports
+`inspect.py` and `words.py` depend on `ast.py` alone on purpose: they answer
+questions about a tree the caller already holds, so they never parse. `converter.py` imports
 `parser` at module level; `parser.py` imports only `errors.py`, so the edge
 cannot cycle.
 
@@ -176,7 +178,7 @@ shipped.
    `ShfmtError`; the hook maps that to the `error` policy rather than letting the
    command through.
 2. **`node_from_json(raw)`** — raw JSON becomes a typed `File`.
-3. **`_segments_from_ast(tree)`** — the typed AST becomes the flat segment list.
+3. **`segments_from_ast(tree)`** — the typed AST becomes the flat segment list.
 4. **`rules.py` policy checks** over those segments, plus the per-segment
    allowed/blocked matchers in `evaluate.py`. Every regex match, in either
    module, goes through `matching.match_texts`.
@@ -234,7 +236,7 @@ walk and buy nothing for those two callers.
 
 **Policy is decided on the *executed* form of a word, never the text as typed.**
 
-`inspect._word_exec` renders a word the way bash would resolve it: quotes
+`words.word_exec` renders a word the way bash would resolve it: quotes
 removed, backslashes unescaped, expansions kept as visible placeholders. The
 segment redirection field `Target` and the segment `normalized_arguments` list
 are both built from it, and `rules._redir_target` reads `Target` as the *only*

@@ -32,8 +32,9 @@ from typing import ClassVar
 from lovely_bash_permissions.ast import DblQuoted, Lit, ParamExp, ParamExpExp, ParamExpSlice, Word
 from lovely_bash_permissions.converter import parse_ast
 from lovely_bash_permissions.evaluate import evaluate_bash_command
-from lovely_bash_permissions.inspect import _word_exec, _word_raw, _word_value, find_arguments
+from lovely_bash_permissions.inspect import find_arguments
 from lovely_bash_permissions.segments import Segment, parse_segments
+from lovely_bash_permissions.words import word_exec, word_raw, word_value
 
 
 def _first(command: str) -> Segment:
@@ -62,7 +63,7 @@ def _normalized(command: str) -> list[str]:
 def _value(command: str) -> list[str]:
     """Return the arguments of the first call expression in *value* form.
 
-    The third renderer: ``_word_value`` strips quotes and backslashes but keeps
+    The third renderer: ``word_value`` strips quotes and backslashes but keeps
     expansion text, so it is the last of the three shapes an argument can reach
     the matcher in.  Unlike the hand-built node tests below this walks the real
     shfmt parse, so it also proves ``converter._convert_param_exp`` carried the
@@ -70,7 +71,7 @@ def _value(command: str) -> list[str]:
     """
     calls = find_arguments(parse_ast(command))
     assert calls, f"no call arguments parsed for {command!r}"
-    return [_word_value(arg) for arg in calls[0]]
+    return [word_value(arg) for arg in calls[0]]
 
 
 class TestDefaultOperators:
@@ -153,7 +154,7 @@ class TestIndexAndSlice:
             param="x",
             slice=ParamExpSlice(offset=Word(parts=[Lit(value="0")]), length=None),
         )
-        assert _word_value(Word(parts=[node])) == "${x:0}"
+        assert word_value(Word(parts=[node])) == "${x:0}"
 
     def test_slice_nested_expansion(self) -> None:
         # A nested bare expansion keeps its simple `$y` spelling.
@@ -169,7 +170,7 @@ class TestCombinedShapes:
             exp=ParamExpExp(op=":-", word=Word(parts=[Lit(value="def")])),
             index=Word(parts=[Lit(value="i")]),
         )
-        assert _word_value(Word(parts=[node])) == "${arr:-def[i]}"
+        assert word_value(Word(parts=[node])) == "${arr:-def[i]}"
 
     def test_substitution_and_index_together(self) -> None:
         node = ParamExp(
@@ -179,12 +180,12 @@ class TestCombinedShapes:
             all=True,
             index=Word(parts=[Lit(value="i")]),
         )
-        assert _word_value(Word(parts=[node])) == "${arr//a/b[i]}"
+        assert word_value(Word(parts=[node])) == "${arr//a/b[i]}"
 
     def test_slice_with_empty_offset(self) -> None:
         # `${x::3}` - length given, offset absent.
         node = ParamExp(param="x", slice=ParamExpSlice(offset=None, length=Word(parts=[Lit(value="3")])))
-        assert _word_value(Word(parts=[node])) == "${x::3}"
+        assert word_value(Word(parts=[node])) == "${x::3}"
 
 
 class TestUnchangedSimpleForms:
@@ -226,17 +227,17 @@ class TestLengthExpansion:
         # The bare `${#x}` spelling has no operator, so it exercises the
         # simple-form branch rather than the operator/suffix branch.
         node = ParamExp(param="x", length=True)
-        assert _word_value(Word(parts=[node])) == "${#x}"
+        assert word_value(Word(parts=[node])) == "${#x}"
 
     def test_non_length_expansion_has_no_sigil(self) -> None:
         node = ParamExp(param="x")
-        assert _word_value(Word(parts=[node])) == "$x"
+        assert word_value(Word(parts=[node])) == "$x"
 
     def test_length_expansion_keeps_operator_text(self) -> None:
         # `${#x}` and `${x}` differ only in the sigil; with an operator present
         # both the sigil and the operator must survive.
         node = ParamExp(param="x", length=True, exp=ParamExpExp(op=":-", word=Word(parts=[Lit(value="d")])))
-        assert _word_value(Word(parts=[node])) == "${#x:-d}"
+        assert word_value(Word(parts=[node])) == "${#x:-d}"
 
 
 class TestIndirectExpansion:
@@ -290,23 +291,23 @@ class TestIndirectExpansion:
 
     def test_indirect_expansion_hand_built_node(self) -> None:
         node = ParamExp(param="x", excl=True)
-        assert _word_value(Word(parts=[node])) == "${!x}"
+        assert word_value(Word(parts=[node])) == "${!x}"
 
     def test_indirect_expansion_keeps_operator_text_hand_built_node(self) -> None:
         node = ParamExp(param="x", excl=True, exp=ParamExpExp(op=":-", word=Word(parts=[Lit(value="d")])))
-        assert _word_value(Word(parts=[node])) == "${!x:-d}"
+        assert word_value(Word(parts=[node])) == "${!x:-d}"
 
     def test_non_indirect_expansion_has_no_sigil(self) -> None:
         # `${!x}` and `${x}` differ only in the sigil; the `excl` default of
         # False must keep the short spelling.
         node = ParamExp(param="x")
-        assert _word_value(Word(parts=[node])) == "$x"
+        assert word_value(Word(parts=[node])) == "$x"
 
     def test_length_and_excl_are_mutually_exclusive(self) -> None:
         # bash rejects `${#!x}` as a bad substitution, so shfmt never emits
         # both; if it somehow did, `length` wins (the pre-existing sigil).
         node = ParamExp(param="x", length=True, excl=True)
-        assert _word_value(Word(parts=[node])) == "${#x}"
+        assert word_value(Word(parts=[node])) == "${#x}"
 
     def test_indirect_expansion_keeps_literal_affixes(self) -> None:
         assert _args("echo a${!x}b") == ["a${!x}b"]
@@ -526,14 +527,14 @@ class TestDoubleQuotedFidelity:
         inner = DblQuoted(parts=[Lit(value="in")])
         region = DblQuoted(parts=[Lit(value="a"), inner, ParamExp(param="x")], value=None)
         word = Word(parts=[Lit(value="pre"), region])
-        assert _word_raw(word) == 'pre"a"in"$x"'
-        assert _word_value(word) == "preain$x"
+        assert word_raw(word) == 'pre"a"in"$x"'
+        assert word_value(word) == "preain$x"
 
     def test_nested_dbl_quoted_exec_form_unchanged(self) -> None:
         inner = DblQuoted(parts=[Lit(value="in")])
         region = DblQuoted(parts=[Lit(value="a"), inner, ParamExp(param="x")], value=None)
         word = Word(parts=[Lit(value="pre"), region])
-        assert _word_exec(word) == "preain$x"
+        assert word_exec(word) == "preain$x"
 
 
 class TestDoubleQuotedOpaquePlaceholder:

@@ -38,8 +38,9 @@ from .ast import (
 )
 from .converter import parse_ast
 from .errors import ShfmtError
-from .inspect import _word_value, has_pipe, has_variable, iter_children
-from .segments import _assign_operand_text
+from .inspect import has_pipe, has_variable, iter_children
+from .segments import assign_operand_text
+from .words import word_value
 
 PROG = "lovely-bash-inspection"
 INDENT = "  "
@@ -109,7 +110,7 @@ def _redir_text(redir: Redir) -> str:
     File-target redirections (``> file``, ``2>> file``) get a separating
     space; fd-duplication redirections (``>&1``, ``2>&1``) do not.
     """
-    target = _word_value(redir.word) if redir.word else ""
+    target = word_value(redir.word) if redir.word else ""
     op = f"{redir.n}{redir.op}" if redir.n is not None else redir.op
     if redir.op in ("<&", ">&"):
         return f"{op}{target}"
@@ -274,12 +275,12 @@ def _render_value_words(node: Node, indent: int, report: _Report) -> None:
     descends into the same words - do not render them again here.
     """
     if isinstance(node, ForClause):
-        rendered = [_word_value(w) for w in node.words]
+        rendered = [word_value(w) for w in node.words]
         rendered = [w for w in rendered if w]
         if rendered:
             report.add(indent, f"words: {', '.join(rendered)}")
     elif isinstance(node, CaseClause) and node.expr is not None:
-        subject = _word_value(node.expr)
+        subject = word_value(node.expr)
         if subject:
             report.add(indent, f"case: {subject}")
 
@@ -289,7 +290,7 @@ def _render_patterns(node: Node, indent: int, report: _Report) -> None:
     if not isinstance(node, CaseBranch):
         return
     for pattern in node.patterns:
-        text = _word_value(pattern)
+        text = word_value(pattern)
         if text:
             report.add(indent, f"pattern: {text}")
 
@@ -305,8 +306,8 @@ def _render_command_or_decl(node: Node, indent: int, report: _Report) -> None:
 def _render_command(call: CallExpr, indent: int, report: _Report) -> None:
     """Render a single command, its assigns, and nested substitutions."""
     if call.args:
-        name = _word_value(call.args[0])
-        args = [_word_value(a) for a in call.args[1:]]
+        name = word_value(call.args[0])
+        args = [word_value(a) for a in call.args[1:]]
         report.add(indent, f"cmd: {name}")
         if args:
             report.add(indent, f"args: {', '.join(args)}")
@@ -315,7 +316,7 @@ def _render_command(call: CallExpr, indent: int, report: _Report) -> None:
         # Rendered by the same function the permission path uses, so the two
         # cannot disagree. An assignment with nothing renderable would
         # otherwise leave a dangling ``assign:`` line.
-        text = _assign_operand_text(assign)
+        text = assign_operand_text(assign)
         if text:
             report.add(indent, f"assign: {text}")
         _render_assign_subs(assign, indent, report)
@@ -346,7 +347,7 @@ def _render_declared(decl: DeclClause, indent: int, report: _Report) -> None:
     tolerates the difference.
     """
     for assign in decl.assigns or []:
-        text = _assign_operand_text(assign)
+        text = assign_operand_text(assign)
         if text:
             report.add(indent, f"assign: {decl.variant} {text}")
         _render_assign_subs(assign, indent, report)

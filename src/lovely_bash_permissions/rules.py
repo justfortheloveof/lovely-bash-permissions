@@ -220,7 +220,7 @@ def _resolve_output_level(kinds: list[str], policy: dict[str, Any]) -> str:
     return "allow"
 
 
-def _check_segments_output_redirs(segments: list[Segment], rules: dict[str, Any]) -> PolicyResult:
+def check_output_redirections(segments: list[Segment], rules: dict[str, Any]) -> PolicyResult:
     """Evaluate output redirections collected from segments.
 
     Works on segment dicts produced by ``parse_segments`` - each segment's
@@ -252,10 +252,10 @@ def _check_segments_output_redirs(segments: list[Segment], rules: dict[str, Any]
     return _redirection_result("output", level, targets)
 
 
-def _check_segments_input_redirs(segments: list[Segment], rules: dict[str, Any]) -> PolicyResult:
+def check_input_redirections(segments: list[Segment], rules: dict[str, Any]) -> PolicyResult:
     """Evaluate input redirections collected from segments.
 
-    Segment-level counterpart to :func:`_check_segments_output_redirs`, and
+    Segment-level counterpart to :func:`check_output_redirections`, and
     the single source of truth for input redirection policy.
 
     Args:

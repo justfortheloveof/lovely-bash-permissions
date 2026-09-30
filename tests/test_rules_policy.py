@@ -3,7 +3,7 @@
 The tree-based entry points (``check_output_redirection`` /
 ``check_input_redirection``) are not what production calls; production calls
 only the segment-based ones
-(:func:`_check_segments_output_redirs` / :func:`_check_segments_input_redirs`)
+(:func:`check_output_redirections` / :func:`check_input_redirections`)
 plus the shared helpers :func:`classify_output_redirection`,
 :func:`_resolve_output_level` and :func:`check_background_execution`.
 
@@ -21,10 +21,10 @@ from lovely_bash_permissions.parser import parse
 from lovely_bash_permissions.rules import (
     INPUT_REDIRECT_OPS,
     WRITE_REDIRECT_OPS,
-    _check_segments_input_redirs,
-    _check_segments_output_redirs,
     _resolve_output_level,
     check_background_execution,
+    check_input_redirections,
+    check_output_redirections,
     classify_output_redirection,
 )
 from lovely_bash_permissions.segments import Segment, SegmentRedirection, parse_segments
@@ -186,30 +186,30 @@ class TestResolveOutputLevel:
 
 
 # ---------------------------------------------------------------------------
-# _check_segments_output_redirs
+# check_output_redirections
 # ---------------------------------------------------------------------------
 
 
 class TestSegmentsOutputRedirs:
-    """_check_segments_output_redirs evaluates segment redirections."""
+    """check_output_redirections evaluates segment redirections."""
 
     def test_no_redirections_is_unmatched_allow(self) -> None:
         """Nothing to evaluate reports matched=False even under a deny policy."""
-        result = _check_segments_output_redirs([segment()], {"output_redirection": "deny"})
+        result = check_output_redirections([segment()], {"output_redirection": "deny"})
         assert result["status"] == "allow"
         assert result["matched"] is False
         assert result["reason"] == "no output redirection"
 
     def test_empty_segment_list_is_unmatched_allow(self) -> None:
         """An empty segment list is the same as "no redirections"."""
-        result = _check_segments_output_redirs([], {"output_redirection": "deny"})
+        result = check_output_redirections([], {"output_redirection": "deny"})
         assert result["status"] == "allow"
         assert result["matched"] is False
 
     def test_output_only_redirections_are_not_input(self) -> None:
         """An output-looking op never counts as an output redirection here."""
         # "<" is not in WRITE_REDIRECT_OPS, so the check reports nothing found.
-        result = _check_segments_output_redirs([segment(redir("<", "/tmp/in"))], {"output_redirection": "deny"})
+        result = check_output_redirections([segment(redir("<", "/tmp/in"))], {"output_redirection": "deny"})
         assert result["status"] == "allow"
         assert result["matched"] is False
 
@@ -220,37 +220,37 @@ class TestSegmentsOutputRedirs:
     def test_level_comes_from_policy(self, policy: str, expected: str) -> None:
         """A plain string policy maps straight onto the returned status."""
         segs = [segment(redir(">", "/tmp/out.txt"))]
-        result = _check_segments_output_redirs(segs, {"output_redirection": policy})
+        result = check_output_redirections(segs, {"output_redirection": policy})
         assert result["status"] == expected
 
     def test_allow_reason_names_the_target(self) -> None:
         """The allow reason names the redirection target."""
         segs = [segment(redir(">", "/tmp/out.txt"))]
-        result = _check_segments_output_redirs(segs, {"output_redirection": "allow"})
+        result = check_output_redirections(segs, {"output_redirection": "allow"})
         assert "/tmp/out.txt" in result["reason"]
 
     def test_deny_reason_names_the_target(self) -> None:
         """The deny reason names the redirection target."""
         segs = [segment(redir(">", "/tmp/out.txt"))]
-        result = _check_segments_output_redirs(segs, {"output_redirection": "deny"})
+        result = check_output_redirections(segs, {"output_redirection": "deny"})
         assert "/tmp/out.txt" in result["reason"]
 
     def test_ask_reason_asks_for_approval(self) -> None:
         """The ask reason says the redirection requires approval."""
         segs = [segment(redir(">", "/tmp/out.txt"))]
-        result = _check_segments_output_redirs(segs, {"output_redirection": "ask"})
+        result = check_output_redirections(segs, {"output_redirection": "ask"})
         assert "approval" in result["reason"]
 
     def test_default_policy_is_ask(self) -> None:
         """A rules dict with no ``output_redirection`` key defaults to ask."""
         segs = [segment(redir(">", "/tmp/out.txt"))]
-        assert _check_segments_output_redirs(segs, {})["status"] == "ask"
+        assert check_output_redirections(segs, {})["status"] == "ask"
 
     def test_dict_form_wildcard(self) -> None:
         """The dict policy form uses ``*`` for kinds it does not name."""
         segs = [segment(redir(">", "/tmp/out.txt"))]
         rules = {"output_redirection": {"*": "deny"}}
-        assert _check_segments_output_redirs(segs, rules)["status"] == "deny"
+        assert check_output_redirections(segs, rules)["status"] == "deny"
 
     @pytest.mark.parametrize(
         ("command", "kind"),
@@ -263,13 +263,13 @@ class TestSegmentsOutputRedirs:
     def test_dict_form_per_kind_allow(self, command: str, kind: str) -> None:
         """Naming the triggered kind allows it while ``*`` still asks."""
         rules = {"output_redirection": {"*": "ask", kind: "allow"}}
-        result = _check_segments_output_redirs(parse_segments(command), rules)
+        result = check_output_redirections(parse_segments(command), rules)
         assert result["status"] == "allow"
 
     def test_dict_form_per_kind_deny(self) -> None:
         """Naming the triggered kind denies it even when ``*`` allows."""
         rules = {"output_redirection": {"*": "allow", "stderr_to_dev_null": "deny"}}
-        result = _check_segments_output_redirs(parse_segments("echo hi 2> /dev/null"), rules)
+        result = check_output_redirections(parse_segments("echo hi 2> /dev/null"), rules)
         assert result["status"] == "deny"
 
     def test_dict_form_two_kinds_deny_overrides_allow(self) -> None:
@@ -281,7 +281,7 @@ class TestSegmentsOutputRedirs:
                 "stderr_to_stdout": "allow",
             }
         }
-        result = _check_segments_output_redirs(parse_segments("echo hi > /dev/null 2>&1"), rules)
+        result = check_output_redirections(parse_segments("echo hi > /dev/null 2>&1"), rules)
         assert result["status"] == "deny"
 
     def test_dict_form_ask_and_allow_resolves_ask(self) -> None:
@@ -293,13 +293,13 @@ class TestSegmentsOutputRedirs:
                 "stderr_to_stdout": "ask",
             }
         }
-        result = _check_segments_output_redirs(parse_segments("echo hi > /dev/null 2>&1"), rules)
+        result = check_output_redirections(parse_segments("echo hi > /dev/null 2>&1"), rules)
         assert result["status"] == "ask"
 
     def test_dict_form_all_allow_resolves_allow(self) -> None:
         """A wildcard-only allow policy lets every kind through."""
         segs = parse_segments("echo hi > /dev/null 2>&1")
-        assert _check_segments_output_redirs(segs, {"output_redirection": {"*": "allow"}})["status"] == "allow"
+        assert check_output_redirections(segs, {"output_redirection": {"*": "allow"}})["status"] == "allow"
 
 
 class TestSegmentsOutputRedirsBlockedPaths:
@@ -310,7 +310,7 @@ class TestSegmentsOutputRedirsBlockedPaths:
         """SECURITY: a blocked target denies even when the level is allow."""
         segs = [segment(redir(">", "/etc/shadow"))]
         rules: dict[str, Any] = {"output_redirection": policy, "blocked_cmds_regex": [r"\/etc"]}
-        result = _check_segments_output_redirs(segs, rules)
+        result = check_output_redirections(segs, rules)
         assert result["status"] == "deny"
         assert "/etc/shadow" in result["reason"]
 
@@ -321,17 +321,17 @@ class TestSegmentsOutputRedirsBlockedPaths:
             "output_redirection": {"*": "allow", "other": "allow"},
             "blocked_cmds_regex": [r"\/etc"],
         }
-        assert _check_segments_output_redirs(segs, rules)["status"] == "deny"
+        assert check_output_redirections(segs, rules)["status"] == "deny"
 
     def test_unblocked_target_is_not_escalated(self) -> None:
         """A non-matching target still follows its level."""
         segs = [segment(redir(">", "/tmp/out.txt"))]
         rules = {"output_redirection": "allow", "blocked_cmds_regex": [r"\/etc"]}
-        assert _check_segments_output_redirs(segs, rules)["status"] == "allow"
+        assert check_output_redirections(segs, rules)["status"] == "allow"
 
     def test_quote_split_blocked_target_denies(self) -> None:
         """The executed-form target is matched, not just the literal spelling."""
-        result = _check_segments_output_redirs(
+        result = check_output_redirections(
             parse_segments('echo hi > /e"tc"/x'),
             {"output_redirection": "allow", "blocked_cmds_regex": [r"\/etc"]},
         )
@@ -341,13 +341,13 @@ class TestSegmentsOutputRedirsBlockedPaths:
         """One blocked target anywhere in the set denies the whole command."""
         segs = [segment(redir(">", "/tmp/out.txt")), segment(redir(">", "/etc/shadow"), command="tee")]
         rules = {"output_redirection": "allow", "blocked_cmds_regex": [r"\/etc"]}
-        assert _check_segments_output_redirs(segs, rules)["status"] == "deny"
+        assert check_output_redirections(segs, rules)["status"] == "deny"
 
     def test_invalid_blocked_pattern_is_skipped_not_raised(self) -> None:
         """A malformed blocked regex is "no match" rather than a ValueError."""
         segs = [segment(redir(">", "/tmp/out.txt"))]
         rules = {"output_redirection": "allow", "blocked_cmds_regex": ["[invalid"]}
-        assert _check_segments_output_redirs(segs, rules)["status"] == "allow"
+        assert check_output_redirections(segs, rules)["status"] == "allow"
 
 
 class TestSegmentsOutputRedirsDedupe:
@@ -357,7 +357,7 @@ class TestSegmentsOutputRedirsDedupe:
         """The same (Op, fd, target) on three segments is one redirection."""
         target = "/tmp/dedupe-target"
         segs = [segment(redir(">", target)), segment(redir(">", target)), segment(redir(">", target))]
-        result = _check_segments_output_redirs(segs, {"output_redirection": "allow"})
+        result = check_output_redirections(segs, {"output_redirection": "allow"})
         assert result["status"] == "allow"
         assert result["reason"].count(target) == 1
 
@@ -366,54 +366,54 @@ class TestSegmentsOutputRedirsDedupe:
         target = "/tmp/brace-target"
         segs = parse_segments("{ echo a; echo b; } > " + target)
         assert len(segs) == 2
-        result = _check_segments_output_redirs(segs, {"output_redirection": "allow"})
+        result = check_output_redirections(segs, {"output_redirection": "allow"})
         assert result["reason"].count(target) == 1
 
     def test_distinct_fds_are_kept_separate(self) -> None:
         """Same op and target but a different fd is a distinct descriptor."""
         segs = [segment(redir(">", "/tmp/o")), segment(redir(">", "/tmp/o", "2"), command="tee")]
-        result = _check_segments_output_redirs(segs, {"output_redirection": "allow"})
+        result = check_output_redirections(segs, {"output_redirection": "allow"})
         assert result["reason"].count("/tmp/o") == 2
 
     def test_distinct_targets_are_kept_separate(self) -> None:
         """Different targets on different segments are both reported."""
         segs = [segment(redir(">", "/tmp/a")), segment(redir(">", "/tmp/b"), command="tee")]
-        result = _check_segments_output_redirs(segs, {"output_redirection": "allow"})
+        result = check_output_redirections(segs, {"output_redirection": "allow"})
         assert "/tmp/a" in result["reason"]
         assert "/tmp/b" in result["reason"]
 
     def test_distinct_ops_are_kept_separate(self) -> None:
         """Same target under different ops stays two redirections."""
         segs = [segment(redir(">", "/tmp/o")), segment(redir(">>", "/tmp/o"), command="tee")]
-        result = _check_segments_output_redirs(segs, {"output_redirection": "allow"})
+        result = check_output_redirections(segs, {"output_redirection": "allow"})
         assert result["reason"].count("/tmp/o") == 2
 
 
 # ---------------------------------------------------------------------------
-# _check_segments_input_redirs
+# check_input_redirections
 # ---------------------------------------------------------------------------
 
 
 class TestSegmentsInputRedirs:
-    """_check_segments_input_redirs evaluates segment input redirections."""
+    """check_input_redirections evaluates segment input redirections."""
 
     def test_no_redirections_is_unmatched_allow(self) -> None:
         """Nothing to evaluate reports matched=False even under a deny policy."""
-        result = _check_segments_input_redirs([segment()], {"input_redirection": "deny"})
+        result = check_input_redirections([segment()], {"input_redirection": "deny"})
         assert result["status"] == "allow"
         assert result["matched"] is False
         assert result["reason"] == "no input redirection"
 
     def test_empty_segment_list_is_unmatched_allow(self) -> None:
         """An empty segment list is the same as "no redirections"."""
-        result = _check_segments_input_redirs([], {"input_redirection": "deny"})
+        result = check_input_redirections([], {"input_redirection": "deny"})
         assert result["status"] == "allow"
         assert result["matched"] is False
 
     def test_output_only_redirections_are_not_input(self) -> None:
         """A write operator is invisible to the input-redirection policy."""
         segs = [segment(redir(">", "/tmp/out.txt"))]
-        result = _check_segments_input_redirs(segs, {"input_redirection": "deny"})
+        result = check_input_redirections(segs, {"input_redirection": "deny"})
         assert result["status"] == "allow"
         assert result["matched"] is False
 
@@ -424,54 +424,54 @@ class TestSegmentsInputRedirs:
     def test_level_comes_from_policy(self, policy: str, expected: str) -> None:
         """A plain string policy maps straight onto the returned status."""
         segs = [segment(redir("<", "/tmp/in.txt"), command="cat")]
-        result = _check_segments_input_redirs(segs, {"input_redirection": policy})
+        result = check_input_redirections(segs, {"input_redirection": policy})
         assert result["status"] == expected
 
     def test_allow_reason_names_the_target(self) -> None:
         """The allow reason names the redirection target."""
         segs = [segment(redir("<", "/tmp/in.txt"), command="cat")]
-        result = _check_segments_input_redirs(segs, {"input_redirection": "allow"})
+        result = check_input_redirections(segs, {"input_redirection": "allow"})
         assert "/tmp/in.txt" in result["reason"]
 
     def test_deny_reason_names_the_target(self) -> None:
         """The deny reason names the redirection target."""
         segs = [segment(redir("<", "/tmp/in.txt"), command="cat")]
-        result = _check_segments_input_redirs(segs, {"input_redirection": "deny"})
+        result = check_input_redirections(segs, {"input_redirection": "deny"})
         assert "/tmp/in.txt" in result["reason"]
 
     def test_ask_reason_asks_for_approval(self) -> None:
         """The ask reason says the redirection requires approval."""
         segs = [segment(redir("<", "/tmp/in.txt"), command="cat")]
-        result = _check_segments_input_redirs(segs, {"input_redirection": "ask"})
+        result = check_input_redirections(segs, {"input_redirection": "ask"})
         assert "approval" in result["reason"]
 
     def test_default_policy_is_ask(self) -> None:
         """A rules dict with no ``input_redirection`` key defaults to ask."""
         segs = [segment(redir("<", "/tmp/in.txt"), command="cat")]
-        assert _check_segments_input_redirs(segs, {})["status"] == "ask"
+        assert check_input_redirections(segs, {})["status"] == "ask"
 
     def test_empty_rules_default_to_ask(self) -> None:
         """An empty rules dict is treated as an ask policy."""
         segs = [segment(redir("<", "/tmp/in.txt"), command="cat")]
-        assert _check_segments_input_redirs(segs, {})["status"] == "ask"
+        assert check_input_redirections(segs, {})["status"] == "ask"
 
     def test_dict_form_wildcard(self) -> None:
         """The dict policy form resolves through the ``*`` key."""
         segs = [segment(redir("<", "/tmp/in.txt"), command="cat")]
         rules: dict[str, Any] = {"input_redirection": {"*": "deny"}}
-        assert _check_segments_input_redirs(segs, rules)["status"] == "deny"
+        assert check_input_redirections(segs, rules)["status"] == "deny"
 
     def test_dict_form_named_kinds_do_not_apply(self) -> None:
         """Input redirection resolves on ``*`` only; other kind keys are inert."""
         segs = [segment(redir("<", "/tmp/in.txt"), command="cat")]
         rules = {"input_redirection": {"*": "ask", "stderr_to_dev_null": "deny"}}
-        assert _check_segments_input_redirs(segs, rules)["status"] == "ask"
+        assert check_input_redirections(segs, rules)["status"] == "ask"
 
     def test_dict_form_defaults_to_ask(self) -> None:
         """A dict policy with no ``*`` key falls back to ask."""
         segs = [segment(redir("<", "/tmp/in.txt"), command="cat")]
         rules = {"input_redirection": {"stdout_to_dev_null": "allow"}}
-        assert _check_segments_input_redirs(segs, rules)["status"] == "ask"
+        assert check_input_redirections(segs, rules)["status"] == "ask"
 
     @pytest.mark.parametrize(
         ("command", "expected_target"),
@@ -485,7 +485,7 @@ class TestSegmentsInputRedirs:
     def test_all_input_ops_are_evaluated(self, command: str, expected_target: str) -> None:
         """`<`, `<<`, `<<<` and `<&` are all input redirections."""
         rules = {"input_redirection": "deny"}
-        result = _check_segments_input_redirs(parse_segments(command), rules)
+        result = check_input_redirections(parse_segments(command), rules)
         assert result["status"] == "deny"
         assert expected_target in result["reason"]
 
@@ -498,7 +498,7 @@ class TestSegmentsInputRedirs:
         """
         segs = parse_segments("cat <<- EOF\n\thello\nEOF")
         assert segs[0]["redirections"][0]["Op"] == "<<-"
-        result = _check_segments_input_redirs(segs, {"input_redirection": "deny"})
+        result = check_input_redirections(segs, {"input_redirection": "deny"})
         assert result["status"] == "deny"
 
     def test_every_emitted_redirection_op_is_classified(self) -> None:
@@ -515,8 +515,8 @@ class TestSegmentsInputRedirs:
         """The two segment checks answer independently for the same segments."""
         segs = [segment(redir("<", "/tmp/in.txt"), redir(">", "/tmp/out.txt"), command="cat")]
         rules: dict[str, Any] = {"input_redirection": "allow", "output_redirection": "deny"}
-        assert _check_segments_input_redirs(segs, rules)["status"] == "allow"
-        assert _check_segments_output_redirs(segs, rules)["status"] == "deny"
+        assert check_input_redirections(segs, rules)["status"] == "allow"
+        assert check_output_redirections(segs, rules)["status"] == "deny"
 
 
 class TestSegmentsInputRedirsBlockedPaths:
@@ -527,7 +527,7 @@ class TestSegmentsInputRedirsBlockedPaths:
         """SECURITY: a blocked target denies even when the level is allow."""
         segs = [segment(redir("<", "/etc/shadow"), command="cat")]
         rules: dict[str, Any] = {"input_redirection": policy, "blocked_cmds_regex": [r"\/etc"]}
-        result = _check_segments_input_redirs(segs, rules)
+        result = check_input_redirections(segs, rules)
         assert result["status"] == "deny"
         assert "/etc/shadow" in result["reason"]
 
@@ -535,17 +535,17 @@ class TestSegmentsInputRedirsBlockedPaths:
         """SECURITY: a wildcard allow does not override a blocked target."""
         segs = [segment(redir("<<<", "/etc/shadow"), command="cat")]
         rules = {"input_redirection": {"*": "allow"}, "blocked_cmds_regex": [r"\/etc"]}
-        assert _check_segments_input_redirs(segs, rules)["status"] == "deny"
+        assert check_input_redirections(segs, rules)["status"] == "deny"
 
     def test_unblocked_target_is_not_escalated(self) -> None:
         """A non-matching target still follows its level."""
         segs = [segment(redir("<", "/tmp/in.txt"), command="cat")]
         rules = {"input_redirection": "allow", "blocked_cmds_regex": [r"\/etc"]}
-        assert _check_segments_input_redirs(segs, rules)["status"] == "allow"
+        assert check_input_redirections(segs, rules)["status"] == "allow"
 
     def test_quote_split_blocked_target_denies(self) -> None:
         """The executed-form target is matched, not just the literal spelling."""
-        result = _check_segments_input_redirs(
+        result = check_input_redirections(
             parse_segments('cat <<< /e"tc"/shadow'),
             {"input_redirection": "allow", "blocked_cmds_regex": [r"\/etc"]},
         )
@@ -555,13 +555,13 @@ class TestSegmentsInputRedirsBlockedPaths:
         """One blocked target anywhere in the set denies the whole command."""
         segs = [segment(redir("<", "/tmp/in.txt"), command="cat"), segment(redir("<<<", "/etc/shadow"))]
         rules = {"input_redirection": "allow", "blocked_cmds_regex": [r"\/etc"]}
-        assert _check_segments_input_redirs(segs, rules)["status"] == "deny"
+        assert check_input_redirections(segs, rules)["status"] == "deny"
 
     def test_invalid_blocked_pattern_is_skipped_not_raised(self) -> None:
         """A malformed blocked regex is "no match" rather than a ValueError."""
         segs = [segment(redir("<", "/tmp/in.txt"), command="cat")]
         rules = {"input_redirection": "allow", "blocked_cmds_regex": ["[invalid"]}
-        assert _check_segments_input_redirs(segs, rules)["status"] == "allow"
+        assert check_input_redirections(segs, rules)["status"] == "allow"
 
 
 class TestSegmentsInputRedirsDedupe:
@@ -571,7 +571,7 @@ class TestSegmentsInputRedirsDedupe:
         """The same (op, target) on three segments is one redirection."""
         target = "/tmp/dedupe-input"
         segs = [segment(redir("<", target), command="cat") for _ in range(3)]
-        result = _check_segments_input_redirs(segs, {"input_redirection": "allow"})
+        result = check_input_redirections(segs, {"input_redirection": "allow"})
         assert result["status"] == "allow"
         assert result["reason"].count(target) == 1
 
@@ -580,20 +580,20 @@ class TestSegmentsInputRedirsDedupe:
         target = "/tmp/brace-input"
         segs = parse_segments("{ cat a; cat b; } < " + target)
         assert len(segs) == 2
-        result = _check_segments_input_redirs(segs, {"input_redirection": "allow"})
+        result = check_input_redirections(segs, {"input_redirection": "allow"})
         assert result["reason"].count(target) == 1
 
     def test_distinct_targets_are_kept_separate(self) -> None:
         """Different targets are both reported."""
         segs = [segment(redir("<", "/tmp/a"), command="cat"), segment(redir("<", "/tmp/b"), command="cat")]
-        result = _check_segments_input_redirs(segs, {"input_redirection": "allow"})
+        result = check_input_redirections(segs, {"input_redirection": "allow"})
         assert "/tmp/a" in result["reason"]
         assert "/tmp/b" in result["reason"]
 
     def test_same_target_distinct_ops_are_kept_separate(self) -> None:
         """The dedupe key includes the op, so `<` and `<<<` stay separate."""
         segs = [segment(redir("<", "/tmp/o"), command="cat"), segment(redir("<<<", "/tmp/o"), command="echo")]
-        result = _check_segments_input_redirs(segs, {"input_redirection": "allow"})
+        result = check_input_redirections(segs, {"input_redirection": "allow"})
         assert result["reason"].count("/tmp/o") == 2
 
 

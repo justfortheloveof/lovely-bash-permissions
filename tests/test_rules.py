@@ -15,7 +15,7 @@ from lovely_bash_permissions.rules import (
     _redir_target,
     check_background_execution,
 )
-from lovely_bash_permissions.segments import SegmentRedirection, _segments_from_ast, parse_segments
+from lovely_bash_permissions.segments import SegmentRedirection, parse_segments, segments_from_ast
 
 # Tests for _match_blocked_patterns (joined-line semantics)
 
@@ -439,4 +439,4 @@ def test_segments_from_ast_matches_parse_segments() -> None:
         raw = parse(command)
         ast = node_from_json(raw)
         assert ast is not None
-        assert _segments_from_ast(ast) == parse_segments(command)
+        assert segments_from_ast(ast) == parse_segments(command)
