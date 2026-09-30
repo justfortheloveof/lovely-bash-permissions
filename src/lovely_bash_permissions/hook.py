@@ -9,11 +9,13 @@ import shlex
 from typing import Any
 
 from . import decide
-from .config.effective_bash import get_effective_bash_config
 from .config.manager import PermissionsManager
 from .policy import wildcard_level
 
 HOOK_LABEL_PREFIX = "[♡ perms: "
+
+#: The Devin tools whose ``command`` this hook decides on. Every other tool is skipped.
+EXEC_TOOLS = frozenset({"exec", "write_to_process"})
 
 #: (emoji, status label) per decision action - single source for both the
 #: label prefix and the trailing marker after the label.
@@ -93,46 +95,30 @@ def generate_hook_response(event: dict[str, Any], decision: dict[str, Any]) -> d
     tool_input = event.get("tool_input", {})
     command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
 
-    if action == "skip":
+    # "skip", and anything outside the three actions - notably a `deny` that
+    # skipped the translation to `block` - produces no response at all.
+    if action not in HOOK_STATUS or tool_name not in EXEC_TOOLS or not command:
         return None
 
     if event_name == "PreToolUse":
-        if tool_name not in ("exec", "write_to_process") or not command:
-            return None
+        pre_tool_use = {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "updatedInput": {"command": _hook_command(action, reason, command)},
+            }
+        }
         if action == "allow":
-            return {
-                "decision": "approve",
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "updatedInput": {"command": _hook_command(action, reason, command)},
-                },
-            }
-        elif action == "block":
-            return {
-                "decision": "block",
-                "reason": _hook_label(action, reason),
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "updatedInput": {"command": _hook_command(action, reason, command)},
-                },
-            }
-        elif action == "ask":
-            return {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "updatedInput": {"command": _hook_command(action, reason, command)},
-                }
-            }
+            return {"decision": "approve", **pre_tool_use}
+        if action == "block":
+            return {"decision": "block", "reason": _hook_label(action, reason), **pre_tool_use}
+        if action == "ask":
+            return pre_tool_use
 
     if event_name == "PermissionRequest":
-        if tool_name not in ("exec", "write_to_process") or not command:
-            return None
         if action == "allow":
             return {"decision": "approve"}
-        elif action == "block":
+        if action == "block":
             return {"decision": "block", "reason": _hook_label(action, reason)}
-        elif action == "ask":
-            return None
 
     return None
 
@@ -173,18 +159,18 @@ def process_hook_event(event: dict[str, Any]) -> dict[str, Any]:
 
     command = tool_input.get("command", "")
 
-    if tool_name not in ("exec", "write_to_process") or not command:
+    if tool_name not in EXEC_TOOLS or not command:
         return {"action": "skip"}
 
     project_dir = event.get("project_dir", ".")
 
-    manager: PermissionsManager | None = None
     try:
         manager = PermissionsManager(project_dir)
         raw_config = manager.get_lovely_config()
-    except (FileNotFoundError, OSError):
-        reason = (manager and manager.get_error()) or "permissions config load failed"
-        return {"action": "ask", "reason": f"config error (fallback to ask): {reason}"}
+    except OSError:
+        # Only the constructor can raise this (`get_lovely_config` raises
+        # ValueError), so there is no manager to ask for a better reason.
+        return {"action": "ask", "reason": "config error (fallback to ask): permissions config load failed"}
     except ValueError as exc:
         # Config exists but is invalid.  Return a block rather than letting
         # the exception escape: an exit 1 is logged by Devin and the command
@@ -193,14 +179,15 @@ def process_hook_event(event: dict[str, Any]) -> dict[str, Any]:
         return {"action": "block", "reason": f"invalid permissions config (blocked): {exc}"}
 
     try:
-        config = get_effective_bash_config(raw_config.get("bash"), project_dir, wildcard_level(raw_config))
-    except (ValueError, FileNotFoundError, OSError) as exc:
+        config = manager.get_effective_bash_config()
+    except (ValueError, OSError) as exc:
         # Effective config (lovely + Devin exec rules) could not be computed -
         # e.g. a malformed Devin Exec(...) allow rule. Fail closed instead of
         # asking, since a broken Devin config would also break the hook's own
         # label auto-approval.
-        reason = manager.get_error() or f"effective bash config load failed: {exc}"
-        return {"action": "block", "reason": f"config error (blocked): {reason}"}
+        # The lovely config already validated above, so the error is always
+        # the effective-config one.
+        return {"action": "block", "reason": f"config error (blocked): effective bash config load failed: {exc}"}
 
     # `config` is already resolved, so `decide_bash_command` re-resolving it is
     # idempotent: every key carries its level and the wildcards agree.

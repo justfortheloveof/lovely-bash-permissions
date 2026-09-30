@@ -59,13 +59,9 @@ def resolve_bash_config(raw_bash: object, top_level_wildcard: str = "ask") -> di
 
     bash: dict[str, Any] = raw_bash  # type: ignore[assignment]
 
-    allowed_patterns: list[str] = []
-    for p in bash.get("allowed_cmds_regex", []):
-        allowed_patterns.append(p)  # noqa: PERF402 - patterns used as-is
-
-    blocked_patterns: list[str] = []
-    for p in bash.get("blocked_cmds_regex", []):
-        blocked_patterns.append(p)  # noqa: PERF402 - patterns used as-is
+    # Copied, never mutated: patterns are used exactly as written.
+    allowed_patterns: list[str] = list(bash.get("allowed_cmds_regex", []))
+    blocked_patterns: list[str] = list(bash.get("blocked_cmds_regex", []))
 
     resolved_star = bash.get("*") or top_level_wildcard or "ask"
 
@@ -88,6 +84,12 @@ def resolve_bash_config(raw_bash: object, top_level_wildcard: str = "ask") -> di
     }
 
 
+def with_devin_exec_rules(config: dict[str, Any], devin_regexes: list[str]) -> dict[str, Any]:
+    """Append Devin's ``Exec()`` allow rules to a resolved config, de-duplicated in place."""
+    config["allowed_cmds_regex"] = list(dict.fromkeys([*config["allowed_cmds_regex"], *devin_regexes]))
+    return config
+
+
 def get_effective_bash_config(raw_bash: object, project_dir: str, top_level_wildcard: str = "ask") -> dict[str, Any]:
     """Combine raw lovely config with devin permissions.
 
@@ -105,6 +107,4 @@ def get_effective_bash_config(raw_bash: object, project_dir: str, top_level_wild
     # fail in the same place it always did, before any of this host's own
     # resolution has run.
     devin_regexes = load_devin_exec_regexes(project_dir)
-    config = resolve_bash_config(raw_bash, top_level_wildcard)
-    config["allowed_cmds_regex"] = list(dict.fromkeys([*config["allowed_cmds_regex"], *devin_regexes]))
-    return config
+    return with_devin_exec_rules(resolve_bash_config(raw_bash, top_level_wildcard), devin_regexes)

@@ -2,7 +2,9 @@
 
 from typing import Any
 
+from ..policy import wildcard_level
 from .devin import load_devin_exec_regexes
+from .effective_bash import resolve_bash_config, with_devin_exec_rules
 from .loader import load_permissions_config
 
 
@@ -28,15 +30,11 @@ class PermissionsManager:
         self._warnings = []  # reset warnings on each reload
         self._validation_errors = []  # reset validation errors on each reload
 
-        try:
-            self._lovely_config, warn_list, error_list = load_permissions_config(self._project_dir)
-            self._warnings.extend(warn_list)
-            self._validation_errors = error_list
-        except FileNotFoundError as exc:
-            # Config file missing - fall back to ask mode (safe default)
-            self._warnings.append(str(exc))
-            self._lovely_config = {}
-            self._validation_errors = [str(exc)]
+        # A missing file is not an exception: the loader reports it as a
+        # warning and returns the safe empty config.
+        self._lovely_config, warn_list, error_list = load_permissions_config(self._project_dir)
+        self._warnings.extend(warn_list)
+        self._validation_errors = error_list
 
         # Load Devin exec regexes
         try:
@@ -55,7 +53,7 @@ class PermissionsManager:
     @property
     def has_validation_errors(self) -> bool:
         """Return True if there are validation errors."""
-        return bool(self._validation_errors)
+        return not self.is_valid()
 
     def get_lovely_config(self) -> dict[str, Any]:
         """Return the merged lovely-permissions config.
@@ -74,6 +72,20 @@ class PermissionsManager:
         if self._devin_error:
             raise ValueError(self._devin_error)
         return self._devin_regexes
+
+    def get_effective_bash_config(self) -> dict[str, Any]:
+        """The lovely ``bash`` block, resolved, with Devin's ``Exec()`` rules appended.
+
+        Uses the Devin rules this manager already loaded, so a hook event reads
+        each config file once. The Devin rules are checked first, so a malformed
+        ``Exec()`` entry fails before any resolution runs - the order
+        :func:`~.effective_bash.get_effective_bash_config` has always had.
+
+        Raises ValueError if either config failed to load.
+        """
+        devin_regexes = self.get_devin_exec_regexes()
+        lovely = self.get_lovely_config()
+        return with_devin_exec_rules(resolve_bash_config(lovely.get("bash"), wildcard_level(lovely)), devin_regexes)
 
     def reload(self) -> None:
         """Reload config from disk."""

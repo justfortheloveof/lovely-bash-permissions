@@ -257,14 +257,13 @@ def test_effective_bash_config_failure_blocks() -> None:
 
     with (
         patch("lovely_bash_permissions.hook.PermissionsManager") as MockMgr,
-        patch("lovely_bash_permissions.hook.get_effective_bash_config") as mock_eff,
     ):
         # Mock manager construction to succeed with a valid config
         instance = MockMgr.return_value
         instance.get_lovely_config.return_value = {"bash": {"allowed_cmds_regex": []}}
 
         # But effective_bash config loading fails
-        mock_eff.side_effect = ValueError("invalid bash config")
+        instance.get_effective_bash_config.side_effect = ValueError("invalid bash config")
 
         result = process_hook_event(event)
 
@@ -341,10 +340,10 @@ def test_error_policy_defaults_to_wildcard_ask() -> None:
 
     with (
         patch("lovely_bash_permissions.hook.PermissionsManager") as MockMgr,
-        patch("lovely_bash_permissions.hook.get_effective_bash_config", return_value=_effective_config()),
     ):
         instance = MockMgr.return_value
         instance.get_lovely_config.return_value = {"bash": {}}
+        instance.get_effective_bash_config.return_value = _effective_config()
         result = process_hook_event(event)
 
     assert result["action"] == "ask"
@@ -357,10 +356,10 @@ def test_error_policy_deny_blocks_unparseable() -> None:
 
     with (
         patch("lovely_bash_permissions.hook.PermissionsManager") as MockMgr,
-        patch("lovely_bash_permissions.hook.get_effective_bash_config", return_value=_effective_config(error="deny")),
     ):
         instance = MockMgr.return_value
         instance.get_lovely_config.return_value = {"bash": {}}
+        instance.get_effective_bash_config.return_value = _effective_config(error="deny")
         result = process_hook_event(event)
 
     assert result["action"] == "block"
@@ -373,13 +372,10 @@ def test_error_policy_allow_overrides_deny_wildcard() -> None:
 
     with (
         patch("lovely_bash_permissions.hook.PermissionsManager") as MockMgr,
-        patch(
-            "lovely_bash_permissions.hook.get_effective_bash_config",
-            return_value=_effective_config(error="allow", wildcard="deny"),
-        ),
     ):
         instance = MockMgr.return_value
         instance.get_lovely_config.return_value = {"bash": {}}
+        instance.get_effective_bash_config.return_value = _effective_config(error="allow", wildcard="deny")
         result = process_hook_event(event)
 
     assert result["action"] == "allow"
@@ -396,11 +392,11 @@ def test_unexpected_exception_routed_through_error_policy() -> None:
 
     with (
         patch("lovely_bash_permissions.hook.PermissionsManager") as MockMgr,
-        patch("lovely_bash_permissions.hook.get_effective_bash_config", return_value=_effective_config(error="deny")),
         patch("lovely_bash_permissions.decide.evaluate_bash_command", side_effect=RuntimeError("internal bug")),
     ):
         instance = MockMgr.return_value
         instance.get_lovely_config.return_value = {"bash": {}}
+        instance.get_effective_bash_config.return_value = _effective_config(error="deny")
         result = process_hook_event(event)
 
     assert result["action"] == "block"
@@ -426,9 +422,9 @@ def _round_trip(command: str) -> tuple[str, str]:
     )
     with (
         patch("lovely_bash_permissions.hook.PermissionsManager") as MockMgr,
-        patch("lovely_bash_permissions.hook.get_effective_bash_config", return_value=config),
     ):
         MockMgr.return_value.get_lovely_config.return_value = {"bash": {}}
+        MockMgr.return_value.get_effective_bash_config.return_value = config
         decision = process_hook_event(event)
     response = generate_hook_response(event, decision)
     assert response is not None

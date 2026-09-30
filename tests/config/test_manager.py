@@ -172,6 +172,29 @@ class TestPermissionsManagerGetMethods:
         regexes = manager.get_devin_exec_regexes()
         assert isinstance(regexes, list)
 
+    def test_effective_bash_config_matches_the_module_function(self, mock_project: Path) -> None:
+        """The manager's effective config is the one the module function computes from disk."""
+        from lovely_bash_permissions.config.effective_bash import get_effective_bash_config
+
+        (mock_project / ".devin" / "lovely-permissions.jsonc").write_text(
+            json.dumps({"*": "deny", "bash": {"allowed_cmds_regex": ["^ls"]}})
+        )
+        (mock_project / ".devin" / "config.json").write_text(json.dumps({"permissions": {"allow": ["Exec(git)"]}}))
+
+        manager = PermissionsManager(str(mock_project))
+
+        expected = get_effective_bash_config({"allowed_cmds_regex": ["^ls"]}, str(mock_project), "deny")
+        assert manager.get_effective_bash_config() == expected
+        assert expected["allowed_cmds_regex"] == ["^ls", "^git(\\s|$)"]
+
+    def test_effective_bash_config_raises_on_malformed_exec(self, mock_project: Path) -> None:
+        """A malformed Devin Exec() rule raises, exactly as the module function does."""
+        (mock_project / ".devin" / "lovely-permissions.jsonc").write_text(json.dumps({"bash": {"*": "ask"}}))
+        (mock_project / ".devin" / "config.json").write_text(json.dumps({"permissions": {"allow": ["Exec()"]}}))
+
+        with pytest.raises(ValueError, match="Invalid Exec"):
+            PermissionsManager(str(mock_project)).get_effective_bash_config()
+
     def test_is_valid_and_get_error(self, mock_project: Path) -> None:
         """is_valid() and get_error() should be consistent."""
 

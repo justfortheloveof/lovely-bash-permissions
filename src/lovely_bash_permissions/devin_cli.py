@@ -17,12 +17,10 @@ from .config.devin import (
     get_devin_config_file_paths,
     get_devin_global_config_dir,
 )
-from .config.effective_bash import get_effective_bash_config
 from .config.jsonc import read_jsonc_file
 from .config.loader import get_permissions_config_file_paths
 from .config.manager import PermissionsManager
-from .hook import HOOK_LABEL_PREFIX, generate_hook_response, process_hook_event
-from .policy import wildcard_level
+from .hook import EXEC_TOOLS, HOOK_LABEL_PREFIX, generate_hook_response, process_hook_event
 
 #: The Devin ``permissions.allow`` entry that lets the hook's own ``:`` no-op
 #: label run without prompting again. Deliberately just ``Exec(:)`` rather than a
@@ -41,6 +39,12 @@ def with_error_prefix(message: str) -> str:
     every label :func:`hook._hook_label` produces.
     """
     return f"{HOOK_LABEL_PREFIX}ERROR] {message}"
+
+
+def fail(message: str) -> NoReturn:
+    """Print a fatal error on stderr, in the hook's label shape, and exit 1."""
+    print(with_error_prefix(message), file=sys.stderr)
+    sys.exit(1)
 
 
 def emit_block(reason: str) -> NoReturn:
@@ -69,50 +73,29 @@ def handle_setup() -> None:
         else:
             result = read_jsonc_file(str(config_path))
             if result.error is not None:
-                print(
-                    with_error_prefix(
-                        f"config {config_path} is not valid JSON/JSONC ({result.error}) - "
-                        "aborting to avoid overwriting it"
-                    ),
-                    file=sys.stderr,
+                fail(
+                    f"config {config_path} is not valid JSON/JSONC ({result.error}) - aborting to avoid overwriting it"
                 )
-                sys.exit(1)
             if not isinstance(result.value, dict):
-                print(
-                    with_error_prefix(
-                        f"config {config_path} must be a JSON object, got {type(result.value).__name__} - "
-                        "aborting to avoid overwriting it"
-                    ),
-                    file=sys.stderr,
+                fail(
+                    f"config {config_path} must be a JSON object, got {type(result.value).__name__} - "
+                    "aborting to avoid overwriting it"
                 )
-                sys.exit(1)
             config = result.value
     else:
         config = {}
 
     # Refuse to clobber unexpected shapes
     if "permissions" in config and not isinstance(config["permissions"], dict):
-        print(
-            with_error_prefix(
-                f"config {config_path} has a non-object 'permissions' field - aborting to avoid overwriting it"
-            ),
-            file=sys.stderr,
-        )
-        sys.exit(1)
+        fail(f"config {config_path} has a non-object 'permissions' field - aborting to avoid overwriting it")
     permissions = config.setdefault("permissions", {})
     if "allow" in permissions and not isinstance(permissions["allow"], list):
-        print(
-            with_error_prefix(
-                f"config {config_path} has a non-list 'permissions.allow' field - aborting to avoid overwriting it"
-            ),
-            file=sys.stderr,
-        )
-        sys.exit(1)
+        fail(f"config {config_path} has a non-list 'permissions.allow' field - aborting to avoid overwriting it")
     allow = permissions.setdefault("allow", [])
 
     # Check if already present
     if LABEL_EXEC_NAME in allow:
-        print(f'The Devin permission "{LABEL_EXEC_NAME}" is' + f" already present in {config_path}")
+        print(f'The Devin permission "{LABEL_EXEC_NAME}" is already present in {config_path}')
         sys.exit(0)
 
     # Append and write
@@ -121,11 +104,10 @@ def handle_setup() -> None:
         with open(config_path, "w") as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
             f.write("\n")
-        print(f'Added "{LABEL_EXEC_NAME}" to {config_path} so Devin' + ' auto-approves the hook\'s ":" no-op label')
+        print(f'Added "{LABEL_EXEC_NAME}" to {config_path} so Devin auto-approves the hook\'s ":" no-op label')
         sys.exit(0)
     except OSError as e:
-        print(with_error_prefix(f"Failed to write config: {e}"), file=sys.stderr)
-        sys.exit(1)
+        fail(f"Failed to write config: {e}")
 
 
 def handle_test(command: str) -> None:
@@ -152,26 +134,19 @@ def handle_test(command: str) -> None:
 def handle_show_config() -> None:
     """Print effective config and file paths."""
     project_dir = get_project_dir()
-    files = []
-    for path in get_permissions_config_file_paths(project_dir):
-        files.append({"path": path, "exists": os.path.exists(path)})
-    for path in get_devin_config_file_paths(project_dir):
-        files.append({"path": path, "exists": os.path.exists(path)})
+    files = [
+        {"path": path, "exists": os.path.exists(path)}
+        for path in (*get_permissions_config_file_paths(project_dir), *get_devin_config_file_paths(project_dir))
+    ]
 
     manager = PermissionsManager(project_dir)
     if not manager.is_valid():
-        print(
-            with_error_prefix(f"Invalid permissions config: {manager.get_error()}"),
-            file=sys.stderr,
-        )
-        sys.exit(1)
+        fail(f"Invalid permissions config: {manager.get_error()}")
 
-    raw_bash = manager.get_lovely_config()
     try:
-        bash = get_effective_bash_config(raw_bash.get("bash"), project_dir, wildcard_level(raw_bash))
-    except (ValueError, FileNotFoundError, OSError):
-        print(with_error_prefix("effective bash config load failed"), file=sys.stderr)
-        sys.exit(1)
+        bash = manager.get_effective_bash_config()
+    except (ValueError, OSError):
+        fail("effective bash config load failed")
 
     result = {"files": files, "effectiveConfig": bash}
     print(json.dumps(result, indent=2, ensure_ascii=False))
@@ -183,8 +158,7 @@ def handle_hook_event(event: dict[str, Any]) -> dict[str, Any] | None:
     result = process_hook_event(event)
     if result.get("action") == "skip":
         return None
-    response = generate_hook_response(event, result)
-    return response
+    return generate_hook_response(event, result)
 
 
 def main() -> None:
@@ -232,7 +206,7 @@ def main() -> None:
                 emit_block(with_error_prefix("invalid hook event: JSON payload is not an object"))
             tool_name = event.get("tool_name", "")
             tool_input = event.get("tool_input", {})
-            if tool_name not in ("exec", "write_to_process"):
+            if tool_name not in EXEC_TOOLS:
                 sys.exit(0)
             if not isinstance(tool_input, dict):
                 emit_block(with_error_prefix(f"invalid hook event: {tool_name} tool_input is not an object"))
