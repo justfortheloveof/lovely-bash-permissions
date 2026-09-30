@@ -66,6 +66,7 @@ from . import decide
 from .config.jsonc import parse_jsonc, read_jsonc_file
 from .config.schema import VALID_BASH_CONFIG_KEYS, ToolConfig
 from .parser import find_shfmt
+from .policy import WILDCARD_KEY
 
 #: Bumped only for a breaking wire change. The client asserts it during the
 #: handshake and reports a mismatch at `session_start` - never per command.
@@ -86,14 +87,33 @@ EXIT_DENY = 2
 #: process's, so this side supplies only what failed and the one command that
 #: fixes it.
 
-#: The wire key that carries a block's default level. Read here, written by the
-#: schema as an alias; never as the field name.
-WILDCARD_KEY = "*"
-
-
 # ---------------------------------------------------------------------------
 # Response helpers
 # ---------------------------------------------------------------------------
+
+
+def _response(**fields: Any) -> dict[str, Any]:  # noqa: ANN401 - any JSON value
+    """A response object: ``protocol`` first, then *fields*, in order."""
+    return {"protocol": PROTOCOL_VERSION, **fields}
+
+
+def _error(message: str) -> dict[str, Any]:
+    """A response for a request this process could not answer."""
+    return _response(valid=False, error=message)
+
+
+def _deny(reason: str) -> dict[str, Any]:
+    """An ``evaluate`` response that denies, with one reason."""
+    return _response(action="deny", reason=reason, reasons=[reason])
+
+
+def _level_or_ask(value: object) -> str:
+    """*value* when it is a non-empty string, else ``"ask"``.
+
+    Used for the wildcards this side reads before any validation. Only the
+    type is checked here: the value itself is validated where it is used.
+    """
+    return value if isinstance(value, str) and value else "ask"
 
 
 def _fail(message: str) -> NoReturn:
@@ -166,7 +186,7 @@ def op_validate(config: object) -> dict[str, Any]:
     try:
         ToolConfig.model_validate(config)
     except ValueError as exc:
-        return {"protocol": PROTOCOL_VERSION, "valid": False, "error": _pydantic_message(exc)}
+        return _error(_pydantic_message(exc))
 
     # The binary is probed here, not lazily, and that is the whole reason this
     # op exists separately. A missing shfmt is not a crash: this process starts
@@ -182,17 +202,13 @@ def op_validate(config: object) -> dict[str, Any]:
     try:
         find_shfmt()
     except (OSError, ValueError) as exc:
-        return {
-            "protocol": PROTOCOL_VERSION,
-            "valid": False,
-            "error": (
-                "the shfmt binary required to parse bash commands was not found. "
-                "It is provided by the shfmt-py package that lovely-pi-bash-permissions "
-                "depends on. Reinstall that package, or point the extension's binary path "
-                f"at a working install. ({exc})"
-            ),
-        }
-    return {"protocol": PROTOCOL_VERSION, "valid": True}
+        return _error(
+            "the shfmt binary required to parse bash commands was not found. "
+            "It is provided by the shfmt-py package that lovely-pi-bash-permissions "
+            "depends on. Reinstall that package, or point the extension's binary path "
+            f"at a working install. ({exc})"
+        )
+    return _response(valid=True)
 
 
 def op_evaluate(command: object, config: object, top_level: object) -> dict[str, Any]:
@@ -205,29 +221,13 @@ def op_evaluate(command: object, config: object, top_level: object) -> dict[str,
     try:
         validated = ToolConfig.model_validate(config)
     except ValueError as exc:
-        return {
-            "protocol": PROTOCOL_VERSION,
-            "action": "deny",
-            "reason": f"invalid bash config: {_pydantic_message(exc)}",
-            "reasons": [f"invalid bash config: {_pydantic_message(exc)}"],
-        }
+        return _deny(f"invalid bash config: {_pydantic_message(exc)}")
 
     if not isinstance(command, str):
-        return {
-            "protocol": PROTOCOL_VERSION,
-            "action": "deny",
-            "reason": "evaluate: 'command' must be a string",
-            "reasons": ["evaluate: 'command' must be a string"],
-        }
+        return _deny("evaluate: 'command' must be a string")
 
-    level = top_level if isinstance(top_level, str) and top_level else "ask"
-    decision = decide.decide_bash_command(command, _config_as_dict(validated), level)
-    return {
-        "protocol": PROTOCOL_VERSION,
-        "action": decision["action"],
-        "reason": decision["reason"],
-        "reasons": decision["reasons"],
-    }
+    decision = decide.decide_bash_command(command, _config_as_dict(validated), _level_or_ask(top_level))
+    return _response(action=decision["action"], reason=decision["reason"], reasons=decision["reasons"])
 
 
 def handle_request(request: dict[str, Any]) -> dict[str, Any]:
@@ -245,11 +245,7 @@ def handle_request(request: dict[str, Any]) -> dict[str, Any]:
         return op_evaluate(request.get("command"), request.get("config"), request.get("top_level"))
     if op == "validate":
         return op_validate(request.get("config"))
-    return {
-        "protocol": PROTOCOL_VERSION,
-        "valid": False,
-        "error": f"unknown op {op!r}; expected 'evaluate' or 'validate'",
-    }
+    return _error(f"unknown op {op!r}; expected 'evaluate' or 'validate'")
 
 
 # ---------------------------------------------------------------------------
@@ -274,50 +270,7 @@ def run_once(source: Any = None, sink: Any = None) -> int:  # noqa: ANN401 - any
     inp = source if source is not None else sys.stdin
     out = sink if sink is not None else sys.stdout
 
-    raw = inp.read()
-    exit_code = EXIT_VERDICT
-    if not raw.strip():
-        # A hook with no input is normal and exits quietly; this is not a hook.
-        # An empty request means the caller failed to write one, so say so
-        # rather than answering "ask" for a command nobody sent.
-        response: dict[str, Any] = {
-            "protocol": PROTOCOL_VERSION,
-            "valid": False,
-            "error": (
-                "no request on stdin: this process reads exactly one JSON request and answers it with one JSON response"
-            ),
-        }
-        exit_code = EXIT_USAGE
-    else:
-        try:
-            request = json.loads(raw)
-        except ValueError as exc:
-            response = {
-                "protocol": PROTOCOL_VERSION,
-                "valid": False,
-                "error": f"malformed request: {exc}",
-            }
-            exit_code = EXIT_USAGE
-        else:
-            if not isinstance(request, dict):
-                response = {
-                    "protocol": PROTOCOL_VERSION,
-                    "valid": False,
-                    "error": "malformed request: expected a JSON object",
-                }
-                exit_code = EXIT_USAGE
-            else:
-                try:
-                    response = handle_request(request)
-                except Exception as exc:  # noqa: BLE001 - no response at all is worse than an error response
-                    print(f"lovely-pi-bash-permissions: {type(exc).__name__}: {exc}", file=sys.stderr)
-                    response = {
-                        "protocol": PROTOCOL_VERSION,
-                        "valid": False,
-                        "error": f"internal error: {type(exc).__name__}: {exc}",
-                    }
-                    exit_code = EXIT_USAGE
-
+    response, exit_code = _answer(inp.read())
     # One small object into a pipe buffer that will not be read until this
     # returns, so there is nothing to flush for - but the read end may already
     # be gone anyway. The client kills this process on a request timeout and on
@@ -337,6 +290,28 @@ def run_once(source: Any = None, sink: Any = None) -> int:  # noqa: ANN401 - any
         _silence_interpreter_flush()
         return EXIT_VERDICT
     return exit_code
+
+
+def _answer(raw: str) -> tuple[dict[str, Any], int]:
+    """The response to one raw request, and the exit code that goes with it."""
+    if not raw.strip():
+        # A hook with no input is normal and exits quietly; this is not a hook.
+        # An empty request means the caller failed to write one, so say so
+        # rather than answering "ask" for a command nobody sent.
+        return _error(
+            "no request on stdin: this process reads exactly one JSON request and answers it with one JSON response"
+        ), EXIT_USAGE
+    try:
+        request = json.loads(raw)
+    except ValueError as exc:
+        return _error(f"malformed request: {exc}"), EXIT_USAGE
+    if not isinstance(request, dict):
+        return _error("malformed request: expected a JSON object"), EXIT_USAGE
+    try:
+        return handle_request(request), EXIT_VERDICT
+    except Exception as exc:  # noqa: BLE001 - no response at all is worse than an error response
+        print(f"lovely-pi-bash-permissions: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return _error(f"internal error: {type(exc).__name__}: {exc}"), EXIT_USAGE
 
 
 def _silence_interpreter_flush() -> None:
@@ -426,8 +401,7 @@ def _load_test_config(path: str | None, mode: str | None) -> tuple[dict[str, Any
             _fail(f"cannot read config from {path}: {result.error or 'not a JSON object'}")
         data = result.value
 
-    wildcard = data.get(WILDCARD_KEY)
-    top_level = wildcard if isinstance(wildcard, str) and wildcard else "ask"
+    top_level = _level_or_ask(data.get(WILDCARD_KEY))
 
     if _looks_like_mode_wrapped(data):
         modes = [key for key, value in data.items() if isinstance(value, dict)]
@@ -448,8 +422,7 @@ def _load_test_config(path: str | None, mode: str | None) -> tuple[dict[str, Any
         # against. Omitting it here would make --test disagree with what the
         # live extension does: a mode of {"*": "allow", "bash": {...}} would
         # report ask while the extension reports allow.
-        wildcard = selected.get(WILDCARD_KEY)
-        return mode_block, (wildcard if isinstance(wildcard, str) and wildcard else "ask")
+        return mode_block, _level_or_ask(selected.get(WILDCARD_KEY))
 
     if mode is not None:
         _fail(f"--mode {mode!r} was given, but {source} is a bare bash block, not a mode-wrapped file")
