@@ -262,13 +262,12 @@ Each of the following was considered, tested, and kept on purpose. Removing or
 "simplifying" any of them reintroduces a bypass, so read this before changing
 the code they point at.
 
-- **`segments._extract_segments` has explicit no-op branches for `Lit` and
-  `SglQuoted` word parts.** They emit no segment and look like dead code, but the
-  function's final `else` arm logs an "Unhandled AST node type" warning, so
-  removing them would start warning on every literal in every command. The
-  branches are where a real decision is recorded: a bare literal reached as a
-  *word part* is data — an argument, a glob, an operand under test — not a
-  command.
+- **`segments._HANDLERS` maps `Lit`, `SglQuoted` and `ExtGlob` to the no-op
+  `_nothing`.** The entries emit no segment and look like dead code, but a type
+  missing from the table logs an "Unhandled AST node type" warning, so removing
+  them would start warning on every literal in every command. The entries are
+  where a real decision is recorded: a bare literal reached as a *word part* is
+  data — an argument, a glob, an operand under test — not a command.
 - **The substitution arm at the tail of `evaluate._empty_segment_result` looks
   unreachable, and currently is:** no command in the harness corpus both yields
   zero segments and still carries a substitution flag, because
