@@ -49,6 +49,23 @@ def wildcard_level(block: Mapping[str, Any]) -> Any:  # noqa: ANN401 - config va
     return block.get(WILDCARD_KEY, DEFAULT_LEVEL)
 
 
+def resolve_level(block: Mapping[str, Any], key: str, wildcard: object) -> Any:  # noqa: ANN401 - config values are unvalidated
+    """Resolve one policy key of *block* against *wildcard*.
+
+    An explicit level wins. A dict-form policy (``output_redirection``, or any
+    key an unvalidated config spells as a dict) keeps its per-kind levels and
+    gets its own missing or empty ``*`` from *wildcard* - its immediate
+    wildcard parent. Anything unset or empty inherits *wildcard*.
+
+    The one resolution rule: both the effective-config builder and the
+    evaluator call this, so a config resolves the same way whichever reads it.
+    """
+    value = block.get(key)
+    if isinstance(value, dict):
+        return {**value, WILDCARD_KEY: value.get(WILDCARD_KEY) or wildcard}
+    return value or wildcard
+
+
 #: Constructs the evaluator gates individually, each overridable by a config
 #: key of the same name. Order is alphabetical.
 POLICY_KEYS: Final[tuple[str, ...]] = (

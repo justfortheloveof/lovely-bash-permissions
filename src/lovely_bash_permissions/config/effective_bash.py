@@ -18,7 +18,7 @@ structurally by the evaluator so re-evaluated rewrites don't spuriously ask.
 
 from typing import Any
 
-from ..policy import NON_CONSTRUCT_KEYS, POLICY_KEYS
+from ..policy import NON_CONSTRUCT_KEYS, POLICY_KEYS, resolve_level
 from .devin import load_devin_exec_regexes
 
 
@@ -65,20 +65,13 @@ def resolve_bash_config(raw_bash: object, top_level_wildcard: str = "ask") -> di
 
     resolved_star = bash.get("*") or top_level_wildcard or "ask"
 
-    def _resolve(key: str) -> Any:  # noqa: ANN401
-        """Resolve a policy option: explicit -> dict normalized -> wildcard."""
-        value = bash.get(key)
-        if isinstance(value, dict):
-            return {**value, "*": value.get("*") or resolved_star}
-        return value or resolved_star
-
     return {
         **bash,
         "*": resolved_star,
         # Driven by the shared vocabulary, so a key the evaluator gates is
         # always resolved here and vice versa. `error` is resolved alongside
         # them but read by the decision layer, not by the evaluator.
-        **{key: _resolve(key) for key in (*POLICY_KEYS, *NON_CONSTRUCT_KEYS)},
+        **{key: resolve_level(bash, key, resolved_star) for key in (*POLICY_KEYS, *NON_CONSTRUCT_KEYS)},
         "allowed_cmds_regex": allowed_patterns,
         "blocked_cmds_regex": blocked_patterns,
     }

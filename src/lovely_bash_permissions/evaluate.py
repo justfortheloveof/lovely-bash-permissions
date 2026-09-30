@@ -18,7 +18,7 @@ from .converter import node_from_json
 from .inspect import iter_children, traverse
 from .matching import match_texts
 from .parser import parse
-from .policy import POLICY_KEYS, Level, wildcard_level
+from .policy import POLICY_KEYS, Level, resolve_level, wildcard_level
 from .rules import (
     check_background_execution,
     check_input_redirections,
@@ -132,7 +132,7 @@ def _resolve_rules(config: dict[str, Any], blocked_patterns: list[str]) -> dict[
     a construct the config accepts cannot drift apart.
     """
     return {
-        **{key: _resolve_level(config, key) for key in POLICY_KEYS},
+        **{key: resolve_level(config, key, wildcard_level(config)) for key in POLICY_KEYS},
         "blocked_cmds_regex": blocked_patterns,
     }
 
@@ -350,20 +350,6 @@ def _match_blocked_patterns(
         return False, None, None
     pattern, text = matches[0]
     return True, pattern, text
-
-
-def _resolve_level(config: dict[str, Any], key: str) -> Any:  # noqa: ANN401
-    """Resolve a policy option against the config wildcard.
-
-    An explicit value wins. Dict-form policies (``output_redirection``,
-    ``input_redirection``, ``background_execution``) get their missing ``*``
-    injected from the wildcard - the *immediate wildcard parent* for the
-    per-kind levels. Otherwise the value inherits the wildcard.
-    """
-    value = config.get(key)
-    if isinstance(value, dict):
-        return {**value, "*": value.get("*") or wildcard_level(config)}
-    return value if value is not None else wildcard_level(config)
 
 
 def _snippet(text: str) -> str:
