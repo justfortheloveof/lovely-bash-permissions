@@ -54,9 +54,9 @@ uv run lovely-bash-inspection --string 'echo hello | vim -'
 
 ## Parser
 
-### `parse_ast(command)` → `File`
+### `parse_ast(command, dialect="bash")` → `File`
 
-Parse a bash command string into a typed AST rooted at a `File` node. This is the main entry point.
+Parse a bash command string into a typed AST rooted at a `File` node. This is the main entry point. `dialect` takes the same values as `parse`.
 
 ```python
 from lovely_bash_permissions import parse_ast
