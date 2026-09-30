@@ -145,7 +145,7 @@ is the point — one vocabulary, one implementation, two hosts.
 | Key | Meaning |
 | --- | --- |
 | `*` | default level for this tool; anything below inherits it |
-| `error` | level applied when a command cannot be analysed at all (parse failure, missing shfmt) |
+| `error` | level applied when a command cannot be analysed (parse failure, shfmt timeout). A missing or unstartable shfmt always asks instead: no level applies to a broken install |
 | `allowed_cmds_regex` | allow commands matching any of these regexes |
 | `blocked_cmds_regex` | deny commands matching any of these regexes |
 | `output_redirection` | a level, or an object keyed by redirection kind |
@@ -276,11 +276,12 @@ go looking for a misconfigured policy — a bug hunt for a setup error.
 | config invalid | the mode and file it came from, then Python's message verbatim |
 
 The shfmt case is the one that matters most on POSIX, because it is the only one
-where the server is running *fine* and every command would otherwise be allowed.
-A missing binary is not a crash: the process spawns, the handshake passes, and
-every command then routes through the `error` policy — which is `allow` under
-`{"*": "allow"}`. Health checks cannot see it, because the process is healthy.
-`validate` probes for the binary explicitly for that reason.
+where the engine is running *fine* and yet cannot check anything. A missing
+shfmt is not a crash: the process spawns and answers, and every `evaluate`
+returns `ask` with a reason naming shfmt - never the `error` level, which would
+be `allow` under `{"*": "allow"}` and approve every command unchecked. Health
+checks cannot see it, because the process is healthy, so `validate` probes for
+the binary explicitly and the extension reports it once at `session_start`.
 
 ## How the client finds this process
 

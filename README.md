@@ -88,6 +88,7 @@ Supported dialects: `bash`, `posix`, `mksh`, `bats`, `zsh`. An unknown dialect r
 Both exception types live in the package root, and one inherits the other:
 
 - `ShfmtError` - raised when no trustworthy parse could be obtained: the shfmt binary is missing, shfmt timed out, the subprocess failed with an OS error, or the command is nested too deeply to convert safely.
+- `ShfmtUnavailableError` - the `ShfmtError` subclass for a shfmt that is missing or cannot be started, i.e. a broken install rather than a bad command.
 - `ParseError` - a **subclass** of `ShfmtError`, raised when the input itself is the problem (syntax error, empty command, shfmt exited non-zero, undecodable JSON). Adds `.command`, `.returncode`, and `.stderr`.
 
 `ParseError` being a subclass matters for `except`: catching `ShfmtError` catches every way the backend can fail, while catching `ParseError` narrows to "this input is not valid shell". An unknown `dialect` is not either of these - `parse` raises `ValueError` for it.

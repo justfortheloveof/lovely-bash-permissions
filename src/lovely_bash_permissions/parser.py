@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .errors import ShfmtError
+from .errors import ShfmtError, ShfmtUnavailableError
 
 #: The shell dialects shfmt parses.
 VALID_DIALECTS = frozenset({"bash", "posix", "mksh", "bats", "zsh"})
@@ -42,8 +42,9 @@ def parse(command: str, dialect: str = "bash") -> dict[str, Any]:
 
     Raises:
         ParseError: If parsing fails (syntax error, invalid JSON).
-        ShfmtError: If the shfmt binary is missing or shfmt could not be run
-            (timeout, OS error).
+        ShfmtUnavailableError: If the shfmt binary is missing or could not be
+            started (OS error).
+        ShfmtError: If shfmt timed out.
         ValueError: If *dialect* is not a recognised shell dialect.
     """
     if dialect not in VALID_DIALECTS:
@@ -52,7 +53,7 @@ def parse(command: str, dialect: str = "bash") -> dict[str, Any]:
     try:
         shfmt_path = find_shfmt()
     except FileNotFoundError as e:
-        raise ShfmtError(str(e)) from e
+        raise ShfmtUnavailableError(str(e)) from e
 
     if not command.strip():
         raise ParseError("Empty command", command=command)
@@ -73,7 +74,7 @@ def parse(command: str, dialect: str = "bash") -> dict[str, Any]:
     except subprocess.TimeoutExpired as e:
         raise ShfmtError(f"shfmt timed out while parsing command: {e}") from e
     except OSError as e:
-        raise ShfmtError(f"failed to run shfmt: {e}") from e
+        raise ShfmtUnavailableError(f"failed to run shfmt: {e}") from e
 
     if result.returncode != 0:
         raise ParseError(

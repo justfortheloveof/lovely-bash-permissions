@@ -147,7 +147,7 @@ The `bash` config key supports these keys:
 | Key                                     | Type                                   | Description                                                                                                                                         |
 | --------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `*`                                     | `"allow" \| "ask" \| "deny"`           | Bash-scope wildcard. If omitted, inherits the config-root `*`, which defaults to `"ask"`, so unknown commands prompt the user for approval            |
-| `error`                                 | `"allow" \| "ask" \| "deny"`           | Policy applied when a command cannot be analysed (unparseable/malformed bash, shfmt failure). If omitted, inherits `*`. Set to `"ask"` or `"deny"` so broken syntax is not silently auto-approved under `"*": "allow"` |
+| `error`                                 | `"allow" \| "ask" \| "deny"`           | Policy applied when a command cannot be analysed (unparseable/malformed bash, shfmt timeout). If omitted, inherits `*`. A missing or unstartable shfmt binary always asks instead, whatever this says. Set to `"ask"` or `"deny"` so broken syntax is not silently auto-approved under `"*": "allow"` |
 | `command_substitution`                  | `"allow" \| "ask" \| "deny"`           | Policy for `$(...)` / backtick command substitutions. If omitted, inherits `*`                                                                      |
 | `process_substitution`                  | `"allow" \| "ask" \| "deny"`           | Policy for `<(...)` / `>(...)` process substitutions. If omitted, inherits `*`                                                                      |
 | `subshell`                              | `"allow" \| "ask" \| "deny"`           | Policy for `( ... )` subshell groups. If omitted, inherits `*`                                                                                      |
@@ -165,7 +165,7 @@ The `bash` config key supports these keys:
 
 A misspelled redirection kind is a config error, not a silently ignored key. `{"stderr_to_devnull": "deny"}` looks like it blocks stderr discards and would have permitted every one of them; the config is now rejected, and because the hook fails closed on an invalid config the command is blocked until it is fixed. The four kinds above are the only ones `classify_output_redirection` can return, so any other key could never have been consulted in the first place.
 
->`error` covers commands the parser cannot handle (e.g. `echo "unclosed`, `(((invalid`). Because both `allowed_cmds_regex` and `blocked_cmds_regex` are skipped for such input, the `error` policy decides the outcome - defaulting to the bash `*` wildcard. Set it to `"ask"` (recommended) or `"deny"` so malformed but bash-accepted syntax is never silently auto-approved under `"*": "allow"`.
+>`error` covers commands the parser cannot handle (e.g. `echo "unclosed`, `(((invalid`). It does not cover a missing shfmt: that is a broken install rather than a command, so every command asks until shfmt is back, even under `"error": "allow"` or `"error": "deny"`. Because both `allowed_cmds_regex` and `blocked_cmds_regex` are skipped for such input, the `error` policy decides the outcome - defaulting to the bash `*` wildcard. Set it to `"ask"` (recommended) or `"deny"` so malformed but bash-accepted syntax is never silently auto-approved under `"*": "allow"`.
 
 ### Shell conditionals and status builtins
 
@@ -249,7 +249,7 @@ If you need this gated, list the command that can appear there and prefer the `$
 
 Every bash option takes `"allow"`, `"ask"` or `"deny"`, and they do not all mean the same thing:
 
-- **`deny` is absolute.** It wins over the wildcard, over `allowed_cmds_regex`, and over any other policy that matched, and **it cannot be overridden at runtime** — the hook returns `block` and the user must change the config. This holds for *every* level-bearing key: `command_substitution`, `process_substitution`, `subshell`, `variable_assignment`, the redirection and background policies, and `error`.
+- **`deny` is absolute.** It wins over the wildcard, over `allowed_cmds_regex`, and over any other policy that matched, and **it cannot be overridden at runtime** — the hook returns `block` and the user must change the config. This holds for *every* level-bearing key: `command_substitution`, `process_substitution`, `subshell`, `variable_assignment`, the redirection and background policies, and `error` (except that a missing shfmt always asks - see `error` above).
 - **`ask` only prevents auto-approval.** It downgrades a verdict that would otherwise have been `allow`. If the command is already prompting — because the wildcard is `ask`, or because an allow pattern missed — an `ask` on another key changes nothing, and an `ask` can never soften a `deny` into a prompt.
 - **`allow`** only matters where something would otherwise have prompted; it does not override a `blocked_cmds_regex` hit.
 

@@ -193,10 +193,9 @@ def op_validate(config: object) -> dict[str, Any]:
 
     # The binary is probed here, not lazily, and that is the whole reason this
     # op exists separately. A missing shfmt is not a crash: this process starts
-    # fine, reports `valid: true`, and every `evaluate` then routes through the
-    # `error` policy instead - which under `{"*": "allow"}` is `allow`. The
-    # binary looks healthy while the shell is wide open, and the only clue is
-    # a reason string mentioning a parse failure. Shfmt is a bare Go binary
+    # fine and every `evaluate` then asks (see `decide.error_action`), so the
+    # user is prompted for every command with no hint why until the reason is
+    # read. Reporting it once, at session start, is what makes it visible. Shfmt is a bare Go binary
     # that `shfmt-py` drops into the venv's `bin/`; there is no import that
     # could fail instead, so the probe has to be explicit.
     #

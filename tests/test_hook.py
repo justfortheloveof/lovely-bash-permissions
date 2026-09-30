@@ -578,3 +578,21 @@ class TestHookLabelQuoting:
     def test_unquoted_label_shape_is_unchanged(self) -> None:
         # A reason needing no quoting must render exactly as before.
         assert _hook_command("allow", "not allowed", "ls") == ": '[♡ perms: 💚 auto-approved] not allowed' 💚 ; ls"
+
+
+def test_missing_shfmt_asks_under_error_allow(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The Devin hook asks, never approves, when shfmt is missing - whatever `error` says."""
+
+    def _no_shfmt() -> str:
+        raise FileNotFoundError("shfmt binary not found")
+
+    monkeypatch.setattr("lovely_bash_permissions.parser.find_shfmt", _no_shfmt)
+    event = _pretooluse_exec_event("rm -rf /")
+    with patch("lovely_bash_permissions.hook.PermissionsManager") as MockMgr:
+        instance = MockMgr.return_value
+        instance.get_lovely_config.return_value = {"bash": {}}
+        instance.get_effective_bash_config.return_value = _effective_config(error="allow", wildcard="allow")
+        result = process_hook_event(event)
+
+    assert result["action"] == "ask"
+    assert "shfmt is unavailable" in result["reason"]

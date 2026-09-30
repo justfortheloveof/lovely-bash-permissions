@@ -21,6 +21,7 @@ from __future__ import annotations
 from typing import Any
 
 from .config.effective_bash import resolve_bash_config
+from .errors import ShfmtUnavailableError
 from .evaluate import evaluate_bash_command
 from .policy import Level
 
@@ -34,8 +35,15 @@ def error_action(config: dict[str, Any], exc: BaseException) -> dict[str, Any]:
     """Map a failure to the configured ``error`` policy.
 
     ``bash.error`` decides the action for any command we could not analyse - a
-    parse failure, a missing shfmt binary, a config the caller passed through
+    parse failure, a shfmt timeout, a config the caller passed through
     unvalidated. Falls back to the wildcard, then to ask.
+
+    **Except when shfmt itself is unavailable**
+    (:class:`~lovely_bash_permissions.errors.ShfmtUnavailableError`), which
+    always asks. ``error: "allow"`` means "run a command I could not analyse";
+    it is not permission for the analyser to be absent. Honouring it there
+    would turn one missing binary into an unchecked approval of every command,
+    so no level - ``allow`` or ``deny`` - applies to a broken install.
 
     ``error`` is a :data:`~lovely_bash_permissions.policy.NON_CONSTRUCT_KEYS`
     key: the evaluator's own level resolution never touches it, only
@@ -53,10 +61,13 @@ def error_action(config: dict[str, Any], exc: BaseException) -> dict[str, Any]:
     Returns the same three keys as a normal verdict, ``reasons`` included: a
     failure is a verdict a host has to explain, and this path can be ``ask``.
     """
-    level = config.get("error") or config.get("*") or "ask"
-    action = LEVEL_TO_ACTION.get(level, "ask")
     user_form = getattr(exc, "user_message", None)
     detail = user_form() if callable(user_form) else str(exc)
+    if isinstance(exc, ShfmtUnavailableError):
+        reason = f"shfmt is unavailable, so this command could not be checked (asking whatever the error policy says): {detail}"
+        return {"action": "ask", "reason": reason, "reasons": [reason]}
+    level = config.get("error") or config.get("*") or "ask"
+    action = LEVEL_TO_ACTION.get(level, "ask")
     reason = f"error evaluating command (policy '{level}'): {detail}"
     return {"action": action, "reason": reason, "reasons": [reason]}
 

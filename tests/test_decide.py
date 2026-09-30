@@ -114,6 +114,38 @@ class TestTheErrorPolicy:
         assert decide.decide_bash_command(UNPARSEABLE, {})["action"] == "ask"
 
 
+def _no_shfmt() -> str:
+    raise FileNotFoundError("shfmt binary not found. Please ensure shfmt-py is installed.")
+
+
+class TestAMissingShfmtAlwaysAsks:
+    """A missing shfmt is a broken install, not a command the policy can judge.
+
+    ``error: allow`` means "run what I could not analyse"; applied here it
+    approved every command, unchecked, for as long as shfmt was missing.
+    """
+
+    @pytest.mark.parametrize("config", [{"error": "allow"}, {"*": "allow"}, {"error": "deny"}, {"*": "deny"}, {}])
+    def test_no_level_applies(self, config: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("lovely_bash_permissions.parser.find_shfmt", _no_shfmt)
+        result = decide.decide_bash_command("rm -rf /", config)
+        assert result["action"] == "ask"
+        assert "shfmt is unavailable" in result["reason"]
+        assert result["reasons"] == [result["reason"]]
+
+    def test_a_shfmt_that_cannot_be_started_asks_too(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def _exec_fails(*_args: object, **_kwargs: object) -> None:
+            raise PermissionError("Permission denied")
+
+        monkeypatch.setattr("lovely_bash_permissions.parser.subprocess.run", _exec_fails)
+        assert decide.decide_bash_command("ls", {"error": "allow"})["action"] == "ask"
+
+    def test_a_parse_failure_still_honours_error(self) -> None:
+        """Only the install case is exempt; an unparseable command keeps its policy."""
+        assert decide.decide_bash_command(UNPARSEABLE, {"error": "allow"})["action"] == "allow"
+        assert decide.decide_bash_command(UNPARSEABLE, {"error": "deny"})["action"] == "deny"
+
+
 class TestErrorAction:
     def test_falls_back_through_wildcard_to_ask(self) -> None:
         assert decide.error_action({"*": "deny"}, ValueError("x"))["action"] == "deny"

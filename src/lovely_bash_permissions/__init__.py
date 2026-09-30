@@ -65,7 +65,7 @@ from .ast import (
     structurally_equal,
 )
 from .converter import parse_ast
-from .errors import ShfmtError
+from .errors import ShfmtError, ShfmtUnavailableError
 from .inspect import (
     RedirectionInfo,
     find_arguments,
@@ -123,6 +123,7 @@ __all__ = [
     "RedirectionInfo",
     "SglQuoted",
     "ShfmtError",
+    "ShfmtUnavailableError",
     "Stmt",
     "Subshell",
     "TestClause",
