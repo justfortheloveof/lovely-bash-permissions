@@ -29,37 +29,63 @@ def get_permissions_config_file_paths(project_dir: str) -> list[str]:
     ]
 
 
-def _warn_conflict(key: str, level1: str, level2: str, warnings: list[str]) -> None:
-    """Append a warning string when the same key is defined in two levels."""
-    warnings.append(f"key '{key}' defined in {level2} config overrides {level1}")
+#: The three config levels, in merge order (later overrides earlier).
+CONFIG_LEVELS: tuple[str, str, str] = ("global", "project", "local")
+
+
+def _origin_of(path: tuple[str, ...], origins: dict[tuple[str, ...], str]) -> str | None:
+    """The level that last set *path*, or the nearest ancestor it was set under."""
+    for end in range(len(path), 0, -1):
+        level = origins.get(path[:end])
+        if level is not None:
+            return level
+    return None
 
 
 def merge_deep(
-    target: dict[str, Any], source: dict[str, Any], warnings: list[str] | None = None
+    target: dict[str, Any],
+    source: dict[str, Any],
+    warnings: list[str] | None = None,
+    *,
+    source_level: str = "project",
+    origins: dict[tuple[str, ...], str] | None = None,
+    _path: tuple[str, ...] = (),
 ) -> tuple[dict[str, Any], list[str]]:
     """Deep merge source into target.
 
     Objects are merged recursively, arrays are concatenated, scalars override.
+    An override that changes a value is reported as a warning naming the
+    dotted key, the level that overrides it (*source_level*) and the level that
+    had set it. *origins* records which level last set each key and is updated
+    in place, so a caller merging several levels in turn can pass the same
+    mapping to every call; without it the overridden level is reported as
+    ``global``.
 
     Returns:
         Tuple of (merged dict, list of conflict warning strings).
     """
     if warnings is None:
         warnings = []
+    if origins is None:
+        origins = {}
 
     result: dict[str, Any] = dict(target)
 
     for key, value in source.items():
-        existing: dict[str, Any] | None = result.get(key)
-        if existing is not None and is_record(existing) and is_record(value):
-            merged_child, _ = merge_deep(existing, value, warnings)
-            result[key] = merged_child
+        path = (*_path, str(key))
+        existing = result.get(key)
+        if is_record(existing) and is_record(value):
+            result[key], _ = merge_deep(
+                existing, value, warnings, source_level=source_level, origins=origins, _path=path
+            )
         elif isinstance(existing, list) and isinstance(value, list):
             result[key] = existing + value
         else:
             if key in target and existing != value:
-                _warn_conflict(key, "global", "project", warnings)
+                overridden = _origin_of(path, origins) or "global"
+                warnings.append(f"key '{'.'.join(path)}' defined in {source_level} config overrides {overridden}")
             result[key] = value
+            origins[path] = source_level
     return result, warnings
 
 
@@ -107,8 +133,9 @@ def load_permissions_config(project_dir: str) -> tuple[dict[str, Any], list[str]
 
     # Merge in order: global < project < local
     merged: dict[str, Any] = {}
-    for cfg in configs:
-        merged, merge_warnings = merge_deep(merged, cfg)
+    origins: dict[tuple[str, ...], str] = {}
+    for level, cfg in zip(CONFIG_LEVELS, configs, strict=True):
+        merged, merge_warnings = merge_deep(merged, cfg, source_level=level, origins=origins)
         warnings.extend(merge_warnings)
 
     # Validate merged config - Pydantic enforces schema (typos, invalid patterns)

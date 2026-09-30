@@ -81,6 +81,22 @@ class TestMergeDeep:
         assert merged == {"tool": None}
         assert len(warnings) == 1
 
+    def test_conflict_warning_names_the_dotted_key_and_both_levels(self) -> None:
+        _, warnings = merge_deep({"bash": {"*": "ask"}}, {"bash": {"*": "deny"}}, source_level="local")
+        assert warnings == ["key 'bash.*' defined in local config overrides global"]
+
+    def test_origins_attribute_an_override_to_the_level_that_set_it(self) -> None:
+        origins: dict[tuple[str, ...], str] = {}
+        merged, _ = merge_deep({}, {"bash": {"*": "ask", "error": "ask"}}, source_level="global", origins=origins)
+        merged, _ = merge_deep(merged, {"bash": {"*": "allow"}}, source_level="project", origins=origins)
+        _, warnings = merge_deep(
+            merged, {"bash": {"*": "deny", "error": "deny"}}, source_level="local", origins=origins
+        )
+        assert warnings == [
+            "key 'bash.*' defined in local config overrides project",
+            "key 'bash.error' defined in local config overrides global",
+        ]
+
     def test_original_dicts_not_mutated(self) -> None:
         target = {"a": 1, "obj": {"x": 1}}
         source = {"b": 2, "obj": {"y": 2}}
@@ -246,6 +262,26 @@ class TestLoadPermissionsConfig:
 
         merged, _, _ = load_permissions_config(str(temp_project[0]))
         assert merged == {"read": {"permission": "ask"}}
+
+    def test_conflict_warnings_name_the_real_levels(
+        self, monkeypatch: pytest.MonkeyPatch, temp_project: tuple[Path, Path], temp_global: tuple[Path, Path]
+    ) -> None:
+        """A local override is reported as local, not as "project overrides global"."""
+        monkeypatch.setattr(
+            "lovely_bash_permissions.config.loader.get_devin_global_config_dir",
+            lambda: temp_global[1],
+        )
+        self._write_jsonc(temp_global[1] / "lovely-permissions.jsonc", {"bash": {"*": "ask"}})
+        self._write_jsonc(temp_project[1] / "lovely-permissions.jsonc", {"bash": {"error": "ask"}})
+        self._write_jsonc(temp_project[1] / "lovely-permissions.local.jsonc", {"bash": {"*": "deny", "error": "deny"}})
+
+        _, warnings, errors = load_permissions_config(str(temp_project[0]))
+
+        assert errors == []
+        assert [w for w in warnings if "overrides" in w] == [
+            "key 'bash.*' defined in local config overrides global",
+            "key 'bash.error' defined in local config overrides project",
+        ]
 
     def test_three_level_override(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, temp_global: tuple[Path, Path]

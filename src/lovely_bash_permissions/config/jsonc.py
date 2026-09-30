@@ -6,7 +6,7 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 import json5
 
@@ -96,6 +96,6 @@ def read_jsonc_file(file_path: str) -> JsoncLoadResult:
     return JsoncLoadResult.ok(value)
 
 
-def is_record(value: Any) -> bool:  # noqa: ANN401
+def is_record(value: object) -> TypeGuard[dict[str, Any]]:
     """Check if value is a plain object (dict)."""
     return isinstance(value, dict)
