@@ -533,9 +533,9 @@ def _collect_allowed_matches(tree: Node | None, allowed_patterns: list[str], ver
             if matched:
                 verdict.all_matched_patterns.extend(matched)
             elif depth > 0:
-                rest = " ".join(word_value(a) for a in node.args[1:])
-                full_cmd = name if not rest else f"{name} {rest}"
-                verdict.nested_non_match.add(name if name != full_cmd else full_cmd)
+                # The name only: the reason lists commands, and the arguments
+                # are already in the prompt's command line.
+                verdict.nested_non_match.add(name)
         new_depth = depth + (1 if isinstance(node, (CmdSubst, ProcSubst, Subshell)) else 0)
         for child in iter_children(node, include_call_args=True):
             _walk(child, new_depth)
