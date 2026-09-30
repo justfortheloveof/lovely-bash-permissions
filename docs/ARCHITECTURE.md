@@ -64,7 +64,8 @@ __init__.py          re-exports the public surface
 
 `inspect.py` depends on `ast.py` alone on purpose: it answers questions about a
 tree the caller already holds, so it never parses. `converter.py` imports
-`parser.parse` lazily, inside `parse_ast`, to keep the graph acyclic.
+`parser` at module level; `parser.py` imports only `errors.py`, so the edge
+cannot cycle.
 
 **Devin half** — the permission hook: `config/` -> `hook.py` -> `devin_cli.py`.
 **Nothing in the library half imports any of it**, which is what makes the parser

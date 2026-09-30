@@ -47,9 +47,7 @@ def merge_deep(
     if warnings is None:
         warnings = []
 
-    result: dict[str, Any] = {}
-    for key, value in target.items():
-        result[key] = value
+    result: dict[str, Any] = dict(target)
 
     for key, value in source.items():
         existing: dict[str, Any] | None = result.get(key)

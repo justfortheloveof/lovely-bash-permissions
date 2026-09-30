@@ -116,28 +116,6 @@ def _redir_text(redir: Redir) -> str:
     return f"{op} {target}" if target else op
 
 
-def _assign_text(assign: Assign) -> str:
-    """Reconstruct a variable assignment as written.
-
-    Delegates to :func:`lovely_bash_permissions.segments._assign_operand_text`
-    so the inspection output and the permission-evaluation path share a single
-    renderer.  That renderer covers every shape shfmt produces - scalar,
-    subscripted, array, ``+=`` combined with either, and naked declaration
-    operands (a bare name or a flag such as ``declare -a``) - where an
-    earlier copy here dropped array elements and appended a stray ``=`` to a
-    name-less flag.
-
-    Args:
-        assign: The ``Assign`` node to render.
-
-    Returns:
-        The assignment as written, or ``""`` when there is nothing to render.
-        Callers omit the ``assign:`` line for the empty result rather than
-        printing it with nothing after the colon.
-    """
-    return _assign_operand_text(assign)
-
-
 # ---------------------------------------------------------------------------
 # Traversal
 # ---------------------------------------------------------------------------
@@ -211,7 +189,7 @@ def _iter_items(node: Node) -> Iterator[tuple[str, Node, list[Redir]]]:
         stack.extend(reversed(pushed))
 
 
-def _iter_substs(word: Word) -> Iterator[Node]:
+def _iter_substs(word: Word) -> Iterator[CmdSubst | ProcSubst]:
     """Yield CmdSubst/ProcSubst nodes found in a Word's parts."""
     for part in word.parts:
         if isinstance(part, (CmdSubst, ProcSubst)):
@@ -334,9 +312,10 @@ def _render_command(call: CallExpr, indent: int, report: _Report) -> None:
             report.add(indent, f"args: {', '.join(args)}")
         _render_word_subs(call.args, indent, report)
     for assign in call.assigns or []:
-        text = _assign_text(assign)
-        # An assignment with nothing renderable (see ``_assign_text``) would
+        # Rendered by the same function the permission path uses, so the two
+        # cannot disagree. An assignment with nothing renderable would
         # otherwise leave a dangling ``assign:`` line.
+        text = _assign_operand_text(assign)
         if text:
             report.add(indent, f"assign: {text}")
         _render_assign_subs(assign, indent, report)
@@ -367,7 +346,7 @@ def _render_declared(decl: DeclClause, indent: int, report: _Report) -> None:
     tolerates the difference.
     """
     for assign in decl.assigns or []:
-        text = _assign_text(assign)
+        text = _assign_operand_text(assign)
         if text:
             report.add(indent, f"assign: {decl.variant} {text}")
         _render_assign_subs(assign, indent, report)
@@ -405,24 +384,16 @@ def _render_redirs(redirs: list[Redir], indent: int, report: _Report) -> None:
     for redir in redirs:
         if redir.word:
             report.add(indent, f"redirection: {_redir_text(redir)}")
-            for subst in _iter_substs(redir.word):
-                if isinstance(subst, (CmdSubst, ProcSubst)):
-                    for stmt in subst.stmts:
-                        if stmt.cmd is not None:
-                            _render_statement(stmt.cmd, _redirs_of(stmt), report, indent + 1)
+            _render_word_subs([redir.word], indent, report)
 
 
-def _render_word_subs(words: list[Word], indent: int, report: _Report) -> bool:
-    """Render commands nested inside substitutions found in *words*."""
-    rendered = False
+def _render_word_subs(words: list[Word], indent: int, report: _Report) -> None:
+    """Render commands nested inside substitutions found in *words*, one level deeper."""
     for word in words:
         for subst in _iter_substs(word):
-            if isinstance(subst, (CmdSubst, ProcSubst)):
-                rendered = True
-                for stmt in subst.stmts:
-                    if stmt.cmd is not None:
-                        _render_statement(stmt.cmd, _redirs_of(stmt), report, indent + 1)
-    return rendered
+            for stmt in subst.stmts:
+                if stmt.cmd is not None:
+                    _render_statement(stmt.cmd, _redirs_of(stmt), report, indent + 1)
 
 
 def _stmt_snippet(stmt: Stmt, source: str) -> str:

@@ -122,7 +122,7 @@ class ToolConfig(BaseModel):
         is ``*`` - and comparing field names here would make the check disagree
         with the validator that enforces the same vocabulary. See D11.
         """
-        expected = set(POLICY_KEYS) | set(NON_CONSTRUCT_KEYS) | WIRE_NON_POLICY_CONFIG_KEYS
+        expected = VALID_BASH_CONFIG_KEYS
         declared = {field.alias or name for name, field in type(self).model_fields.items()}
         if declared != expected:
             undeclared = sorted(declared - expected)

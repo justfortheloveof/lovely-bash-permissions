@@ -61,6 +61,7 @@ from .ast import (
     WhileClause,
     Word,
 )
+from .parser import ParseError, parse
 
 _log = logging.getLogger(__name__)
 
@@ -885,8 +886,6 @@ def node_from_json(data: dict[str, Any] | None) -> Node | None:
         depth = _measure_nesting_depth(data)
         needed = _MIN_RECURSION_LIMIT + _FRAMES_PER_JSON_LEVEL * depth
         if needed > _MAX_RECURSION_LIMIT:
-            from .parser import ParseError
-
             raise ParseError(
                 f"command structure is nested too deeply to analyze safely "
                 f"(nesting depth {depth} exceeds the safe limit)"
@@ -919,8 +918,6 @@ def node_from_json(data: dict[str, Any] | None) -> Node | None:
         pos, end = _parse_pos_end(data)
         return Node(type=node_type, pos=pos, end=end)
     except RecursionError as exc:
-        from .parser import ParseError
-
         raise ParseError("command structure is nested too deeply to analyze safely") from exc
     finally:
         _json_conversion_depth -= 1
@@ -944,8 +941,6 @@ def parse_ast(command: str) -> File:
         ShfmtError: If shfmt cannot parse the command or the shfmt binary is
             unavailable.
     """
-    from .parser import parse
-
     raw = parse(command)
     result = node_from_json(raw)
     if not isinstance(result, File):

@@ -9,6 +9,7 @@ Extracts permissions.allow entries and parses Exec(...) patterns into
 anchored regex strings for command matching.
 """
 
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -25,8 +26,6 @@ def get_devin_global_config_dir() -> Path:
     Uses APPDATA on Windows, ~/.config/devin elsewhere.
     Respects DEVIN_GLOBAL_CONFIG_DIR environment variable.
     """
-    import os
-
     devin_dir = os.environ.get("DEVIN_GLOBAL_CONFIG_DIR")
     if devin_dir:
         return Path(devin_dir)
@@ -82,8 +81,8 @@ def load_devin_exec_permissions(project_dir: str) -> dict[str, list[Any]]:
 
         # Extract permissions.allow (may not exist)
         allow_list = []
-        perms_data: dict[str, Any] | None = result.value.get("permissions")
-        if perms_data is not None and isinstance(perms_data, dict):
+        perms_data = result.value.get("permissions")
+        if isinstance(perms_data, dict):
             allow_list = perms_data.get("allow", [])
             if not isinstance(allow_list, list):
                 allow_list = []
@@ -125,11 +124,4 @@ def load_devin_exec_regexes(project_dir: str) -> list[str]:
     if result["errors"]:
         raise ValueError("\n".join(result["errors"]))
     # Deduplicate while preserving order
-    seen = set()
-    unique = []
-    for perm in result["permissions"]:
-        regex = perm["regex"]
-        if regex not in seen:
-            seen.add(regex)
-            unique.append(regex)
-    return unique
+    return list(dict.fromkeys(perm["regex"] for perm in result["permissions"]))

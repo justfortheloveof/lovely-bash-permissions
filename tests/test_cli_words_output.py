@@ -30,7 +30,7 @@ import pytest
 from lovely_bash_permissions import cli
 from lovely_bash_permissions.ast import Assign
 from lovely_bash_permissions.cli import main
-from lovely_bash_permissions.segments import parse_segments
+from lovely_bash_permissions.segments import _assign_operand_text, parse_segments
 from tests.conftest import _lines
 
 
@@ -272,12 +272,12 @@ class TestUnrenderableAssignment:
     """An assignment with nothing to render produces no ``assign:`` line."""
 
     def test_delegating_renderer_reports_empty(self) -> None:
-        assert cli._assign_text(Assign()) == ""
+        assert _assign_operand_text(Assign()) == ""
 
     def test_bare_assignment_line_is_omitted(
         self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(cli, "_assign_text", _blank_assign_text)
+        monkeypatch.setattr(cli, "_assign_operand_text", _blank_assign_text)
         assert main(["--string", "A=b"]) == 0
         lines = _lines(capsys)
         assert not [line for line in lines if "assign" in line]
@@ -285,7 +285,7 @@ class TestUnrenderableAssignment:
     def test_declared_assignment_line_is_omitted(
         self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(cli, "_assign_text", _blank_assign_text)
+        monkeypatch.setattr(cli, "_assign_operand_text", _blank_assign_text)
         assert main(["--string", "export FOO=bar"]) == 0
         lines = _lines(capsys)
         assert not [line for line in lines if "assign" in line]

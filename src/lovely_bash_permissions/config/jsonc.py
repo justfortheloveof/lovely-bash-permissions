@@ -28,7 +28,13 @@ class JSONCDecodeError(ValueError):
 
 
 def parse_jsonc(text: str) -> Any | None:  # noqa: ANN401
-    """Parse JSONC text using json5. Returns None on parse error."""
+    """Parse JSONC text using json5.
+
+    Returns whatever the text holds (``None`` for a literal ``null``).
+
+    Raises:
+        JSONCDecodeError: If the text is not valid JSONC.
+    """
     cleaned = text.lstrip("\ufeff")  # strip BOM
     try:
         return json5.loads(cleaned)
