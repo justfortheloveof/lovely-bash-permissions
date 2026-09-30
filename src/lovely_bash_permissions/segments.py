@@ -323,6 +323,9 @@ def _present(*children: object) -> list[object]:
 def _redir_target_segments(redirs: list[Redir]) -> list[Segment]:
     """Segments hidden inside redirection targets and heredoc bodies.
 
+    Called once per redirection, by the node that owns it - the statement, or
+    the pipe side it was split onto - never by the commands it is inherited by.
+
     ``cmd > $(generate_name)`` runs ``generate_name``, and so does
     ``cmd <<EOF\n$(cat /etc/passwd)\nEOF`` for an unquoted heredoc, so both
     are walked for substitutions.
@@ -358,7 +361,19 @@ def _binary_cmd(node: BinaryCmd, redirs: list[Redir]) -> list[Segment]:
     # inherit any redirections from a parent compound (e.g. `{ a | b; } > file`).
     left_redirs = [*redirs, *(_extract_redirs(node.left) if node.left else []), *node.left_redirs]
     right_redirs = [*redirs, *(_extract_redirs(node.right) if node.right else []), *node.right_redirs]
-    return [*_extract_segments(node.left, left_redirs), *_extract_segments(node.right, right_redirs)]
+    segments: list[Segment] = []
+    for operand, inherited, own in (
+        (node.left, left_redirs, node.left_redirs),
+        (node.right, right_redirs, node.right_redirs),
+    ):
+        segments.extend(_extract_segments(operand, inherited))
+        # An operand's own redirections were split onto the per-side fields
+        # when the operand statement was unwrapped, so this is where their
+        # targets are walked - except for a redirection-only operand, which
+        # stays a Stmt and walks its own.
+        if not isinstance(operand, Stmt):
+            segments.extend(_redir_target_segments(own))
+    return segments
 
 
 def _stmt(node: Stmt, redirs: list[Redir]) -> list[Segment]:
@@ -377,6 +392,10 @@ def _stmt(node: Stmt, redirs: list[Redir]) -> list[Segment]:
         # not be scattered onto test-expression pseudo-commands.
         command = "[[" if isinstance(node.cmd, TestClause) else ""
         segments.append({"command": command, "arguments": [], "redirections": _redir_dicts(inherited)})
+    # The statement's own redirection targets, walked once here rather than by
+    # every command they apply to: `{ a; b; } > $(cmd)` runs `cmd` once, and
+    # `x=1 > $(cmd)`, `let x=1 > $(cmd)` and a bare `> $(cmd)` run it too.
+    segments.extend(_redir_target_segments(node.redirs))
     return segments
 
 
@@ -417,7 +436,6 @@ def _call_expr(node: CallExpr, redirs: list[Redir]) -> list[Segment]:
     # `${x:-$(cmd)} arg` must surface the inner command - otherwise the
     # inner redirection is invisible to the redirection policies.
     segments.extend(_each(node.args, redirs))
-    segments.extend(_redir_target_segments(redirs))
     # And into the assignment operands, so `x=$(cmd > f) ls` surfaces the same
     # segments the standalone form `x=$(cmd > f)` does.
     segments.extend(_assign_sub_segments(assigns, redirs))
@@ -439,7 +457,6 @@ def _decl_clause(node: DeclClause, redirs: list[Redir]) -> list[Segment]:
     if operands:
         segments.append({"command": "", "arguments": operands, "redirections": []})
         segments.append({"command": node.variant, "arguments": [], "redirections": _redir_dicts(redirs)})
-    segments.extend(_redir_target_segments(redirs))
     # Recurse into the declaration's operands (e.g. `export FOO=$(rm x)`).
     segments.extend(_assign_sub_segments(declares, redirs))
     return segments

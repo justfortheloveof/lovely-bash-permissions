@@ -134,3 +134,43 @@ class TestSegmentRedirections:
     def test_empty_command(self) -> None:
         segs = parse_segments("")
         assert segs == []
+
+
+def _names(command: str) -> list[str]:
+    return [seg["command"] for seg in parse_segments(command)]
+
+
+class TestSegmentsRedirectionTargetsWalkedOnce:
+    """A substitution in a redirection target runs once, and always surfaces.
+
+    The target walk used to live in the command handlers and read the
+    *inherited* redirections, so a statement redirection was walked once per
+    command inside it, and a statement with no ordinary command never walked it.
+    """
+
+    def test_block_redirect_target_runs_once(self) -> None:
+        assert _names("{ ls; echo; } > $(cmd)") == ["ls", "echo", "cmd"]
+
+    def test_loop_redirect_target_runs_once(self) -> None:
+        assert _names("while ls; do echo; done < $(cmd)").count("cmd") == 1
+
+    def test_assignment_only_statement_surfaces_target(self) -> None:
+        assert _names("x=1 > $(cmd)") == ["", "cmd"]
+
+    def test_let_statement_surfaces_target(self) -> None:
+        assert "cmd" in _names("let x=1 > $(cmd)")
+
+    def test_redirection_only_statement_surfaces_target(self) -> None:
+        segs = parse_segments("> $(cat /etc/passwd)")
+        assert [(s["command"], s["arguments"]) for s in segs] == [("", []), ("cat", ["/etc/passwd"])]
+
+    def test_pipe_side_target_keeps_source_order(self) -> None:
+        assert _names("ls > $(cmd) | echo") == ["ls", "cmd", "echo"]
+
+    def test_heredoc_body_in_pipe_keeps_source_order(self) -> None:
+        assert _names("cat <<EOF | wc\n$(cmd)\nEOF") == ["cat", "cmd", "wc"]
+
+    def test_inner_redirection_reaches_the_redirection_policy(self) -> None:
+        segs = parse_segments("x=1 > $(echo hi > /tmp/f)")
+        targets = [r["Target"] for s in segs for r in s["redirections"]]
+        assert "/tmp/f" in targets

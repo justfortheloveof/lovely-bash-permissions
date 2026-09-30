@@ -58,6 +58,9 @@ COMMANDS = [
     "for ((i=0;i<3;i++)); do echo $i; done", "case $x in a) cat a;; b) cat b;; esac",
     "[[ -f x ]] && echo y", "[[ $x == $(cmd) ]]", "[[ -d $(pwd) ]]", "[[ ( a == b ) ]]",
     "(( 1+2 ))", "(( x=$(rm -rf /) ))", "(( (1+2) ))", "let x=1+2",
+    # substitutions in redirection targets, walked once per owning statement
+    "{ ls; echo; } > $(cmd)", "x=1 > $(cmd)", "let x=1 > $(cmd)", "> $(cat /etc/passwd)",
+    "ls > $(cmd) | echo", "while ls; do echo; done < $(cmd)", "x=1 > $(echo hi > /tmp/f)",
     # assignments
     "x=1", "x=1 ls", "FOO=bar ls", "x=$(cmd) ls", "A=(a b c)", "A=([0]=x)",
     "A+=(b)", "A[i]+=(x)", "A=($(cmd))", "export FOO=bar", "export FOO=$(rm x)",
