@@ -61,11 +61,19 @@ the e2e test on that platform.
 
 ## The wire protocol
 
-Newline-delimited JSON on stdin/stdout. The server reads until EOF and writes
-**exactly one response line per request line, always** — a malformed request gets
-an error response and the stream continues. That invariant is what lets the
-client count instead of correlate: the protocol carries no request ids, so a
-response written for one request must never be read as another's answer.
+One JSON object on stdin, one JSON object on stdout, then exit. The client
+spawns this binary per call, so there is no stream and nothing to keep aligned:
+the exchange is one request against one response by construction.
+
+All of stdin is read, not one line. A client that somehow sent two requests gets
+one honest parse error instead of an answer to the first and silence about the
+second — which is the whole class of misalignment a stream allowed and one
+process per call cannot.
+
+`op` is a discriminator, not a leftover of the stream framing. There are two
+operations, and the client has to say which: `evaluate` for a verdict, and
+`validate` to ask whether a config is usable at all — which is also how the
+extension probes for shfmt at `session_start`.
 
 ```jsonc
 // request

@@ -145,16 +145,19 @@ Two things about it are load-bearing and previously implicit:
   appear in `decide.py` as a value, which `tests/test_decide.py` asserts by
   walking its AST.
 
-## The two client/server halves, by full name
+## The two halves, by full name
 
-- `lovely-pi-bash-permissions` — this repo, Python, the server. Reads
-  newline-delimited JSON on stdin, evaluates bash commands, writes one response
-  line per request.
+- `lovely-pi-bash-permissions` — this repo, Python, the engine. Reads one JSON
+  request on stdin, evaluates bash commands, writes one JSON response on
+  stdout, exits.
 - `lovely-pi-permissions` — a separate repository, TypeScript, the client. A Pi
-  coding-agent extension that spawns the server at `session_start` and gates
-  *bash tool calls only* through it. It owns config discovery, deep-merge, mode
-  selection, the ask prompt, doom-loop detection, and status-bar sync; none of
-  that lives here.
+  coding-agent extension that spawns the engine once per *bash tool call* — plus
+  once at `session_start` to probe it — and gates bash through it. It owns config
+  discovery, deep-merge, mode selection, the ask prompt, doom-loop detection, and
+  status-bar sync; none of that lives here.
+
+Nothing is resident between calls, so the client keeps no child to restart, no
+buffered line reader, and no queue of in-flight requests.
 
 They are never the same thing, and they are never referred to interchangeably.
 A reader who found this file via either project needs to know which half they

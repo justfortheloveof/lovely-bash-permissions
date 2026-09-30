@@ -12,12 +12,12 @@ same policy vocabulary:
 | Project | What it is | Read more |
 | --- | --- | --- |
 | `lovely-devin-permissions` | a Devin CLI permission hook | [README.lovely-devin-permissions.md](README.lovely-devin-permissions.md) |
-| `lovely-pi-bash-permissions` | the bash permission server for the [`lovely-pi-permissions`](https://github.com/jftlo/lovely-pi-permissions) Pi extension | [README.lovely-pi-bash-permissions.md](README.lovely-pi-bash-permissions.md) |
+| `lovely-pi-bash-permissions` | bash permission decisions for the [`lovely-pi-permissions`](https://github.com/jftlo/lovely-pi-permissions) Pi extension | [README.lovely-pi-bash-permissions.md](README.lovely-pi-bash-permissions.md) |
 
 Both parse bash commands, evaluate each command segment against configurable
 rules, and decide whether to allow, ask for approval, or deny execution. The Pi
-one is a separate repository and speaks newline-delimited JSON over a pipe;
-`lovely-pi-permissions` is the TypeScript extension that drives it.
+one is a separate repository and speaks one JSON object over a pipe, once per
+command; `lovely-pi-permissions` is the TypeScript extension that drives it.
 
 ## Installation
 
