@@ -7,11 +7,11 @@ against bash command segments.
 
 from __future__ import annotations
 
-import re
-from functools import lru_cache
-from typing import Any
+from collections.abc import Collection, Sequence
+from typing import Any, Literal, TypedDict
 
-from .policy import wildcard_level
+from .matching import first_match
+from .policy import Level, wildcard_level
 from .segments import Segment, SegmentRedirection
 
 #: Redirection operators that open a file for writing (or for reading *and*
@@ -35,6 +35,21 @@ COMBINED_OPS: frozenset[str] = frozenset({">&", "&>", "&>>"})
 DEV_NULL: str = "/dev/null"
 
 
+class _PolicyResultBase(TypedDict):
+    status: Level
+    reason: str
+
+
+class PolicyResult(_PolicyResultBase, total=False):
+    """The outcome of one construct check (output, input, background).
+
+    ``matched`` is present, and ``False``, only when the construct does not
+    occur at all; the evaluator drops those results before aggregating.
+    """
+
+    matched: bool
+
+
 def _redir_target(redir: SegmentRedirection) -> str:
     """Redirection target for policy decisions.
 
@@ -54,35 +69,55 @@ def _redir_target(redir: SegmentRedirection) -> str:
     return redir.get("Target", "")
 
 
-@lru_cache(maxsize=512)
-def _compile_pattern(pattern: str) -> re.Pattern[str]:
-    """Compile and cache a regex pattern. Raises ValueError on invalid pattern."""
-    try:
-        return re.compile(pattern)
-    except re.error as exc:
-        raise ValueError(f"invalid pattern {pattern!r}: {exc}") from exc
+def _blocked_target_result(targets: Sequence[str], rules: dict[str, Any]) -> PolicyResult | None:
+    """Deny when any redirect target matches a blocked pattern.
 
-
-def _match_pattern(value: str, pattern: str) -> bool:
-    """Check a single value against one pattern (unanchored search)."""
-    try:
-        return bool(_compile_pattern(pattern).search(value))
-    except ValueError:
-        return False
-
-
-def _find_blocked_path(value: str, blocked_patterns: list[str]) -> tuple[bool, str]:
-    """Check if a value matches any blocked pattern.
-
-    Returns (True, matching_pattern) if found, (False, "") otherwise.
+    A security check, so it applies whatever the redirection policy says.
     """
-    for pattern in blocked_patterns:
-        if _match_pattern(value, pattern):
-            return True, pattern
-    return False, ""
+    for target in targets:
+        pattern = first_match(target, rules.get("blocked_cmds_regex", []))
+        if pattern is not None:
+            return {"status": "deny", "reason": f'Redirect target "{target}" matches blocked pattern {pattern}'}
+    return None
 
 
-def _find_background_flags(node: dict[str, Any]) -> list[str]:
+def _redirection_result(direction: Literal["output", "input"], level: object, targets: Sequence[str]) -> PolicyResult:
+    """The verdict and reason for a resolved redirection level.
+
+    Anything that is neither ``allow`` nor ``ask`` denies.
+    """
+    preposition = "to" if direction == "output" else "from"
+    if level == "allow":
+        return {"status": "allow", "reason": f"{direction} redirection allowed {preposition} {', '.join(targets)}"}
+    if level == "ask":
+        return {"status": "ask", "reason": f"{direction} redirection requires approval"}
+    return {"status": "deny", "reason": f"{direction} redirection denied {preposition} {', '.join(targets)}"}
+
+
+def _unique_redirections(segments: list[Segment], ops: Collection[str], *, by_fd: bool) -> list[SegmentRedirection]:
+    """The redirections among *segments* whose operator is in *ops*, de-duplicated.
+
+    Compound-command redirections (while/until/if/``{ }`` group) are attributed
+    to every inner segment, so the same redirection appears once per segment.
+    Deduped by ``(op, target)``, plus the fd when *by_fd* - output keeps
+    distinct descriptors apart. The segment producers serialize the fd as a
+    str (``""`` when absent, ``"2"`` for ``2>``), and that scalar is the key.
+    """
+    unique: list[SegmentRedirection] = []
+    seen: set[tuple[str, str, str]] = set()
+    for seg in segments:
+        for r in seg.get("redirections") or []:
+            if r.get("Op") not in ops:
+                continue
+            fd = r.get("N", {}).get("Value", "") if by_fd else ""
+            key = (r.get("Op", ""), fd, _redir_target(r))
+            if key not in seen:
+                seen.add(key)
+                unique.append(r)
+    return unique
+
+
+def _command_names_in(node: dict[str, Any]) -> list[str]:
     """Recursively collect command names from a backgrounded AST node.
 
     Walks the whole subtree so any compound command type (Block, Subshell,
@@ -106,11 +141,11 @@ def _find_background_flags(node: dict[str, Any]) -> list[str]:
 
     for value in node.values():
         if isinstance(value, dict):
-            results.extend(_find_background_flags(value))
+            results.extend(_command_names_in(value))
         elif isinstance(value, list):
             for item in value:
                 if isinstance(item, dict):
-                    results.extend(_find_background_flags(item))
+                    results.extend(_command_names_in(item))
 
     return results
 
@@ -185,7 +220,7 @@ def _resolve_output_level(kinds: list[str], policy: dict[str, Any]) -> str:
     return "allow"
 
 
-def _check_segments_output_redirs(segments: list[Segment], rules: dict[str, Any]) -> dict[str, Any]:
+def _check_segments_output_redirs(segments: list[Segment], rules: dict[str, Any]) -> PolicyResult:
     """Evaluate output redirections collected from segments.
 
     Works on segment dicts produced by ``parse_segments`` - each segment's
@@ -198,60 +233,26 @@ def _check_segments_output_redirs(segments: list[Segment], rules: dict[str, Any]
     Args:
         segments: List of segment dicts from parse_segments.
         rules: Policy dict with ``output_redirection`` key.
-
-    Returns:
-        dict with ``status`` and ``reason``.
     """
-    policy = rules.get("output_redirection", "ask")
-
-    # compound-command redirections (while/until/if/{ } group) are
-    # attributed to every inner segment - the same redirection appears once per
-    # segment. Dedupe by (op, fd, target); distinct descriptors are preserved.
-    redirections: list[SegmentRedirection] = []
-    seen_output: set[tuple[str, str, str]] = set()
-    for seg in segments:
-        for r in seg.get("redirections") or []:
-            if r.get("Op") in WRITE_REDIRECT_OPS:
-                target = _redir_target(r)
-                # the segment producers serialize the fd as a str
-                # ("" when absent, "2" for `2>`) - that scalar is the dedupe key.
-                fd = r.get("N", {}).get("Value", "")
-                key = (r.get("Op", ""), fd, target)
-                if key not in seen_output:
-                    seen_output.add(key)
-                    redirections.append(r)
-
+    redirections = _unique_redirections(segments, WRITE_REDIRECT_OPS, by_fd=True)
     if not redirections:
         return {"status": "allow", "matched": False, "reason": "no output redirection"}
 
-    targets: list[str] = []
-    kinds: list[str] = []
-    for redir in redirections:
-        targets.append(_redir_target(redir))
-        kinds.extend(classify_output_redirection(redir))
+    targets = [_redir_target(redir) for redir in redirections]
+    blocked = _blocked_target_result(targets, rules)
+    if blocked is not None:
+        return blocked
 
-    # Check redirect targets against blocked paths (security check, applies to all policies).
-    blocked_patterns = rules.get("blocked_cmds_regex", [])
-    if blocked_patterns:
-        for target in targets:
-            matched, pattern = _find_blocked_path(target, blocked_patterns)
-            if matched:
-                return {
-                    "status": "deny",
-                    "reason": f'Redirect target "{target}" matches blocked pattern {pattern}',
-                }
-
-    level = _resolve_output_level(kinds, policy) if isinstance(policy, dict) else policy
-
-    if level == "allow":
-        return {"status": "allow", "reason": f"output redirection allowed to {', '.join(targets)}"}
-    elif level == "ask":
-        return {"status": "ask", "reason": "output redirection requires approval"}
+    policy = rules.get("output_redirection", "ask")
+    if isinstance(policy, dict):
+        kinds = [kind for redir in redirections for kind in classify_output_redirection(redir)]
+        level = _resolve_output_level(kinds, policy)
     else:
-        return {"status": "deny", "reason": f"output redirection denied to {', '.join(targets)}"}
+        level = policy
+    return _redirection_result("output", level, targets)
 
 
-def _check_segments_input_redirs(segments: list[Segment], rules: dict[str, Any]) -> dict[str, Any]:
+def _check_segments_input_redirs(segments: list[Segment], rules: dict[str, Any]) -> PolicyResult:
     """Evaluate input redirections collected from segments.
 
     Segment-level counterpart to :func:`_check_segments_output_redirs`, and
@@ -260,47 +261,19 @@ def _check_segments_input_redirs(segments: list[Segment], rules: dict[str, Any])
     Args:
         segments: List of segment dicts from parse_segments.
         rules: Policy dict with ``input_redirection`` key.
-
-    Returns:
-        dict with ``status`` and ``reason``.
     """
-    rules = rules or {}
-    policy = rules.get("input_redirection", "ask")
-    level = wildcard_level(policy) if isinstance(policy, dict) else policy
-
-    # dedupe by (op, target) - compound-command redirections are
-    # attributed to every inner segment.
-    input_redirs: list[dict[str, str]] = []
-    seen_input: set[tuple[str, str]] = set()
-    for seg in segments:
-        for r in seg.get("redirections") or []:
-            if r.get("Op") in INPUT_REDIRECT_OPS:
-                target = _redir_target(r)
-                key = (r["Op"], target)
-                if key not in seen_input:
-                    seen_input.add(key)
-                    input_redirs.append({"op": r["Op"], "target": target})
-
-    if not input_redirs:
+    redirections = _unique_redirections(segments, INPUT_REDIRECT_OPS, by_fd=False)
+    if not redirections:
         return {"status": "allow", "matched": False, "reason": "no input redirection"}
 
-    targets = [r["target"] for r in input_redirs]
-    blocked_patterns = rules.get("blocked_cmds_regex", [])
-    if blocked_patterns:
-        for target in targets:
-            matched, pattern = _find_blocked_path(target, blocked_patterns)
-            if matched:
-                return {
-                    "status": "deny",
-                    "reason": f'Redirect target "{target}" matches blocked pattern {pattern}',
-                }
+    targets = [_redir_target(redir) for redir in redirections]
+    blocked = _blocked_target_result(targets, rules)
+    if blocked is not None:
+        return blocked
 
-    if level == "allow":
-        return {"status": "allow", "reason": f"input redirection allowed from {', '.join(targets)}"}
-    elif level == "ask":
-        return {"status": "ask", "reason": "input redirection requires approval"}
-    else:
-        return {"status": "deny", "reason": f"input redirection denied from {', '.join(targets)}"}
+    policy = rules.get("input_redirection", "ask")
+    level = wildcard_level(policy) if isinstance(policy, dict) else policy
+    return _redirection_result("input", level, targets)
 
 
 def _collect_background_command_names(node: dict[str, Any], results: list[str]) -> None:
@@ -313,7 +286,7 @@ def _collect_background_command_names(node: dict[str, Any], results: list[str]) 
     if not isinstance(node, dict):
         return
     if node.get("Background") or node.get("Type") == "CoprocClause":
-        results.extend(_find_background_flags(node.get("Cmd") or node))
+        results.extend(_command_names_in(node.get("Cmd") or node))
     for value in node.values():
         if isinstance(value, dict):
             _collect_background_command_names(value, results)
@@ -323,7 +296,7 @@ def _collect_background_command_names(node: dict[str, Any], results: list[str]) 
                     _collect_background_command_names(item, results)
 
 
-def check_background_execution(tree: dict[str, Any], rules: dict[str, Any]) -> dict[str, Any]:
+def check_background_execution(tree: dict[str, Any], rules: dict[str, Any]) -> PolicyResult:
     """Evaluate background execution against rules.
 
     Detects background execution (trailing & operator) anywhere in the AST -
@@ -342,9 +315,8 @@ def check_background_execution(tree: dict[str, Any], rules: dict[str, Any]) -> d
         {"status": "allow", "reason": "no background execution"}.
     """
     policy = rules.get("background_execution", "ask")
-
-    # If policy is an object, use the wildcard level for now
-    # (per-type policies handled in the evaluator layer)
+    # The schema only admits a plain level; a dict (from an unvalidated
+    # config) is read by its wildcard.
     level = wildcard_level(policy) if isinstance(policy, dict) else policy
 
     background_commands: list[str] = []
@@ -358,18 +330,9 @@ def check_background_execution(tree: dict[str, Any], rules: dict[str, Any]) -> d
             "reason": "no background execution",
         }
 
+    names = ", ".join(background_commands)
     if level == "allow":
-        return {
-            "status": "allow",
-            "reason": f"background execution allowed: {', '.join(background_commands)}",
-        }
-    elif level == "ask":
-        return {
-            "status": "ask",
-            "reason": (f"background execution requires approval: {', '.join(background_commands)}"),
-        }
-    else:  # deny
-        return {
-            "status": "deny",
-            "reason": f"background execution denied: {', '.join(background_commands)}",
-        }
+        return {"status": "allow", "reason": f"background execution allowed: {names}"}
+    if level == "ask":
+        return {"status": "ask", "reason": f"background execution requires approval: {names}"}
+    return {"status": "deny", "reason": f"background execution denied: {names}"}

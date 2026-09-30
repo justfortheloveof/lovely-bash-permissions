@@ -56,8 +56,9 @@ ast.py               (leaf: the typed node dataclasses)
 inspect.py           -> ast               (queries over a tree the caller holds)
 converter.py         -> ast, parser       (raw JSON -> typed tree)
 segments.py          -> ast, converter, errors, inspect, parser
-rules.py             -> segments          (types only; policy on segment dicts)
-evaluate.py          -> ast, converter, inspect, parser, rules, segments
+matching.py          (leaf: the one regex matcher for allow and block lists)
+rules.py             -> matching, policy, segments (types only; policy on segment dicts)
+evaluate.py          -> ast, converter, inspect, matching, parser, policy, rules, segments
 cli.py               -> ast, converter, errors, inspect, segments
 __init__.py          re-exports the public surface
 ```
@@ -177,7 +178,8 @@ shipped.
 2. **`node_from_json(raw)`** — raw JSON becomes a typed `File`.
 3. **`_segments_from_ast(tree)`** — the typed AST becomes the flat segment list.
 4. **`rules.py` policy checks** over those segments, plus the per-segment
-   allowed/blocked matchers in `evaluate.py`.
+   allowed/blocked matchers in `evaluate.py`. Every regex match, in either
+   module, goes through `matching.match_texts`.
 5. **Verdict** — a `_Verdict` accumulator folded through the steps, ending in
    `{"status", "reason", "reasons", "segments"}`.
 
@@ -248,7 +250,7 @@ If you add a matcher, match the executed form.
 Two corollaries worth keeping: `DblQuoted` is rendered from its `parts`, never
 from its `value` field, because `value` is lossy and would read `"pre${x}y"` as
 `prey` - text the user never typed; and a bare `$(...)` stays a literal
-placeholder, with `evaluate._opaque_match_unreliable` dropping any match whose
+placeholder, with `matching.opaque_match_unreliable` dropping any match whose
 pattern would need a token only the expansion can produce, so the command is
 escalated rather than approved.
 

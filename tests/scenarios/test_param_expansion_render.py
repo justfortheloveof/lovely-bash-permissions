@@ -419,7 +419,7 @@ class TestNesting:
 class TestOpaquePlaceholders:
     """A ``$(...)`` operand must stay the exact opaque placeholder.
 
-    ``evaluate._command_string`` / ``_opaque_match_unreliable`` key off the
+    ``evaluate._command_string`` / ``matching.opaque_match_unreliable`` key off the
     literal string ``$(...)`` appearing in an argument; a bespoke operand
     renderer that emitted the substitution's raw text would silently break
     that safety net.
@@ -539,7 +539,7 @@ class TestDoubleQuotedFidelity:
 class TestDoubleQuotedOpaquePlaceholder:
     """``$(...)`` inside ``"..."`` must still render as the opaque placeholder.
 
-    ``evaluate._command_string`` and ``_opaque_match_unreliable`` key off the
+    ``evaluate._command_string`` and ``matching.opaque_match_unreliable`` key off the
     literal string ``$(...)`` to decide that a pattern match is unreliable, so
     recursing into a ``DblQuoted`` must not replace it with the substitution's
     own text.  The lossy ``value`` field dropped it outright (``"a$(cmd)b"``

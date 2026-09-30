@@ -10,26 +10,21 @@ allow, ask for approval, or deny the command.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal, TypedDict
+from typing import Any, TypedDict
 
 from .ast import CallExpr, CmdSubst, Node, ProcSubst, Subshell
 from .converter import node_from_json
 from .inspect import _traverse, _word_exec, _word_raw, _word_value, iter_children
+from .matching import match_texts
 from .parser import parse
 from .policy import POLICY_KEYS, Level, wildcard_level
 from .rules import (
     _check_segments_input_redirs,
     _check_segments_output_redirs,
-    _compile_pattern,
     check_background_execution,
 )
 from .segments import Segment, _segments_from_ast
-
-#: Regex metacharacters (unescaped) or lone backslashes that mark a pattern
-#: body as more than a plain escaped literal - i.e. not a bare-name anchor.
-_BARE_NAME_META = re.compile(r"(?<!\\)[()\[\]{}.*+?|^$]|\\(?!\\)")
 
 #: Human labels for the construct policy keys, as they appear in reasons.
 _CONSTRUCT_LABELS: dict[str, str] = {
@@ -280,30 +275,6 @@ def _command_string(name: str, args: list[str]) -> str:
     return name
 
 
-def _opaque_match_unreliable(pattern: str) -> bool:
-    """True when an opaque ``$(...)`` argument can hide the token a pattern
-    constrains, making a literal match on the placeholder unsafe to approve.
-
-    Two pattern shapes are affected: line-spanning negative lookaheads
-    (e.g. ``^find(?!.*\\s-(exec|delete|ok)...)``, whose ``(?!)`` scans the
-    whole command line and cannot see tokens produced at runtime by a
-    substitution) and bare-name anchors such as ``^true$`` (which accept no
-    arguments, so a command whose argument list is hidden entirely behind
-    ``$(...)`` must not be approved against them).
-    """
-    # Line-spanning negative lookahead: the guard scans the whole command
-    # line, so a substitute token never appears in the matched string.
-    if "(?!" in pattern:
-        return True
-    # Bare-name anchor (e.g. ^name$ from allowed_cmds_regex): accept no
-    # arguments, so any argument hidden behind $(...) invalidates the match.
-    # The body must be plain escaped text with no regex metacharacters.
-    body = pattern[1:-1] if pattern.startswith("^") and pattern.endswith("$") else None
-    if body is None:
-        return False
-    return not _BARE_NAME_META.search(body) if body else False
-
-
 def _texts_for(name: str, args: list[str], normalized_args: list[str] | None) -> list[str]:
     """Build the ordered candidate texts a command segment is matched against.
 
@@ -330,81 +301,25 @@ def _texts_for(name: str, args: list[str], normalized_args: list[str] | None) ->
     return texts
 
 
-def _match_texts(
-    texts: Sequence[str],
-    patterns: Sequence[str],
-    *,
-    opaque_guard: bool = False,
-    raw_fallback: Literal["always", "only-if-no-lookahead"] = "always",
-    has_opaque: bool = False,
-) -> list[tuple[str, str]]:
-    """Match *patterns* against *texts* - the single core behind both regex lists.
-
-    Iteration is pattern-major (outer loop over patterns, inner over texts),
-    so results come back in pattern order and at most one entry per pattern.
-    ``texts[0]`` is the executed / normalized form and is always tried;
-    ``texts[1:]`` is the raw form and is tried per *raw_fallback*:
-
-    - ``"always"``: both forms are tried (OR semantics - a hit on either
-      counts, which is what the denied direction wants).
-    - ``"only-if-no-lookahead"``: the raw form is a fallback only for patterns
-      that contain no ``(?!`` guard, because a quote-split spelling can fake
-      the text a lookahead scans but cannot change a lookahead's own verdict.
-
-    Args:
-        texts: Candidate texts in match-priority order (see :func:`_texts_for`).
-        patterns: Regex patterns to try, in list order.
-        opaque_guard: Drop matches whose pattern is unsafe to trust when the
-            command hides arguments behind ``$(...)`` (see
-            :func:`_opaque_match_unreliable`).
-        raw_fallback: Whether and when the raw-form texts are tried.
-        has_opaque: Whether the command actually holds a ``$(...)`` argument
-            (only then can *opaque_guard* fire).
-
-    Returns:
-        ``(pattern, text_that_hit)`` pairs in pattern order. Invalid patterns
-        are skipped rather than raised, so one bad regex can neither crash
-        evaluation nor silently approve a command.
-    """
-    if not texts:
-        return []
-    matches: list[tuple[str, str]] = []
-    for pattern in patterns:
-        try:
-            compiled = _compile_pattern(pattern)
-        except ValueError:
-            continue
-        candidates = texts[:1] if raw_fallback == "only-if-no-lookahead" and "(?!" in pattern else texts
-        hit = next((text for text in candidates if compiled.search(text)), None)
-        if hit is None:
-            continue
-        # The guard shape's verdict depends on tokens a substitution can hide,
-        # so a match here must not stand in for approval.
-        if opaque_guard and has_opaque and _opaque_match_unreliable(pattern):
-            continue
-        matches.append((pattern, hit))
-    return matches
-
-
 def _match_allowed_patterns(
     name: str, args: list[str], allowed_patterns: list[str], normalized_args: list[str] | None = None
 ) -> list[str]:
     """Return the allowed patterns matched by this command (name + args).
 
-    Thin wrapper over :func:`_match_texts` with approval-shaped settings: the
+    Thin wrapper over :func:`~.matching.match_texts` with approval-shaped settings: the
     executed form is tried first, the raw form only as a fallback for patterns
     carrying no ``(?!`` guard (the only shape a split text can fake), which
     preserves patterns written with explicit quotes.
 
     Matches are rejected when opaque ``$(...)`` arguments could change the
-    pattern's verdict - see :func:`_opaque_match_unreliable`.  Such commands
+    pattern's verdict - see :func:`~.matching.opaque_match_unreliable`.  Such commands
     are treated as not allowed, requesting approval instead of auto-approving.
 
     Returns:
         Every matching pattern, in list order.
     """
     has_opaque = any("$(...)" in a for a in args)
-    matches = _match_texts(
+    matches = match_texts(
         _texts_for(name, args, normalized_args),
         allowed_patterns,
         opaque_guard=True,
@@ -419,18 +334,17 @@ def _match_blocked_patterns(
 ) -> tuple[bool, str | None, str | None]:
     """Return whether a joined command line matches blocked patterns.
 
-    Thin wrapper over :func:`_match_texts` with denial-shaped settings: both
+    Thin wrapper over :func:`~.matching.match_texts` with denial-shaped settings: both
     the executed and the raw join are always tried (OR semantics - a hit on
     either denies), and no opaque-argument guard applies because an unsafe
-    denial needs none. Invalid patterns never hit (mirrors
-    :func:`rules._match_pattern`).
+    denial needs none. Invalid patterns never hit.
 
     Returns:
         ``(True, pattern, value)`` for the first hit, where ``value`` is the
         joined line that hit (the normalized form preferred), else
         ``(False, None, None)``.
     """
-    matches = _match_texts(_texts_for(name, args, normalized_args), blocked_patterns, raw_fallback="always")
+    matches = match_texts(_texts_for(name, args, normalized_args), blocked_patterns, raw_fallback="always")
     if not matches:
         return False, None, None
     pattern, text = matches[0]
@@ -489,7 +403,7 @@ def _whole_command_hits(command: str, blocked_patterns: list[str]) -> list[tuple
     """
     if not blocked_patterns:
         return []
-    return _match_texts([command], blocked_patterns, raw_fallback="always")
+    return match_texts([command], blocked_patterns, raw_fallback="always")
 
 
 def _substitution_blocked_reasons(ast: Node | None, blocked_patterns: list[str]) -> list[str]:
