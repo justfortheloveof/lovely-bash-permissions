@@ -442,6 +442,22 @@ class TestTheEntryPoint:
         assert exit_info.value.code == 0
         assert seen == [("ls", str(config), "strict")]
 
+    def test_print_schema_prints_the_bash_block_schema(
+        self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(sys, "argv", ["lovely-pi-bash-permissions", "--print-schema"])
+        with pytest.raises(SystemExit) as exit_info:
+            pi_cli.main()
+        assert exit_info.value.code == 0
+        assert json.loads(capsys.readouterr().out) == pi_cli.bash_config_schema()
+
+    @pytest.mark.parametrize("argv", [["--test"], ["ls"], ["--mode", "x"]])
+    def test_print_schema_takes_no_other_arguments(self, argv: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(sys, "argv", ["lovely-pi-bash-permissions", "--print-schema", *argv])
+        with pytest.raises(SystemExit) as exit_info:
+            pi_cli.main()
+        assert exit_info.value.code == pi_cli.EXIT_USAGE
+
     def test_help_mentions_read_as_given(
         self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -567,3 +583,31 @@ class TestThePathsAUserHits:
         exists would raise a second error while reporting the first.
         """
         assert pi_cli._pydantic_message(ValueError("plain")) == "plain"
+
+
+class TestPrintSchemaContract:
+    """The schema the extension's contract test reads is the vocabulary the engine enforces.
+
+    The extension compares its ``BashConfig`` against this output, so this
+    side pins that the output is exactly :mod:`lovely_bash_permissions.policy`:
+    a key added to the vocabulary appears here, and so fails the extension's
+    test until its type gains the key too.
+    """
+
+    def test_top_level_keys_are_the_valid_bash_config_keys(self) -> None:
+        from lovely_bash_permissions.config.schema import VALID_BASH_CONFIG_KEYS
+
+        schema = pi_cli.bash_config_schema()
+        assert set(schema["properties"]) == set(VALID_BASH_CONFIG_KEYS)
+        assert schema["additionalProperties"] is False
+
+    def test_output_redirection_kinds_are_the_policy_kinds(self) -> None:
+        from lovely_bash_permissions.policy import OUTPUT_REDIRECTION_KINDS
+
+        policy = pi_cli.bash_config_schema()["$defs"]["OutputRedirectionPolicy"]
+        assert set(policy["properties"]) == {"*", *OUTPUT_REDIRECTION_KINDS}
+        assert policy["additionalProperties"] is False
+
+    def test_levels_are_allow_ask_deny(self) -> None:
+        levels = pi_cli.bash_config_schema()["$defs"]["PermissionLevel"]["enum"]
+        assert sorted(levels) == ["allow", "ask", "deny"]

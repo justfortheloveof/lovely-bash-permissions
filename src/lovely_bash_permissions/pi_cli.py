@@ -4,13 +4,16 @@ The client is `lovely-pi-permissions <https://github.com/jftlo/lovely-pi-permiss
 a TypeScript Pi extension. This CLI is the Python half. The two are never the
 same thing and are never referred to interchangeably.
 
-Two surfaces, and nothing else (D9):
+Two surfaces, plus one developer flag (D9):
 
 - **the protocol path** (no flags): reads one JSON request from stdin, writes
   one JSON response to stdout, and exits. This is what the extension drives,
   for bash tool calls only.
 - **``--test``**: evaluates one command against one config and exits. A
   developer tool, not part of the protocol.
+- **``--print-schema``**: prints the JSON Schema of a bash block and exits. It
+  is what the extension's contract test reads, so the two repositories'
+  config vocabularies cannot drift apart silently. Not part of the protocol.
 
 **One process, one request, one response.** There is no long-lived server and
 no stream to keep aligned: the extension spawns this binary per call and reads
@@ -453,6 +456,22 @@ def run_test(command: str, path: str | None, mode: str | None) -> int:
 
 
 # ---------------------------------------------------------------------------
+# --print-schema
+# ---------------------------------------------------------------------------
+
+
+def bash_config_schema() -> dict[str, Any]:
+    """The JSON Schema of a bash block, keyed by wire names (``*``, not ``wildcard``).
+
+    This is the vocabulary the extension's ``BashConfig`` type must match: a
+    key the extension declares and this schema does not is rejected by
+    ``validate``, and a key this schema accepts and the extension does not
+    declare cannot be written without a type error.
+    """
+    return ToolConfig.model_json_schema(by_alias=True)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -495,7 +514,18 @@ def main() -> None:
         metavar="NAME",
         help="With --test: which mode of a mode-wrapped config to use. Defaults to the first.",
     )
+    parser.add_argument(
+        "--print-schema",
+        action="store_true",
+        help="Print the JSON Schema of a bash config block and exit. For the extension's contract test.",
+    )
     args = parser.parse_args()
+
+    if args.print_schema:
+        if args.test or args.command is not None or args.config is not None or args.mode is not None:
+            _fail("--print-schema takes no other arguments")
+        print(json.dumps(bash_config_schema(), indent=2, ensure_ascii=False))
+        sys.exit(EXIT_VERDICT)
 
     if not args.test:
         if args.command is not None or args.config is not None or args.mode is not None:

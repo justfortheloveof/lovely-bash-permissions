@@ -184,6 +184,17 @@ Note that `blocked_paths_regex` — which the extension documents for non-bash
 tools — is **not** a bash key. Under `bash` it is rejected like any other unknown
 key. Path blocking for bash is `blocked_cmds_regex`.
 
+### `--print-schema`
+
+```bash
+lovely-pi-bash-permissions --print-schema
+```
+
+prints this schema as JSON Schema, keyed by wire names (`*`, not `wildcard`),
+and exits 0. It is not part of the protocol: it is what the extension's
+contract test reads, to fail when its `BashConfig` type and this vocabulary
+disagree — in either direction, since both are silent at runtime otherwise.
+
 ## The level fallback chain (D6)
 
 A tool's level is resolved in this order, and each step is a real config key:
@@ -275,9 +286,12 @@ every command then routes through the `error` policy — which is `allow` under
 
 In preference order:
 
-1. an explicit path in the extension config, if present
-2. `LOVELY_PI_BASH_PERMISSIONS_BIN` in the environment
-3. `lovely-pi-bash-permissions` on `PATH`
+1. `LOVELY_PI_BASH_PERMISSIONS_BIN` in the environment
+2. `lovely-pi-bash-permissions` on `PATH`
+
+There is no config key for the path: the config includes a project file, and a
+key there would let a repository choose the program that decides its own
+permissions.
 
 A miss blocks all bash by design, so the failure is discovered and reported at
 `session_start` rather than on the first command.
