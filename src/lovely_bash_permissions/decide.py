@@ -22,11 +22,12 @@ from typing import Any
 
 from .config.effective_bash import resolve_bash_config
 from .evaluate import evaluate_bash_command
+from .policy import Level
 
 #: The product's level vocabulary, mapped to itself. Named so the seam reads as
 #: a translation of one vocabulary into the host's, rather than as a lookup with
 #: a surprise value in it.
-LEVEL_TO_ACTION: dict[str, str] = {"allow": "allow", "ask": "ask", "deny": "deny"}
+LEVEL_TO_ACTION: dict[str, Level] = {"allow": "allow", "ask": "ask", "deny": "deny"}
 
 
 def error_action(config: dict[str, Any], exc: BaseException) -> dict[str, Any]:

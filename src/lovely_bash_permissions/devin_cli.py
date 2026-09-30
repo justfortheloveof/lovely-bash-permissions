@@ -22,6 +22,7 @@ from .config.jsonc import read_jsonc_file
 from .config.loader import get_permissions_config_file_paths
 from .config.manager import PermissionsManager
 from .hook import HOOK_LABEL_PREFIX, generate_hook_response, process_hook_event
+from .policy import wildcard_level
 
 #: The Devin ``permissions.allow`` entry that lets the hook's own ``:`` no-op
 #: label run without prompting again. Deliberately just ``Exec(:)`` rather than a
@@ -167,7 +168,7 @@ def handle_show_config() -> None:
 
     raw_bash = manager.get_lovely_config()
     try:
-        bash = get_effective_bash_config(raw_bash.get("bash"), project_dir, raw_bash.get("*", "ask"))
+        bash = get_effective_bash_config(raw_bash.get("bash"), project_dir, wildcard_level(raw_bash))
     except (ValueError, FileNotFoundError, OSError):
         print(with_error_prefix("effective bash config load failed"), file=sys.stderr)
         sys.exit(1)

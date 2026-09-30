@@ -11,6 +11,7 @@ import re
 from functools import lru_cache
 from typing import Any
 
+from .policy import wildcard_level
 from .segments import Segment, SegmentRedirection
 
 #: Redirection operators that open a file for writing (or for reading *and*
@@ -166,13 +167,13 @@ def _resolve_output_level(kinds: list[str], policy: dict[str, Any]) -> str:
     Returns:
         "allow", "ask", or "deny".
     """
-    wildcard_level = policy.get("*", "ask")
+    default = wildcard_level(policy)
 
     has_deny = False
     has_ask = False
     for kind in kinds:
         # Each kind gets its own level lookup, independent of others
-        level = policy.get(kind, wildcard_level)
+        level = policy.get(kind, default)
         if level == "deny":
             has_deny = True
         elif level == "ask":
@@ -265,7 +266,7 @@ def _check_segments_input_redirs(segments: list[Segment], rules: dict[str, Any])
     """
     rules = rules or {}
     policy = rules.get("input_redirection", "ask")
-    level = policy.get("*", "ask") if isinstance(policy, dict) else policy
+    level = wildcard_level(policy) if isinstance(policy, dict) else policy
 
     # dedupe by (op, target) - compound-command redirections are
     # attributed to every inner segment.
@@ -344,7 +345,7 @@ def check_background_execution(tree: dict[str, Any], rules: dict[str, Any]) -> d
 
     # If policy is an object, use the wildcard level for now
     # (per-type policies handled in the evaluator layer)
-    level = policy.get("*", "ask") if isinstance(policy, dict) else policy
+    level = wildcard_level(policy) if isinstance(policy, dict) else policy
 
     background_commands: list[str] = []
     _collect_background_command_names(tree, background_commands)

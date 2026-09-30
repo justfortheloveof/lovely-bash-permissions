@@ -13,8 +13,9 @@ list was written out three times, by hand, in three modules, with nothing
 tying the copies together. One declaration removes the possibility rather than
 testing for it.
 
-This module holds data only and imports nothing, so the library half and the
-Devin half can both depend on it without a cycle.
+This module holds data (plus one trivial accessor) and imports nothing from
+the package, so the library half and the Devin half can both depend on it
+without a cycle.
 
 ``error`` is deliberately absent. It is a level-bearing key and the docs group
 it with the others, but it is not gated per construct: it is read by the hook
@@ -25,7 +26,28 @@ here but read elsewhere.
 
 from __future__ import annotations
 
-from typing import Final
+from collections.abc import Mapping
+from typing import Any, Final, Literal
+
+#: A permission level, in this product's vocabulary. ``block`` is Devin's wire
+#: word and is deliberately not one of these.
+Level = Literal["allow", "ask", "deny"]
+
+#: The level every unset wildcard falls back to.
+DEFAULT_LEVEL: Final[Level] = "ask"
+
+#: The wire key that carries a block's default level.
+WILDCARD_KEY: Final = "*"
+
+
+def wildcard_level(block: Mapping[str, Any]) -> Any:  # noqa: ANN401 - config values are unvalidated
+    """The block's ``*`` level, or :data:`DEFAULT_LEVEL` when the key is absent.
+
+    ``.get`` semantics, not ``or``: an explicitly empty wildcard is returned as
+    written, exactly as every call site this replaced behaved.
+    """
+    return block.get(WILDCARD_KEY, DEFAULT_LEVEL)
+
 
 #: Constructs the evaluator gates individually, each overridable by a config
 #: key of the same name. Order is alphabetical.

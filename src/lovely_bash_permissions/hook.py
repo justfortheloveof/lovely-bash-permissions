@@ -11,6 +11,7 @@ from typing import Any
 from . import decide
 from .config.effective_bash import get_effective_bash_config
 from .config.manager import PermissionsManager
+from .policy import wildcard_level
 
 HOOK_LABEL_PREFIX = "[♡ perms: "
 
@@ -192,7 +193,7 @@ def process_hook_event(event: dict[str, Any]) -> dict[str, Any]:
         return {"action": "block", "reason": f"invalid permissions config (blocked): {exc}"}
 
     try:
-        config = get_effective_bash_config(raw_config.get("bash"), project_dir, raw_config.get("*", "ask"))
+        config = get_effective_bash_config(raw_config.get("bash"), project_dir, wildcard_level(raw_config))
     except (ValueError, FileNotFoundError, OSError) as exc:
         # Effective config (lovely + Devin exec rules) could not be computed -
         # e.g. a malformed Devin Exec(...) allow rule. Fail closed instead of
@@ -203,7 +204,7 @@ def process_hook_event(event: dict[str, Any]) -> dict[str, Any]:
 
     # `config` is already resolved, so `decide_bash_command` re-resolving it is
     # idempotent: every key carries its level and the wildcards agree.
-    decision = decide.decide_bash_command(command, config, raw_config.get("*", "ask"))
+    decision = decide.decide_bash_command(command, config, wildcard_level(raw_config))
     # Translated here, at the seam, and nowhere else - see D12. `reasons` is
     # dropped rather than forwarded: the Devin contract is exactly these two
     # keys, and `pinned by tests/test_hook.py`.
