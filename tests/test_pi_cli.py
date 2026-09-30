@@ -1,6 +1,6 @@
 """Tests for pi_cli.py: the wire protocol, and --test.
 
-Split in two halves on purpose. The protocol half drives `serve` and
+Split in two halves on purpose. The protocol half drives `run_once` and
 `handle_request` in-process, so a failure points at a line rather than at a
 pipe. The e2e half lives in `tests/test_protocol_e2e.py`, because the layer
 this file cannot reach is the one that breaks - see that file's docstring.
@@ -24,84 +24,113 @@ def _request(**kwargs: object) -> str:
     return json.dumps(kwargs)
 
 
-def _serve(*lines: str) -> list[dict[str, Any]]:
-    """Run `lines` through the server loop and return the parsed responses."""
+def _run(payload: str) -> dict[str, Any]:
+    """Push one request through `run_once` and return the parsed response."""
     out = io.StringIO()
-    pi_cli.serve(io.StringIO("".join(f"{line}\n" for line in lines)), out)
-    return [json.loads(line) for line in out.getvalue().splitlines()]
+    pi_cli.run_once(io.StringIO(payload), out)
+    parsed: dict[str, Any] = json.loads(out.getvalue())
+    return parsed
 
 
-class TestFraming:
-    """One response line per request line, always. The invariant everything else rests on.
+def _exit(payload: str) -> int:
+    """The exit code `run_once` returns for one request."""
+    return pi_cli.run_once(io.StringIO(payload), io.StringIO())
 
-    It is what lets the client count instead of correlate: no ids, no matching.
-    Break it and a response written for one request is read as another's
-    answer, which is silent and adversarial - a command that was never
-    evaluated gets a verdict from a different command.
+
+class TestOneShot:
+    """One request, one response, one exit. The invariant everything else rests on.
+
+    There is no longer a stream to keep aligned, and that is the point: the
+    class of bug this file used to guard - a response written for one request
+    read as another's answer - cannot be written at all when the process
+    handles exactly one request and exits. These tests pin what replaced the
+    counting, which is that a client which sends more than one request gets an
+    honest error instead of a partial answer.
     """
 
-    def test_one_response_per_request(self) -> None:
-        responses = _serve(
-            _request(op="evaluate", command="ls", config={"*": "ask"}, top_level="ask"),
-            _request(op="validate", config={"*": "ask"}),
-            _request(op="evaluate", command="ls", config={"*": "deny"}, top_level="deny"),
+    def test_one_request_produces_one_response(self) -> None:
+        assert _run(_request(op="evaluate", command="ls", config={"*": "ask"}, top_level="ask"))["action"] == "ask"
+
+    def test_the_verdict_is_in_the_body_not_the_exit_code(self) -> None:
+        """A deny is a decision, so it exits 0. The client reads the body."""
+        assert _exit(_request(op="evaluate", command="ls", config={"*": "deny"})) == pi_cli.EXIT_VERDICT
+
+    def test_a_validate_answer_exits_zero_even_when_invalid(self) -> None:
+        """`valid: false` is a successful answer to "is this config usable?"."""
+        response = _run(_request(op="validate", config={"nope": 1}))
+        assert response["valid"] is False
+        assert _exit(_request(op="validate", config={"nope": 1})) == pi_cli.EXIT_VERDICT
+
+    def test_two_requests_are_an_error_not_a_partial_answer(self) -> None:
+        """The guard that makes misalignment unrepresentable.
+
+        Reading a single line instead of all of stdin would answer the first
+        request and silently drop the second. Reading all of it turns that into
+        one error the caller can see.
+        """
+        response = _run(
+            _request(op="evaluate", command="ls", config={"*": "ask"}) + "\n" + _request(op="validate", config={})
         )
-        assert [r.get("action") or r.get("valid") for r in responses] == ["ask", True, "deny"]
+        assert response["valid"] is False
+        assert "malformed request" in response["error"]
+        assert "action" not in response
 
-    def test_responses_are_in_request_order(self) -> None:
-        responses = _serve(*[_request(op="evaluate", command=f"echo {i}", config={"*": "deny"}) for i in range(6)])
-        assert len(responses) == 6
-        assert all(f'"echo {i}"' in r["reason"] or "echo" in r["reason"] for i, r in enumerate(responses))
+    def test_trailing_newlines_are_accepted(self) -> None:
+        """A client that writes a trailing `\\n` must not get a parse error."""
+        assert _run(_request(op="validate", config={}) + "\n")["valid"] is True
 
-    def test_a_malformed_line_desynchronises_by_exactly_one(self) -> None:
-        responses = _serve(
-            "this is not json",
-            _request(op="evaluate", command="ls", config={"*": "ask"}, top_level="ask"),
-        )
-        assert len(responses) == 2
-        assert "malformed request" in responses[0]["error"]
-        assert responses[1]["action"] == "ask"
+    def test_empty_stdin_fails_closed_rather_than_answering_ask(self) -> None:
+        """A hook with no input is normal; this is not a hook.
 
-    def test_a_malformed_line_does_not_end_the_session(self) -> None:
-        responses = _serve("{{{", "also bad", _request(op="validate", config={}))
-        assert len(responses) == 3
-        assert responses[-1]["valid"] is True
+        The dangerous failure is inventing a verdict: a caller that wrote
+        nothing must be told so, not handed a default for a command nobody sent.
+        """
+        response = _run("")
+        assert response["valid"] is False
+        assert "no request on stdin" in response["error"]
+        assert "action" not in response
+        assert _exit("") == pi_cli.EXIT_USAGE
+        assert _exit("   \n  \n") == pi_cli.EXIT_USAGE
 
-    def test_a_non_object_request_is_an_error_not_a_crash(self) -> None:
-        responses = _serve("[1, 2, 3]", '"a string"', "null", _request(op="validate", config={}))
-        assert len(responses) == 4
-        assert all("malformed request" in r["error"] for r in responses[:3])
-        assert responses[-1]["valid"] is True
+    def test_malformed_json_is_an_error_response_not_a_crash(self) -> None:
+        response = _run("this is not json")
+        assert "malformed request" in response["error"]
+        assert _exit("this is not json") == pi_cli.EXIT_USAGE
 
-    def test_blank_lines_are_not_requests(self) -> None:
-        assert _serve("", "   ", _request(op="validate", config={})) == [{"protocol": 1, "valid": True}]
+    @pytest.mark.parametrize("payload", ["[1, 2, 3]", '"a string"', "null", "42"])
+    def test_a_non_object_request_is_an_error_not_a_crash(self, payload: str) -> None:
+        response = _run(payload)
+        assert "expected a JSON object" in response["error"]
+        assert _exit(payload) == pi_cli.EXIT_USAGE
 
-    def test_eof_returns_cleanly(self) -> None:
-        assert pi_cli.serve(io.StringIO(""), io.StringIO()) == 0
-
-    def test_protocol_is_on_every_line_not_just_validate(self) -> None:
-        """So the client can assert it on the first exchange it sees, whichever op it sent."""
-        for line in _serve(
+    def test_protocol_is_on_every_response_not_just_validate(self) -> None:
+        """So the client can assert it on the first response it sees, whichever op it sent."""
+        for payload in (
             _request(op="evaluate", command="ls", config={"*": "ask"}, top_level="ask"),
             _request(op="validate", config={}),
             "garbage",
             _request(op="whatever"),
         ):
-            assert line["protocol"] == pi_cli.PROTOCOL_VERSION
+            assert _run(payload)["protocol"] == pi_cli.PROTOCOL_VERSION
 
     def test_an_internal_error_becomes_a_response_not_a_crash(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def explode(_request: object) -> dict[str, Any]:
             raise RuntimeError("kaboom")
 
         monkeypatch.setattr(pi_cli, "handle_request", explode)
-        responses = _serve(_request(op="validate", config={}))
-        assert len(responses) == 1
-        assert "kaboom" in responses[0]["error"]
+        response = _run(_request(op="validate", config={}))
+        assert "kaboom" in response["error"]
+        assert _exit(_request(op="validate", config={})) == pi_cli.EXIT_USAGE
+
+    def test_an_unparseable_command_is_still_answered(self) -> None:
+        """The evaluation layer decides this, not the transport - but it must answer."""
+        response = _run(_request(op="evaluate", command=UNPARSEABLE, config={"*": "allow"}, top_level="allow"))
+        assert response["action"] in {"allow", "ask", "deny"}
 
     def test_the_response_is_json_serialisable(self) -> None:
         """The reason strings carry quotes, newlines and shell text; they must survive."""
-        responses = _serve(_request(op="evaluate", command="echo 'a\"b'", config={"*": "deny"}))
-        assert json.loads(json.dumps(responses[0])) == responses[0]
+        response = _run(_request(op="evaluate", command="echo 'a\"b'", config={"*": "deny"}))
+        assert json.loads(json.dumps(response)) == response
 
 
 class TestEvaluateOp:
@@ -359,17 +388,17 @@ class TestTestMode:
 
 
 class TestTheEntryPoint:
-    """`main` is where the two modes are told apart, and a mix-up there is silent."""
+    """`main` is where the two surfaces are told apart, and a mix-up there is silent."""
 
-    def test_no_arguments_serves(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_no_arguments_reads_one_request(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls: list[int] = []
 
-        def fake_serve(*_args: object, **_kwargs: object) -> int:
+        def fake_run_once(*_args: object, **_kwargs: object) -> int:
             calls.append(1)
             return 0
 
         monkeypatch.setattr(sys, "argv", ["lovely-pi-bash-permissions"])
-        monkeypatch.setattr(pi_cli, "serve", fake_serve)
+        monkeypatch.setattr(pi_cli, "run_once", fake_run_once)
         with pytest.raises(SystemExit) as exit_info:
             pi_cli.main()
         assert exit_info.value.code == 0
@@ -381,9 +410,9 @@ class TestTheEntryPoint:
     )
     def test_a_bare_argv_is_a_usage_error(self, argv: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
         def unreachable() -> int:
-            raise AssertionError("must not serve when the invocation is not server mode")
+            raise AssertionError("must not read a request when the invocation is not the protocol path")
 
-        monkeypatch.setattr(pi_cli, "serve", unreachable)
+        monkeypatch.setattr(pi_cli, "run_once", unreachable)
         monkeypatch.setattr(sys, "argv", ["lovely-pi-bash-permissions", *argv])
         with pytest.raises(SystemExit) as exit_info:
             pi_cli.main()

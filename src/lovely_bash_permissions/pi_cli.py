@@ -1,4 +1,4 @@
-"""``lovely-pi-bash-permissions`` - the bash permission server for the Pi extension.
+"""``lovely-pi-bash-permissions`` - bash permission decisions for the Pi extension.
 
 The client is `lovely-pi-permissions <https://github.com/jftlo/lovely-pi-permissions>`_,
 a TypeScript Pi extension. This CLI is the Python half. The two are never the
@@ -6,13 +6,19 @@ same thing and are never referred to interchangeably.
 
 Two surfaces, and nothing else (D9):
 
-- **server mode** (no flags): reads newline-delimited JSON requests on stdin and
-  writes exactly one response line per request on stdout, until EOF. This is
-  what the extension drives, for bash tool calls only.
+- **the protocol path** (no flags): reads one JSON request from stdin, writes
+  one JSON response to stdout, and exits. This is what the extension drives,
+  for bash tool calls only.
 - **``--test``**: evaluates one command against one config and exits. A
   developer tool, not part of the protocol.
 
-**This process resolves nothing and loads nothing in server mode.** Config
+**One process, one request, one response.** There is no long-lived server and
+no stream to keep aligned: the extension spawns this binary per call and reads
+the single response object it produces. That is why ``op`` still exists (there
+are two operations, and the client must say which) while a *sequence* of
+requests has no meaning here at all.
+
+**This process resolves nothing and loads nothing in the protocol path.** Config
 discovery, deep-merge and mode selection belong to the extension (D1); the
 extension sends a resolved bash block and this side validates and evaluates it.
 The one exception is ``--test``, which may unwrap a mode container because a
@@ -163,10 +169,10 @@ def op_validate(config: object) -> dict[str, Any]:
         return {"protocol": PROTOCOL_VERSION, "valid": False, "error": _pydantic_message(exc)}
 
     # The binary is probed here, not lazily, and that is the whole reason this
-    # op exists separately. A missing shfmt is not a crash: the server spawns
-    # fine, the handshake passes, and every command then routes through the
+    # op exists separately. A missing shfmt is not a crash: this process starts
+    # fine, reports `valid: true`, and every `evaluate` then routes through the
     # `error` policy instead - which under `{"*": "allow"}` is `allow`. The
-    # process looks healthy while the shell is wide open, and the only clue is
+    # binary looks healthy while the shell is wide open, and the only clue is
     # a reason string mentioning a parse failure. Shfmt is a bare Go binary
     # that `shfmt-py` drops into the venv's `bin/`; there is no import that
     # could fail instead, so the probe has to be explicit.
@@ -227,10 +233,12 @@ def op_evaluate(command: object, config: object, top_level: object) -> dict[str,
 def handle_request(request: dict[str, Any]) -> dict[str, Any]:
     """One request dict -> one response dict. Never raises.
 
-    The invariant is one response line per request line, always. A request this
-    cannot answer gets an error response and the stream continues: a desync
-    would silently misalign every verdict after it, and a crash would take the
-    extension's shell down with the server.
+    A request this cannot answer gets an error response rather than an
+    exception. There is no stream to protect any more, but the reason the
+    invariant survives is unchanged in spirit: a crash here would produce no
+    response at all, and the client has to distinguish "I asked something
+    unanswerable" from "the engine died", which it can only do if this never
+    raises.
     """
     op = request.get("op")
     if op == "evaluate":
@@ -245,30 +253,51 @@ def handle_request(request: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Server mode
+# The protocol path
 # ---------------------------------------------------------------------------
 
 
-def serve(source: Any = None, sink: Any = None) -> int:  # noqa: ANN401 - any readable line source, any writable text sink
-    """Read requests until EOF, writing one response line each.
+def run_once(source: Any = None, sink: Any = None) -> int:  # noqa: ANN401 - any readable text source, any writable text sink
+    """Read one request, write one response, and return the exit code.
 
-    `print(..., flush=True)` on every response, because stdout is a pipe and
-    therefore block-buffered: a long-lived server that does not flush looks
-    hung from the client's side, and the client is holding a 10 s timeout.
+    All of stdin is read, not one line, and that is deliberate. A client that
+    sent two requests would have its whole payload fail to parse and get one
+    honest error, rather than have this process silently answer the first and
+    discard the second - which is the whole class of misalignment a stream used
+    to allow and no longer can.
+
+    The verdict is in the response body, never in the exit code. The exit code
+    answers a different question - did this process manage to produce a
+    response object at all - so a ``deny`` verdict is 0 (a decision was
+    produced) and only an internal failure is 1.
     """
-    lines = source if source is not None else sys.stdin
+    inp = source if source is not None else sys.stdin
     out = sink if sink is not None else sys.stdout
-    for line in lines:
-        if not line.strip():
-            continue
+
+    raw = inp.read()
+    exit_code = EXIT_VERDICT
+    if not raw.strip():
+        # A hook with no input is normal and exits quietly; this is not a hook.
+        # An empty request means the caller failed to write one, so say so
+        # rather than answering "ask" for a command nobody sent.
+        response: dict[str, Any] = {
+            "protocol": PROTOCOL_VERSION,
+            "valid": False,
+            "error": (
+                "no request on stdin: this process reads exactly one JSON request and answers it with one JSON response"
+            ),
+        }
+        exit_code = EXIT_USAGE
+    else:
         try:
-            request = json.loads(line)
+            request = json.loads(raw)
         except ValueError as exc:
-            response: dict[str, Any] = {
+            response = {
                 "protocol": PROTOCOL_VERSION,
                 "valid": False,
                 "error": f"malformed request: {exc}",
             }
+            exit_code = EXIT_USAGE
         else:
             if not isinstance(request, dict):
                 response = {
@@ -276,31 +305,38 @@ def serve(source: Any = None, sink: Any = None) -> int:  # noqa: ANN401 - any re
                     "valid": False,
                     "error": "malformed request: expected a JSON object",
                 }
+                exit_code = EXIT_USAGE
             else:
                 try:
                     response = handle_request(request)
-                except Exception as exc:  # noqa: BLE001 - one bad request must not end the session
+                except Exception as exc:  # noqa: BLE001 - no response at all is worse than an error response
                     print(f"lovely-pi-bash-permissions: {type(exc).__name__}: {exc}", file=sys.stderr)
                     response = {
                         "protocol": PROTOCOL_VERSION,
                         "valid": False,
                         "error": f"internal error: {type(exc).__name__}: {exc}",
                     }
-        try:
-            out.write(json.dumps(response, ensure_ascii=False) + "\n")
-            out.flush()
-        except BrokenPipeError:
-            # The client went away mid-session - it timed out, or the user quit.
-            # That is a normal end, not a crash: exiting quietly here matters
-            # because the client is holding a 10 s timeout and a traceback on
-            # stderr at this exact moment is the one thing it would report as a
-            # server fault. Note that `flush` can raise on a *later* write, so
-            # the interpreter's own shutdown flush has to be silenced too -
-            # otherwise it prints "Exception ignored" and an error code after
-            # this returns.
-            _silence_interpreter_flush()
-            return EXIT_VERDICT
-    return EXIT_VERDICT
+                    exit_code = EXIT_USAGE
+
+    # One small object into a pipe buffer that will not be read until this
+    # returns, so there is nothing to flush for - but the read end may already
+    # be gone anyway. The client kills this process on a request timeout and on
+    # `session_shutdown`, and either can land during the write. That used to be
+    # a narrow window in a long-lived server answering on a timer; it is narrower
+    # now, but not closed, and an unhandled EPIPE would turn a missing response
+    # into a traceback and a non-zero exit - which the client reads as an
+    # engine failure and routes through the `error` policy. A reader that has
+    # already gone away is not a policy event, so it exits 0 and says nothing.
+    try:
+        out.write(json.dumps(response, ensure_ascii=False) + "\n")
+        out.flush()
+    except BrokenPipeError:
+        # `flush` can raise on a *later* write, so the interpreter's own
+        # shutdown flush has to be silenced too - otherwise it prints
+        # "Exception ignored" and an error code after this returns.
+        _silence_interpreter_flush()
+        return EXIT_VERDICT
+    return exit_code
 
 
 def _silence_interpreter_flush() -> None:
@@ -375,8 +411,8 @@ def _load_test_config(path: str | None, mode: str | None) -> tuple[dict[str, Any
     merge at all.
 
     Unwrapping a mode container is host-shape knowledge that brushes D1, which
-    is why it lives here and not in the server. Teaching the server about
-    modes would undo D1.
+    is why it lives here and not in the protocol path. Teaching the protocol
+    path about modes would undo D1.
 
     Returns the bash block and the wildcard the mode supplies for it.
     """
@@ -429,8 +465,8 @@ def run_test(command: str, path: str | None, mode: str | None) -> int:
 
     Both routes land in the same validator and the same call into
     :func:`decide.decide_bash_command`; there is exactly one code path into the
-    decision here, or `--test` would be testing something the server does not
-    do.
+    decision here, or `--test` would be testing something the protocol path
+    does not do.
     """
     if not command.strip():
         _fail("no command given")
@@ -453,8 +489,8 @@ def main() -> None:
         prog="lovely-pi-bash-permissions",
         description=(
             "Bash permission decisions for the lovely-pi-permissions Pi extension. "
-            "With no arguments, serves newline-delimited JSON on stdin/stdout. "
-            "--test evaluates a single command and exits."
+            "With no arguments, reads one JSON request on stdin, writes one JSON response "
+            "on stdout, and exits. --test evaluates a single command and exits."
         ),
     )
     parser.add_argument(
@@ -490,8 +526,10 @@ def main() -> None:
 
     if not args.test:
         if args.command is not None or args.config is not None or args.mode is not None:
-            _fail("a command, a config path and --mode only apply to --test; run the server with no arguments")
-        sys.exit(serve())
+            _fail(
+                "a command, a config path and --mode only apply to --test; run with no arguments to read one request on stdin"
+            )
+        sys.exit(run_once())
 
     if args.command is None:
         _fail("--test needs a command to evaluate")
