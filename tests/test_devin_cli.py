@@ -1055,6 +1055,43 @@ class TestDevinCliHookMode:
         assert response["decision"] == "block"
         assert "invalid JSON on stdin" in response["reason"]
 
+    def test_an_invalid_config_reaches_the_reason_without_the_validator_s_half(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, project_with_bash_config: Path
+    ) -> None:
+        """A config error is model-facing text, so it carries no validator internals.
+
+        This reason is read by the agent the hook is gating, so a pydantic docs URL,
+        a ``type=`` block and a dump of every pattern the user wrote all reached
+        the model's context - and made this host's message differ from the Pi
+        server's for the same config, which trimmed them at the far end instead.
+        The key and the user's own value have to survive; nothing else may.
+        """
+        devin_dir = project_with_bash_config / ".devin"
+        (devin_dir / "lovely-permissions.jsonc").write_text(
+            json.dumps({"bash": {"allowed_cmds_regex": ["\\/etc", "\\.env$", "["], "*": "alow"}})
+        )
+
+        result = run_cli(
+            input_data=json.dumps(
+                {
+                    "hook_event_name": "PreToolUse",
+                    "tool_name": "exec",
+                    "tool_input": {"command": "ls"},
+                }
+            ),
+            env={"DEVIN_PROJECT_DIR": str(project_with_bash_config)},
+        )
+        assert result.returncode == 2
+        reason = json.loads(result.stdout)["reason"]
+
+        assert "allowed_cmds_regex" in reason  # which key
+        assert "alow" in reason  # what they wrote
+        assert "unterminated character set" in reason  # what is wrong
+        for noise in ("errors.pydantic.dev", "type=", "input_value", "input_type", "Traceback"):
+            assert noise not in reason, noise
+        assert "\\/etc" not in reason  # not the rest of their allow list
+        assert len(reason) < 400  # a prompt bullet, not a document
+
     def test_hook_non_object_json_blocks(self, project_with_bash_config: Path) -> None:
         """Hook mode with JSON that is not an object emits a block decision (fail closed)."""
         for payload in ("[1, 2, 3]", '"just a string"'):

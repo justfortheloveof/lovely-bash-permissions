@@ -12,6 +12,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from ..errors import user_message
 from .devin import get_devin_global_config_dir
 from .jsonc import is_record, read_jsonc_file
 from .schema import PermissionsConfig
@@ -142,7 +143,15 @@ def load_permissions_config(project_dir: str) -> tuple[dict[str, Any], list[str]
     try:
         PermissionsConfig.model_validate(merged)
     except ValueError as exc:
-        warnings.append(f"config validation error: {exc}")
-        validation_errors.append(str(exc))
+        # Trimmed here, where the message is built, because this list is the text
+        # every reader gets: `validation_errors` is what `get_lovely_config`
+        # re-raises into the hook's reason, and what `--show-config` prints. Left
+        # as `str(exc)` it carried pydantic's docs URL and its
+        # `type=`/`input_value=` block into both - a model-facing prompt string,
+        # and the reason the Devin half rendered the same config error
+        # differently from the Pi half, which trimmed it at the far end instead.
+        detail = user_message(exc)
+        warnings.append(f"config validation error: {detail}")
+        validation_errors.append(detail)
 
     return merged, warnings, validation_errors

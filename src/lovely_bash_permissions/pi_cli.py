@@ -68,6 +68,7 @@ from typing import Any, NoReturn
 from . import decide
 from .config.jsonc import parse_jsonc, read_jsonc_file
 from .config.schema import VALID_BASH_CONFIG_KEYS, ToolConfig
+from .errors import user_message
 from .parser import find_shfmt
 from .policy import WILDCARD_KEY
 
@@ -151,11 +152,12 @@ def _pydantic_message(exc: ValueError) -> str:
     link per error, which are for a developer reading a traceback. The
     extension puts this string in front of a user, so it is trimmed to the
     message itself.
+
+    The work is :func:`~lovely_bash_permissions.errors.user_message`, which the
+    Devin half's config loader also uses - so an invalid config says the same
+    thing on both hosts instead of being trimmed on one and not the other.
     """
-    errors = getattr(exc, "errors", None)
-    if not callable(errors):
-        return str(exc)
-    return "; ".join(str(error.get("msg", "")) for error in errors())
+    return user_message(exc)
 
 
 def _config_as_dict(config: ToolConfig) -> dict[str, Any]:
