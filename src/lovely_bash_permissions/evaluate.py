@@ -577,9 +577,18 @@ def _evaluate_one_segment(
         shown = assignments or args
         if variable_assignment_policy == "allow":
             result["allowed"] = True
-            # If variable_assignment is explicitly "allow", don't override with wildcard policy
+            # No verdict is written here, deliberately. `verdict.status` already
+            # starts at "allow", so writing it changed nothing except when an
+            # earlier segment had already decided the command - and then it
+            # undid that decision. `cat /e"tc"/passwd; x=1` denied the blocked
+            # read on its first segment, and this line turned the whole command
+            # into an allow: the block list had matched, but only against the
+            # segment's executed form, so the whole-command scan that runs
+            # later (on the text as typed, `/e"tc"/passwd`) missed it, and every
+            # later step can only downgrade an allow, never raise one. An
+            # allowed assignment is a statement about *this* segment; it has no
+            # business restoring a verdict another segment already reached.
             if not allowed_patterns:
-                verdict.status = "allow"
                 verdict.reasons.append(f"variable assignment allowed: {shown}")
         elif variable_assignment_policy == "deny":
             result["allowed"] = False
