@@ -3799,10 +3799,11 @@ class TestReasonStringsAreReadByHumans:
             "export FOO=bar echo $(echo hi) 2> /dev/null",
             {"*": "ask", "allowed_cmds_regex": ["^echo(\\s+.*)?$"], "variable_assignment": "ask"},
         )
-        # "does not match" (singular), matching the one-command wording.
+        # "does not match" (singular), matching the one-command wording, and the
+        # level that decided it - a non-match is only half the sentence.
         mismatches = [r for r in reasons if "not match allowed patterns" in r]
         assert len(mismatches) == 1
-        assert mismatches[0] == '"export" command does not match allowed patterns'
+        assert mismatches[0] == '"export" command does not match allowed patterns; wildcard policy is ask'
 
     def test_the_assignment_reason_names_only_assignments(self) -> None:
         # `export FOO=bar echo $(echo hi)` has ONE assignment and two ordinary

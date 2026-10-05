@@ -135,17 +135,26 @@ class TestTheRealWire:
     def test_the_level_wildcard_crosses_the_pipe(self) -> None:
         """The seam claim, over a real pipe rather than a function call.
 
-        Identical requests but for `top_level`, and the same command, the same
-        block and the same reasons. Without the field the mode's wildcard is
-        lost in transit and a permissive mode arrives as `ask` - which reads as
-        a correct cautious policy, not as a lost field.
+        Identical requests but for `top_level`, and the same command and the same
+        block. Without the field the mode's wildcard is lost in transit and a
+        permissive mode arrives as `ask` - which reads as a correct cautious
+        policy, not as a lost field.
+
+        The reasons differ too, and that is the point rather than a problem: a
+        reason names the level that produced its verdict, so two answers that came
+        out at different levels cannot read the same. This used to assert the two
+        reason lists were equal, which passed only because the sentence did not
+        name its level - the same gap that had a refusal under `*: deny`
+        explaining itself as "does not match allowed patterns" and saying nothing
+        about the wildcard at all.
         """
         block = {"allowed_cmds_regex": ["^ls$"]}
         with_top = _call(op="evaluate", command="git status", config=block, top_level="allow").response
         without_top = _call(op="evaluate", command="git status", config=block).response
         assert with_top["action"] == "allow"
         assert without_top["action"] == "ask"
-        assert with_top["reasons"] == without_top["reasons"], "only the wildcard should differ"
+        assert with_top["reasons"] == ['"git" command does not match allowed patterns; wildcard policy is allow']
+        assert without_top["reasons"] == ['"git" command does not match allowed patterns; wildcard policy is ask']
 
     def test_validate_reports_a_good_config(self) -> None:
         assert _call(op="validate", config={"*": "ask", "subshell": "deny"}).response == {"protocol": 1, "valid": True}

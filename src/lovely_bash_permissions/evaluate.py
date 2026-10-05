@@ -702,15 +702,21 @@ def _apply_wildcard_resolution(
     unnamed = [seg for seg in non_matching if not seg["command"] and not seg["arguments"]]
     if named:
         names = [f'"{name}"' for name in named]
-        if allowed_patterns:
-            if len(named) == 1:
-                verdict.reasons.append(f"{names[0]} command does not match allowed patterns")
-            else:
-                verdict.reasons.append(f"{', '.join(names)} commands do not match allowed patterns")
-        elif len(named) == 1:
-            verdict.reasons.append(f"{names[0]} command is not allowlisted; wildcard policy is {wildcard}")
+        # Both branches name the resolved wildcard, and the difference between
+        # them is only what the sentence leads with. An allow-list that did not
+        # match is the *reason the wildcard got to decide*, so leaving the level
+        # out made the sentence unreadable in two of its three directions: under
+        # `*: deny` a refusal said only that a command did not match the
+        # allow-list, with nothing anywhere saying the wildcard refused it, and
+        # under `*: allow` an approval said the same thing, which reads as a
+        # complaint. One sentence, one level, honest whichever way it fell.
+        if len(named) == 1:
+            subject = f"{names[0]} command"
+            verb = "does not match allowed patterns" if allowed_patterns else "is not allowlisted"
         else:
-            verdict.reasons.append(f"{', '.join(names)} commands are not allowlisted; wildcard policy is {wildcard}")
+            subject = f"{', '.join(names)} commands"
+            verb = "do not match allowed patterns" if allowed_patterns else "are not allowlisted"
+        verdict.reasons.append(f"{subject} {verb}; wildcard policy is {wildcard}")
     if unnamed:
         # Redirections live on the parsed segment, not on the result dict, so
         # the two are read together by index. `SegmentResult` deliberately does
@@ -727,7 +733,8 @@ def _apply_wildcard_resolution(
         shown = ", ".join(f'"{target}"' for target in targets) if targets else "an unnamed command"
         if allowed_patterns:
             verdict.reasons.append(
-                f"a redirection to {shown} has no command name, so a command allow-list cannot match it"
+                f"a redirection to {shown} has no command name, so a command allow-list cannot match it; "
+                f"wildcard policy is {wildcard}"
             )
         else:
             verdict.reasons.append(f"a redirection to {shown} produced no command; wildcard policy is {wildcard}")
