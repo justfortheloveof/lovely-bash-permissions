@@ -656,8 +656,16 @@ def _evaluate_one_segment(
             # later step can only downgrade an allow, never raise one. An
             # allowed assignment is a statement about *this* segment; it has no
             # business restoring a verdict another segment already reached.
-            if not allowed_patterns:
-                verdict.add("allow", f"variable assignment allowed: {shown}")
+            #
+            # Recorded whether or not an allow-list exists, because the
+            # allow-list cannot govern this segment - a bare assignment has no
+            # command name to match - and so is not what allowed it. With the
+            # guard this branch used to carry, `x=1` under an allow-list came
+            # back with no reason at all: nothing matched the list, so the list
+            # explained nothing, and the rule that had actually decided it said
+            # nothing either. That is the last asymmetry of this shape; the
+            # substitution constructs had the same one.
+            verdict.add("allow", f"variable assignment allowed: {shown}")
         elif variable_assignment_policy == "deny":
             result["allowed"] = False
             verdict.status = "deny"
