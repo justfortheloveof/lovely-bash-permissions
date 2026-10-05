@@ -112,6 +112,68 @@ class TestAVerdictIsNotMorePermissiveThanItsReasons:
         assert result["reasons"] == ["variable assignment allowed: ['x=1']"]
 
 
+class TestAWildcardDenyIsNotSpentByAnEarlierAsk:
+    """A construct that asks must not turn a command the wildcard refused into a
+    question.
+
+    ``{"*": "deny", "output_redirection": "ask"}`` reads as "refuse everything,
+    but ask about redirections". ``nosuch --x > /tmp/f`` came back ``ask``: the
+    redirection policies run before the wildcard resolution and turn an ``allow``
+    into an ``ask``, and the wildcard's guard - ``status == "allow"`` - then found
+    nothing left to turn into a denial. The ask consumed the allow the wildcard
+    was about to overrule.
+
+    This is the same shape as the assignment bug above: a decision made by one
+    step is destroyed by a step that ran earlier. Deny is the strictest level in
+    the product and is documented as winning over the wildcard, so a construct
+    asking is not a licence to overrule it.
+    """
+
+    #: Construct policies that ask, and a command carrying each construct.
+    ASKING_CONSTRUCTS: tuple[tuple[str, dict[str, Any], str], ...] = (
+        ("nosuch --x > /tmp/f", {"*": "deny", "output_redirection": "ask"}, "output redirection"),
+        ("nosuch --x < in", {"*": "deny", "input_redirection": "ask"}, "input redirection"),
+        ("nosuch --x &", {"*": "deny", "background_execution": "ask"}, "background execution"),
+    )
+
+    def test_a_wildcard_deny_beats_a_construct_ask(self) -> None:
+        for command, config, _ in self.ASKING_CONSTRUCTS:
+            result = evaluate_bash_command(command, config)
+            assert result["status"] == "deny", f"{command!r} under {config}"
+            assert any("wildcard policy is deny" in reason for reason in result["reasons"]), (command, config)
+
+    def test_the_construct_reason_is_not_what_the_refusal_says(self) -> None:
+        """The refusal names the wildcard; the construct's ask is not quoted at it.
+
+        Both are recorded - the construct did occur and did ask - but only the one
+        that justifies the verdict is shown. Quoting the ask inside the refusal
+        would tell the user their redirection needs approval, which is the
+        opposite of what happened.
+        """
+        command, config, expected_reason = self.ASKING_CONSTRUCTS[0]
+        result = evaluate_bash_command(command, config)
+        assert not any(expected_reason in reason for reason in result["reasons"]), result["reasons"]
+
+    def test_a_construct_allow_still_overrides_a_wildcard_deny_for_an_allowlisted_command(self) -> None:
+        """The fix must not make the wildcard deny things the allow-list matched.
+
+        A matched pattern is a more specific decision than a wildcard, so it
+        stands: with ``ls`` allowlisted and its redirect allowed, ``*: deny`` has
+        nothing left to refuse.
+        """
+        result = evaluate_bash_command(
+            "ls -la > /tmp/f",
+            {"*": "deny", "output_redirection": "allow", "allowed_cmds_regex": [r"^ls(\s|$)"]},
+        )
+        assert result["status"] == "allow"
+
+    def test_a_construct_deny_is_unaffected(self) -> None:
+        """A construct that refuses was already correct, and stays correct."""
+        for command, config, key in self.ASKING_CONSTRUCTS:
+            result = evaluate_bash_command(command, {**config, key: "deny"})
+            assert result["status"] == "deny", (command, config)
+
+
 class TestALevelNobodyWroteIsNeverAllow:
     """An unrecognised level must fail closed, everywhere a level is read.
 

@@ -823,7 +823,19 @@ def _apply_wildcard_resolution(
             )
         else:
             verdict.add(wildcard, f"a redirection to {shown} produced no command; wildcard policy is {wildcard}")
-    if verdict.status == "allow":
+    # The wildcard speaks last, and a wildcard `deny` is not something an earlier
+    # step gets to spend. `_apply_redirection_policies` runs first and turns an
+    # `allow` into an `ask` when a construct asks; the guard used to be `status ==
+    # "allow"` alone, so that ask consumed the allow the wildcard was about to
+    # turn into a denial, and `{"*": "deny", "output_redirection": "ask"}` asked
+    # about a command the user had written a wildcard to refuse. Same for
+    # `input_redirection` and `background_execution`.
+    #
+    # A wildcard `deny` therefore applies over an `ask` as well as over an
+    # `allow`. It never applies over a `deny` - there is nothing to override - and
+    # an `ask` wildcard over an `ask` changes nothing, so the two cases that are
+    # not a wildcard denial keep the old behaviour exactly.
+    if verdict.status == "allow" or (verdict.status == "ask" and wildcard == "deny"):
         verdict.status = wildcard
 
 
