@@ -499,7 +499,11 @@ def _empty_segment_result(
     if policy == "allow" and subst_key not in config:
         policy = "ask"
     if policy == "allow":
-        return _result(wildcard, [empty_reason], [])
+        # The substitution is named here too, for the same reason
+        # `_construct_policy_verdict` names it on the segmentful path: this is the
+        # rule that let the command through, and the reason list is how the user
+        # finds out which rule that was.
+        return _result(wildcard, [empty_reason, f"{_CONSTRUCT_LABELS[subst_key]} allowed"], [])
     subst_label = _CONSTRUCT_LABELS[subst_key]
     # A `deny` here is an absolute block, so the reason must not claim the
     # user can still approve it at runtime.
@@ -806,6 +810,16 @@ def _construct_policy_verdict(
     "requires approval" wording because that is still actionable at runtime.
     A verdict that is already ``deny`` is never softened.
 
+    ``allow`` now speaks too, which it did not: it used to return
+    ``(current, None)`` for a level of ``allow``, so a command approved *because*
+    a construct was allowed said nothing about the construct. The user reads the
+    reason to learn which of their own rules permitted the command, and under
+    ``{"*": "allow", "command_substitution": "allow"}`` that answer was
+    "allowed by wildcard policy" - naming a rule that had not been consulted
+    while staying silent about the one that had. Only for ``current == "allow"``:
+    when the verdict is already ``ask`` or ``deny`` the construct decided nothing,
+    and saying it was allowed would be listing an approval nobody needed.
+
     Returns:
         The new status, and the reason to append (or None for no change).
     """
@@ -814,7 +828,9 @@ def _construct_policy_verdict(
     pol = rules.get(key, "ask")
     if pol == "deny":
         return "deny", f"{label} denied in config"
-    if pol != "allow" and current == "allow":
+    if pol == "allow":
+        return current, f"{label} allowed" if current == "allow" else None
+    if current == "allow":
         return pol, f"{label} requires approval"
     return current, None
 

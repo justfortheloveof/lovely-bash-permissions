@@ -3510,9 +3510,33 @@ class TestEvaluateConstructPolicyVerdict:
         )
 
     def test_allow_policy_changes_nothing(self) -> None:
-        """An explicit ``allow`` policy leaves the verdict and adds no reason."""
+        """An explicit ``allow`` policy leaves the verdict alone, and now says so.
+
+        It used to return ``(current, None)``, so a command approved *because* a
+        construct was allowed said nothing about the construct. The user reads the
+        reason to learn which of their own rules permitted the command, and under
+        ``{"*": "allow", "command_substitution": "allow"}`` the answer named the
+        wildcard - a rule that had not been consulted - while staying silent about
+        the one that had.
+        """
         assert _construct_policy_verdict(True, "subshell", "subshell (...)", "allow", {"subshell": "allow"}) == (
             "allow",
+            "subshell (...) allowed",
+        )
+
+    def test_an_allowed_construct_says_nothing_when_the_verdict_is_already_settled(self) -> None:
+        """``current != "allow"`` means the construct decided nothing.
+
+        An ``ask`` or ``deny`` from another rule is what the user has to act on;
+        listing an approval nobody needed is the noise this function is not here
+        to add.
+        """
+        assert _construct_policy_verdict(True, "subshell", "subshell (...)", "ask", {"subshell": "allow"}) == (
+            "ask",
+            None,
+        )
+        assert _construct_policy_verdict(True, "subshell", "subshell (...)", "deny", {"subshell": "allow"}) == (
+            "deny",
             None,
         )
 
