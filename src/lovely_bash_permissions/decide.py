@@ -107,7 +107,22 @@ def decide_bash_command(command: str, config: dict[str, Any], top_level_wildcard
         return error_action(resolved, exc)
 
     return {
-        "action": LEVEL_TO_ACTION[result.get("status", "ask")],
+        # `.get`, not `[...]`: a status the evaluator produced that is not one of
+        # the three levels asks rather than raising. `error_action` above reads
+        # the same table with `.get(level, "ask")` and has always failed closed
+        # this way, so a config that reached the error path came back `ask` while
+        # the same config reaching the success path raised `KeyError` out of a
+        # function its own callers treat as never raising. Neither host can reach
+        # it - both validate the config against the schema first, and a
+        # `PermissionLevel` admits nothing else - but this is a public entry
+        # point taking an unvalidated dict, and a wildcard that arrives as
+        # `"ALLOW"` or `True` survives `resolve_bash_config` intact (it only
+        # falls back on falsiness) and comes straight back out of the evaluator
+        # as the status. The `isinstance` is for the levels a dict lookup cannot
+        # even hash, which is the same failure one level down.
+        "action": LEVEL_TO_ACTION.get(result.get("status", "ask"), "ask")
+        if isinstance(result.get("status", "ask"), str)
+        else "ask",
         "reason": result.get("reason", ""),
         "reasons": result.get("reasons", []),
     }

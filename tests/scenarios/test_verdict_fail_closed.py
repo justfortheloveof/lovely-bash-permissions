@@ -12,7 +12,9 @@ found by, because the bugs are historical and the invariants are not.
 
 from typing import Any
 
+from lovely_bash_permissions.decide import decide_bash_command
 from lovely_bash_permissions.evaluate import evaluate_bash_command
+from lovely_bash_permissions.rules import _resolve_output_level
 
 #: A permissive wildcard plus a block list: the shape that makes the wildcard the
 #: only thing standing between a command and approval. Every config in this file
@@ -95,3 +97,83 @@ class TestAVerdictIsNotMorePermissiveThanItsReasons:
         """
         result = evaluate_bash_command(f"{BLOCKED_READ}; x=1", PERMISSIVE_WITH_BLOCKS)
         assert any("variable assignment allowed" in reason for reason in result["reasons"])
+
+
+class TestALevelNobodyWroteIsNeverAllow:
+    """An unrecognised level must fail closed, everywhere a level is read.
+
+    Both hosts validate a config against the schema before evaluating it, so
+    none of this is reachable through a CLI. It is reachable through
+    :func:`~lovely_bash_permissions.evaluate.evaluate_bash_command` and
+    :func:`~lovely_bash_permissions.decide.decide_bash_command`, which are
+    documented public entry points taking a config dict, and through
+    ``evaluate_bash_command``'s own docstring promise that a caller may pass one
+    it never validated.
+
+    ``"block"`` is in the list deliberately: it is *Devin's* wire word for a
+    refusal, so it is the level a config author is most likely to reach for from
+    the wrong vocabulary.
+    """
+
+    #: Levels no ``PermissionLevel`` admits, plus the empty ones that
+    #: ``resolve_level``'s falsiness fallback already treats as unset.
+    UNRECOGNISED: tuple[Any, ...] = ("ALLOW", "block", "yes", "", True, None, ["allow"])
+
+    def test_the_dict_form_output_redirection_denies_an_unrecognised_level(self) -> None:
+        """The one resolver that failed open now denies.
+
+        ``_resolve_output_level`` read ``deny -> ask -> else allow``, so every
+        level it did not recognise - and ``"block"`` most of all - came back
+        ``allow``. Its three siblings all ended in ``deny``; this one sat next
+        to them disagreeing.
+        """
+        for level in self.UNRECOGNISED:
+            result = evaluate_bash_command(
+                "ls > /tmp/f", {"output_redirection": {"*": level}, "blocked_cmds_regex": []}
+            )
+            assert result["status"] != "allow", level
+
+    def test_an_unrecognised_level_on_one_kind_denies_the_whole_command(self) -> None:
+        """One bad level is enough; a good level beside it does not rescue it."""
+        result = evaluate_bash_command(
+            "ls > /tmp/f > /tmp/g",
+            {"output_redirection": {"stdout_to_dev_null": "allow", "other": "ALLOW"}},
+        )
+        assert result["status"] == "deny"
+
+    def test_the_three_real_levels_keep_their_precedence(self) -> None:
+        """deny beats ask beats allow, exactly as before.
+
+        The fix must not have reordered anything: a mixed command whose kinds
+        resolve to different levels is decided by the strictest one, and the
+        schema's documented distinction between ``other: allow`` and ``*: deny``
+        has to survive it.
+        """
+        assert (
+            _resolve_output_level(["stdout_to_dev_null", "other"], {"stdout_to_dev_null": "allow", "other": "allow"})
+            == "allow"
+        )
+        assert (
+            _resolve_output_level(["stdout_to_dev_null", "other"], {"stdout_to_dev_null": "allow", "*": "deny"})
+            == "deny"
+        )
+        assert (
+            _resolve_output_level(["stdout_to_dev_null", "other"], {"stdout_to_dev_null": "allow", "other": "ask"})
+            == "ask"
+        )
+
+    def test_the_decision_layer_asks_rather_than_raising(self) -> None:
+        """An unrecognised level out of the evaluator becomes ``ask``.
+
+        ``decide_bash_command`` looked the status up with ``[...]`` while its own
+        ``error_action`` used ``.get(level, "ask")``, so the same nonsense config
+        asked on the error path and raised ``KeyError`` on the success path. A
+        list is here because a dict lookup cannot even hash it.
+        """
+        for level in self.UNRECOGNISED:
+            decision = decide_bash_command("ls", {"*": level})
+            assert decision["action"] == "ask", level
+
+    def test_a_written_allow_still_allows(self) -> None:
+        """The guard is on the level, not on the shape of the config."""
+        assert decide_bash_command("ls", {"*": "allow"})["action"] == "allow"

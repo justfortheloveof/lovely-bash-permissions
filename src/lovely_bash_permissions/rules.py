@@ -193,30 +193,58 @@ def _resolve_output_level(kinds: list[str], policy: dict[str, Any]) -> str:
     """Resolve output redirection level using per-kind policy keys.
 
     Each kind is checked independently against its own policy key,
-    falling back to wildcard "*".  Deny takes priority over ask.
+    falling back to wildcard "*".  Deny takes priority over ask, and ask
+    over allow.
+
+    **Anything that is not an ``allow`` denies.** This used to read
+    ``deny -> ask -> else allow``, which made every level it did not
+    recognise resolve to ``allow`` - including ``"block"``, the word Devin's
+    own wire protocol uses for a refusal, and including a level arriving from
+    an unvalidated config at all.  That is the one resolver in the package
+    that failed open: its three siblings (:func:`_redirection_result` for the
+    plain form, :func:`check_input_redirections`,
+    :func:`check_background_execution`) all end in ``deny``, and this one sat
+    next to them disagreeing.  The schema rejects a bad level before either
+    host evaluates, but this function is reachable from
+    :func:`lovely_bash_permissions.evaluate.evaluate_bash_command`, which is a
+    documented public entry point that takes an unvalidated config dict.
+
+    The precedence is unchanged for the three real levels: a kind that denies
+    still wins over a kind that asks, and a kind that asks still wins over a
+    kind that allows.
 
     Args:
         kinds: List of redirection kind strings from classify_output_redirection.
         policy: Dict-form output_redirection policy.
 
     Returns:
-        "allow", "ask", or "deny".
+        "allow", "ask", or "deny".  Never anything else, whatever ``policy``
+        holds.
     """
     default = wildcard_level(policy)
 
-    has_deny = False
+    has_allow = False
     has_ask = False
     for kind in kinds:
         # Each kind gets its own level lookup, independent of others
         level = policy.get(kind, default)
-        if level == "deny":
-            has_deny = True
-        elif level == "ask":
+        if level == "ask":
             has_ask = True
-    if has_deny:
-        return "deny"
+        elif level != "allow":
+            # deny, and anything unrecognised, together: the strictest reading
+            # is the only safe one for a level nobody validated.
+            return "deny"
+        else:
+            has_allow = True
     if has_ask:
         return "ask"
+    if has_allow:
+        return "allow"
+    # No kinds at all: nothing was classified, so no level was ever read and the
+    # strictness above does not apply - this is "nothing to govern", not "a level
+    # I did not recognise". Unreachable from `check_output_redirections`, which
+    # classifies every operator it filtered to as a write; kept as allow for the
+    # sake of the unit contract, not for any caller's benefit.
     return "allow"
 
 
