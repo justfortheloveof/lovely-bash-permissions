@@ -96,8 +96,10 @@ def generate_hook_response(event: dict[str, Any], decision: dict[str, Any]) -> d
     command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
 
     # "skip", and anything outside the three actions - notably a `deny` that
-    # skipped the translation to `block` - produces no response at all.
-    if action not in HOOK_STATUS or tool_name not in EXEC_TOOLS or not command:
+    # skipped the translation to `block` - produces no response at all. An empty
+    # command is not a reason to skip: it is evaluated like any other command, so
+    # that this host and the Pi server answer the same input the same way.
+    if action not in HOOK_STATUS or tool_name not in EXEC_TOOLS:
         return None
 
     if event_name == "PreToolUse":
@@ -139,11 +141,17 @@ def process_hook_event(event: dict[str, Any]) -> dict[str, Any]:
     """Process a hook event and decide allow/ask/block/skip.
 
     Extracts tool_name and command from the event. If tool_name is neither
-    "exec" nor "write_to_process", or command is empty, returns skip. Otherwise
-    loads config via PermissionsManager and evaluates the command.
+    "exec" nor "write_to_process", returns skip. Otherwise loads config via
+    PermissionsManager and evaluates the command.
+
+    An empty command is evaluated, not skipped. It used to be skipped here and in
+    two other places, which left the two hosts disagreeing about the same input:
+    Devin printed nothing and exited 0 while Pi returned a verdict from the
+    ``error`` policy, because an empty string does not parse. An empty command
+    is a command, and the evaluator is the thing that says what it costs.
 
     Args:
-        event: Hook event dict with keys:
+        event: hook event dict with keys:
             - hook_event_name: name of the hook event
             - tool_name: name of the tool being called (e.g., "exec")
             - tool_input: dict containing command to execute
@@ -159,7 +167,7 @@ def process_hook_event(event: dict[str, Any]) -> dict[str, Any]:
 
     command = tool_input.get("command", "")
 
-    if tool_name not in EXEC_TOOLS or not command:
+    if tool_name not in EXEC_TOOLS:
         return {"action": "skip"}
 
     project_dir = event.get("project_dir", ".")

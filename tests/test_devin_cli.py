@@ -1023,8 +1023,14 @@ class TestDevinCliHookMode:
         assert result.returncode == 0
         assert result.stdout.strip() == ""
 
-    def test_hook_empty_command_ignored(self, project_with_bash_config: Path) -> None:
-        """Hook mode with empty command should exit silently."""
+    def test_hook_empty_command_is_evaluated(self, project_with_bash_config: Path) -> None:
+        """Hook mode with an empty command gets a verdict, not silence.
+
+        It used to exit 0 having printed nothing, while the Pi server answered
+        the same input from the ``error`` policy - an empty string does not parse,
+        so it landed there. Deciding it here is what makes one command one answer
+        across both hosts.
+        """
         event = {
             "hook_event_name": "PreToolUse",
             "tool_name": "exec",
@@ -1035,7 +1041,8 @@ class TestDevinCliHookMode:
             env={"DEVIN_PROJECT_DIR": str(project_with_bash_config)},
         )
         assert result.returncode == 0
-        assert result.stdout.strip() == ""
+        response = json.loads(result.stdout)
+        assert "error evaluating command" in response["hookSpecificOutput"]["updatedInput"]["command"]
 
     def test_hook_invalid_json_blocks(self, project_with_bash_config: Path) -> None:
         """Hook mode with invalid JSON emits a block decision and exits 2 (fail closed)."""

@@ -133,12 +133,18 @@ def test_non_exec_tool_skipped() -> None:
     assert result == {"action": "skip"}
 
 
-def test_empty_command_skipped() -> None:
-    """Empty command → process_hook_event returns skip."""
+def test_empty_command_is_evaluated() -> None:
+    """Empty command → a verdict, not skip.
+
+    Skipping it is what had this host printing nothing while the Pi server
+    answered the same input from the ``error`` policy. There is no config here,
+    so the safe default decides and the command asks.
+    """
     event = _pretooluse_exec_event("")  # command is empty string
     result = process_hook_event(event)
 
-    assert result == {"action": "skip"}
+    assert result["action"] != "skip"
+    assert "error evaluating command" in result["reason"]
 
 
 # ---------------------------------------------------------------------------
@@ -216,14 +222,21 @@ def test_write_to_process_pretooluse_evaluated(monkeypatch: pytest.MonkeyPatch, 
     assert response["hookSpecificOutput"]["updatedInput"]["command"].endswith(" ; ls")
 
 
-def test_write_to_process_without_command_skipped() -> None:
-    """write_to_process with no command → skip."""
+def test_write_to_process_without_command_is_evaluated() -> None:
+    """write_to_process with no command → evaluated, not skipped.
+
+    ``tool_input.get("command", "")`` cannot tell an absent key from an empty
+    string, and there is nothing to gain by pretending it can: the tool named a
+    process to write to, so there is a command-shaped question to answer, and the
+    safe default answers it by asking. A tool the hook does not gate still skips -
+    see ``test_non_exec_tool_skipped``.
+    """
     event = {
         "hook_event_name": "PreToolUse",
         "tool_name": "write_to_process",
         "tool_input": {},
     }
-    assert process_hook_event(event) == {"action": "skip"}
+    assert process_hook_event(event)["action"] != "skip"
 
 
 def test_permission_request_write_to_process_block() -> None:

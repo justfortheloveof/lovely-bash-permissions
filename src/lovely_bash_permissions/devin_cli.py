@@ -210,10 +210,11 @@ def main() -> None:
                 sys.exit(0)
             if not isinstance(tool_input, dict):
                 emit_block(with_error_prefix(f"invalid hook event: {tool_name} tool_input is not an object"))
-            command = tool_input.get("command", "")
-            if not command:
-                sys.exit(0)
-
+            # An empty command is evaluated rather than waved through. Skipping it
+            # here is what had this host printing nothing and exiting 0 while the
+            # Pi server returned a verdict for the same input - an empty string
+            # does not parse, so it lands on the `error` policy there. Deciding it
+            # here keeps one command, one answer.
             event.setdefault("project_dir", get_project_dir())
             response = handle_hook_event(event)
             if response is not None:
