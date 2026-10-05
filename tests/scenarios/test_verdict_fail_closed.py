@@ -88,15 +88,28 @@ class TestAVerdictIsNotMorePermissiveThanItsReasons:
             result = evaluate_bash_command(command, PERMISSIVE_WITH_BLOCKS)
             assert result["status"] == "allow", command
 
-    def test_the_reason_survives_the_fix(self) -> None:
-        """The denial still says which assignment was allowed.
+    def test_the_denial_names_only_the_refusal(self) -> None:
+        """The assignment's approval is no longer listed beside the block.
 
-        Dropping the line outright would have lost the reason too. It is the
-        *verdict* the assignment may not touch; what it did is still worth
-        saying.
+        It used to be, and the fix for the verdict left it: the reason says the
+        assignment was allowed, and the command was refused, and both were true.
+        A reason now carries the level it argues for and only the level that was
+        reached is shown, so a refusal cannot end by mentioning something that was
+        approved - which is what a user reads the label to find out.
         """
         result = evaluate_bash_command(f"{BLOCKED_READ}; x=1", PERMISSIVE_WITH_BLOCKS)
-        assert any("variable assignment allowed" in reason for reason in result["reasons"])
+        assert result["reasons"]
+        assert all(reason.startswith("Blocked by bash permissions") for reason in result["reasons"])
+
+    def test_the_assignment_is_still_named_when_it_decided_the_verdict(self) -> None:
+        """Dropping an approval from a refusal must not drop it from an approval.
+
+        Under the same config, without the blocked command, the assignment is the
+        only thing that ran and the reason is the one the user needs.
+        """
+        result = evaluate_bash_command("x=1", PERMISSIVE_WITH_BLOCKS)
+        assert result["status"] == "allow"
+        assert result["reasons"] == ["variable assignment allowed: ['x=1']"]
 
 
 class TestALevelNobodyWroteIsNeverAllow:

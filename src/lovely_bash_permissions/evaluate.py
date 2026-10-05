@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
 from .ast import CallExpr, CmdSubst, Node, ProcSubst, Subshell
 from .converter import node_from_json
@@ -103,14 +103,56 @@ class _Verdict:
     them append to ``reasons`` and overwrite ``status``, so they must run in
     the order :func:`evaluate_bash_command` runs them in.  The order the
     reasons are appended in is observable - it is the reason string.
+
+    **Every reason carries the level it justifies.**  A reason is an argument
+    for a verdict, and most of these steps do not know the final verdict when
+    they record their argument: the redirection policies append "output
+    redirection allowed to out" while the verdict is still ``allow``, and the
+    wildcard downgrades it to ``ask`` two steps later.  With a flat list of
+    strings, that approval stayed in the answer and the user was told part of
+    the command had already been approved in the very prompt asking them about
+    the rest - which is the noise this pairing removes.
+
+    So ``reasons`` holds ``(level, text)`` and :func:`_finalize_reasons` emits
+    only the pairs whose level is the final verdict.  A reason recorded for
+    ``deny`` cannot survive an ``ask`` by accident, and the three properties
+    the product documents about the list become true by construction rather
+    than by each step remembering to check:
+
+    - a denial names only why it was refused;
+    - an ask names only what it is asking about;
+    - an approval names every rule that permitted it.
+
+    The level is the level the *reason* argues for, which is not always the
+    level the step goes on to produce - :func:`_apply_substitution_policies`
+    records one non-match sentence and then picks among three levels for it.
+    Recording the level it is arguing for, rather than the one it happens to
+    land on, is what makes the filter above correct.
     """
 
     status: Level = "allow"
-    reasons: list[str] = field(default_factory=list)
+    reasons: list[tuple[str, str]] = field(default_factory=list)
     any_segment_not_allowed: bool = False
     all_matched_patterns: list[str] = field(default_factory=list)
     visited_commands: set[str] = field(default_factory=set)
     nested_non_match: set[str] = field(default_factory=set)
+
+    def add(self, level: str, text: str) -> None:
+        """Record *text* as a reason for *level*.
+
+        *level* is ``str`` and not :data:`~lovely_bash_permissions.policy.Level`
+        because two of the callers pass a level read straight out of an
+        unvalidated config, and that is exactly what they hold. Typing them as
+        ``Level`` would assert something the code cannot know.
+
+        It also makes an unrecognised level fail closed for free: the filter in
+        :func:`_finalize_reasons` keeps a reason only when its level *is* the
+        verdict, so a level nobody wrote argues for no verdict and is never
+        shown. The schema rejects such a level before either host evaluates, so
+        this is the shape of the answer for a caller that skipped validation,
+        not a path a user can reach.
+        """
+        self.reasons.append((level, text))
 
 
 def _parse_command(command: str) -> ParsedCommand:
@@ -466,26 +508,39 @@ def _empty_segment_result(
     same reason that one does: a verdict a host has to explain cannot leave
     the explanation list empty, and 120 of these rows across the golden corpus
     are ``ask``.
+
+    It also goes through the same filter, by holding a :class:`_Verdict` like the
+    main path rather than a local list of strings. That is not tidiness: with an
+    explicit ``{"*": "deny", "command_substitution": "allow"}`` the wildcard
+    refuses the command while the substitution policy permits the construct, and a
+    flat list put "command substitution allowed" in the middle of the refusal -
+    the one thing a refusal must not print. The tree below decides the status;
+    :func:`_finalize_reasons` then keeps exactly the reasons that justify it.
     """
     blocked_patterns: list[str] = config.get("blocked_cmds_regex", [])
     has_cmd_subst = flags["command_substitution"]
     has_proc_subst = flags["process_substitution"]
     wildcard = wildcard_level(config)
+    verdict = _Verdict()
 
-    reasons: list[str] = []
     if (has_cmd_subst or has_proc_subst) and blocked_patterns:
-        reasons.extend(_substitution_blocked_reasons(parsed.tree, blocked_patterns))
+        for reason in _substitution_blocked_reasons(parsed.tree, blocked_patterns):
+            verdict.add("deny", reason)
     if blocked_patterns:
-        reasons.extend(_heredoc_blocked_reasons(parsed.raw, blocked_patterns))
+        for reason in _heredoc_blocked_reasons(parsed.raw, blocked_patterns):
+            verdict.add("deny", reason)
     for pattern, text in whole_command_hits:
-        reasons.append(_blocked_reason(text, pattern))
-    if reasons:
-        return _result("deny", list(dict.fromkeys(reasons)), [])
+        verdict.add("deny", _blocked_reason(text, pattern))
+    if verdict.reasons:
+        verdict.status = "deny"
+        return _result(verdict.status, _finalize_reasons(verdict), [])
 
     empty_reason = f"<empty command> produced no parseable segments - defaulting to wildcard policy ({wildcard})"
 
     if not (has_cmd_subst or has_proc_subst):
-        return _result(wildcard, [empty_reason], [])
+        verdict.add(wildcard, empty_reason)
+        verdict.status = wildcard
+        return _result(verdict.status, _finalize_reasons(verdict), [])
 
     # standalone arithmetic like `(( x[$(rm -rf /etc/x)] ))` produces no
     # segments, so the fallback auto-approved it under "*": "allow" even when
@@ -495,6 +550,7 @@ def _empty_segment_result(
     # the command produced no segments, so we cannot analyse what runs - default
     # fail-closed.
     subst_key = "command_substitution" if has_cmd_subst else "process_substitution"
+    subst_label = _CONSTRUCT_LABELS[subst_key]
     policy: str = rules[subst_key]
     if policy == "allow" and subst_key not in config:
         policy = "ask"
@@ -502,13 +558,21 @@ def _empty_segment_result(
         # The substitution is named here too, for the same reason
         # `_construct_policy_verdict` names it on the segmentful path: this is the
         # rule that let the command through, and the reason list is how the user
-        # finds out which rule that was.
-        return _result(wildcard, [empty_reason, f"{_CONSTRUCT_LABELS[subst_key]} allowed"], [])
-    subst_label = _CONSTRUCT_LABELS[subst_key]
+        # finds out which rule that was. Recorded for its own level, so it
+        # disappears when the wildcard refuses the command anyway.
+        verdict.add("allow", f"{subst_label} allowed")
+        verdict.add(wildcard, empty_reason)
+        verdict.status = wildcard
+        return _result(verdict.status, _finalize_reasons(verdict), [])
     # A `deny` here is an absolute block, so the reason must not claim the
     # user can still approve it at runtime.
-    reason = f"{subst_label} denied in config" if policy == "deny" else f"{subst_label} requires approval"
-    return _result(policy, [reason], [])
+    verdict.add(policy, f"{subst_label} denied in config" if policy == "deny" else f"{subst_label} requires approval")
+    # `policy` is a `str` off an unvalidated config; the branches above have
+    # already reduced it to one of the three levels, and a level nobody wrote
+    # yields a status nobody matches, so the filter above drops everything and
+    # `decide` reads it as `ask`.
+    verdict.status = cast("Level", policy)
+    return _result(verdict.status, _finalize_reasons(verdict), [])
 
 
 def _collect_allowed_matches(tree: Node | None, allowed_patterns: list[str], verdict: _Verdict) -> None:
@@ -593,15 +657,15 @@ def _evaluate_one_segment(
             # allowed assignment is a statement about *this* segment; it has no
             # business restoring a verdict another segment already reached.
             if not allowed_patterns:
-                verdict.reasons.append(f"variable assignment allowed: {shown}")
+                verdict.add("allow", f"variable assignment allowed: {shown}")
         elif variable_assignment_policy == "deny":
             result["allowed"] = False
             verdict.status = "deny"
-            verdict.reasons.append(f"variable assignment denied: {shown}")
+            verdict.add("deny", f"variable assignment denied: {shown}")
         else:  # ask (default)
             result["allowed"] = False
             verdict.status = "ask"
-            verdict.reasons.append(f"variable assignment requires approval: {shown}")
+            verdict.add("ask", f"variable assignment requires approval: {shown}")
     elif allowed_patterns:
         # Check allowed patterns against command name.
         # If arguments contain real values (not CMD_SUBST_PLACEHOLDER placeholders),
@@ -640,7 +704,7 @@ def _evaluate_one_segment(
         if matched:
             result["blocked"] = True
             verdict.status = "deny"
-            verdict.reasons.append(_argument_blocked_reason(str(value), str(pattern)))
+            verdict.add("deny", _argument_blocked_reason(str(value), str(pattern)))
 
     return result
 
@@ -651,8 +715,17 @@ def _apply_redirection_policies(
     """Run the output / input / background policies and aggregate them.
 
     Deny overrides ask in aggregation (deny anywhere → deny overall); ask only
-    downgrades an otherwise-allow verdict, and a reason is only shown when its
-    own status is the final one.
+    downgrades an otherwise-allow verdict.
+
+    Every result is recorded at **its own** level and left for
+    :func:`_finalize_reasons` to filter, rather than filtered here against the
+    status as it stands at this point. That check was the same rule applied one
+    step early, which is why it could be wrong in one direction: a redirection
+    allowed at this step was recorded while the verdict was still ``allow``, and
+    the wildcard downgraded the command to ``ask`` two steps later with the
+    approval still in the list. Keeping the level and deciding once, at the end,
+    is also why a result whose level the verdict later overtook - a redirect that
+    asks, under a command denied for something else - needs no special case here.
     """
     results = [
         r
@@ -668,8 +741,7 @@ def _apply_redirection_policies(
     elif any(r["status"] == "ask" for r in results) and verdict.status == "allow":
         verdict.status = "ask"
     for r in results:
-        if r["status"] == verdict.status:
-            verdict.reasons.append(r["reason"])
+        verdict.add(r["status"], r["reason"])
 
 
 def _apply_wildcard_resolution(
@@ -720,7 +792,7 @@ def _apply_wildcard_resolution(
         else:
             subject = f"{', '.join(names)} commands"
             verb = "do not match allowed patterns" if allowed_patterns else "are not allowlisted"
-        verdict.reasons.append(f"{subject} {verb}; wildcard policy is {wildcard}")
+        verdict.add(wildcard, f"{subject} {verb}; wildcard policy is {wildcard}")
     if unnamed:
         # Redirections live on the parsed segment, not on the result dict, so
         # the two are read together by index. `SegmentResult` deliberately does
@@ -736,12 +808,13 @@ def _apply_wildcard_resolution(
         )
         shown = ", ".join(f'"{target}"' for target in targets) if targets else "an unnamed command"
         if allowed_patterns:
-            verdict.reasons.append(
+            verdict.add(
+                wildcard,
                 f"a redirection to {shown} has no command name, so a command allow-list cannot match it; "
-                f"wildcard policy is {wildcard}"
+                f"wildcard policy is {wildcard}",
             )
         else:
-            verdict.reasons.append(f"a redirection to {shown} produced no command; wildcard policy is {wildcard}")
+            verdict.add(wildcard, f"a redirection to {shown} produced no command; wildcard policy is {wildcard}")
     if verdict.status == "allow":
         verdict.status = wildcard
 
@@ -759,6 +832,14 @@ def _apply_substitution_policies(
     reports commands nested inside a substitution that the allow-list did not
     match - the non-match itself was already recorded by the AST walk (only
     depth > 0 CallExprs contribute).
+
+    The non-match sentence is recorded once, at the level it *argues for*, which
+    is not the level this step goes on to produce: an ``allow`` substitution
+    policy turns a nested non-match into an ``ask``, a ``deny`` one into a
+    ``deny``, and a command already denied for something else stays ``deny``.
+    Deciding the level first and recording it once is what lets
+    :func:`_finalize_reasons` drop this sentence when some *other* rule is what
+    the user has to act on.
     """
     has_cmd_subst = flags["command_substitution"]
     has_proc_subst = flags["process_substitution"]
@@ -768,14 +849,18 @@ def _apply_substitution_policies(
     if blocked_patterns:
         for reason in _substitution_blocked_reasons(parsed.tree, blocked_patterns):
             verdict.status = "deny"
-            verdict.reasons.append(reason)
+            verdict.add("deny", reason)
 
     if not verdict.nested_non_match:
         return
     names_str = ", ".join(f'"{n}"' for n in sorted(verdict.nested_non_match))
-    verdict.reasons.append(f"{names_str} commands inside substitution/subshell do not match allowed patterns")
     subst_key = "command_substitution" if has_cmd_subst else "process_substitution"
     sub_policy = rules.get(subst_key, "ask")
+    # What this sentence argues for, decided before it is recorded. A command
+    # already denied keeps the sentence as part of explaining the denial; an
+    # `allow` policy still cannot approve a nested non-match, so it asks.
+    argues = "deny" if verdict.status == "deny" or sub_policy == "deny" else "ask"
+    verdict.add(argues, f"{names_str} commands inside substitution/subshell do not match allowed patterns")
     if verdict.status == "deny":
         # Already denied by blocked patterns check above, keep it
         pass
@@ -786,7 +871,7 @@ def _apply_substitution_policies(
         # The block comes from configuration, so say so: the non-match reason
         # above explains *what* was rejected, this explains that no amount of
         # approval at runtime would let it through.
-        verdict.reasons.append(f"{_CONSTRUCT_LABELS[subst_key]} denied in config")
+        verdict.add("deny", f"{_CONSTRUCT_LABELS[subst_key]} denied in config")
     else:  # ask
         verdict.status = sub_policy
 
@@ -842,26 +927,46 @@ def _apply_construct_policies(flags: dict[str, bool], rules: dict[str, Any], ver
     for key, label in _CONSTRUCT_LABELS.items():
         verdict.status, added_reason = _construct_policy_verdict(flags[key], key, label, verdict.status, rules)
         if added_reason:
-            verdict.reasons.append(added_reason)
+            # At the status the gate *reached*, which for a gate that only
+            # downgraded is its own level. A gate that changed nothing emits
+            # nothing, so there is no level to record here.
+            verdict.add(verdict.status, added_reason)
 
 
 def _finalize_reasons(verdict: _Verdict) -> list[str]:
-    """The de-duplicated reasons, in append order, or nothing to say.
+    """The reasons that justify *this* verdict, in append order, de-duplicated.
 
-    Returns a *list*, and the two fallback shapes below are exactly the cases
-    where it is empty: an allow that matched patterns the verdict did not
-    otherwise have anything to say about, and an allow decided by the wildcard
-    alone. Both produce a ``reason`` string; neither produces reasons to show.
+    One rule, applied once, at the point where the verdict is final: a reason is
+    shown if and only if the level it argues for is the level that was reached.
+    A refusal therefore names only why it was refused, and a prompt for approval
+    names only what is being asked about - no already-approved rule is listed in
+    the middle of a question, and no refusal mentions what was allowed.
 
-    An empty list therefore means "allow, nothing to explain", never "verdict
-    reached, explanation lost" - no ``ask`` or ``deny`` reaches the fallbacks,
-    because a non-allow verdict always carries the reason that produced it.
+    This used to be each step's own responsibility, checked against the status as
+    it stood at that step, and the leak was that the status moves afterwards. A
+    redirection approved at step four was recorded while the verdict was still
+    ``allow``; the wildcard downgraded the command to ``ask`` at step five, and
+    the approval stayed in the list. Every step that needed the rule had to
+    remember it, and two of them did not - which is why the check moved here
+    rather than being added to the steps that were missing it.
+
+    The filter is also what makes a *new* rule safe to add: a reason recorded for
+    ``deny`` cannot appear in an ``ask`` without anyone deciding that it should.
+
+    An empty result means "allow, nothing to explain", never "verdict reached,
+    explanation lost". An ``ask`` or ``deny`` always carries at least one reason
+    recorded for its own level: each of the steps that can set those levels
+    records one as it does so, and :func:`_finalize_reason` below asserts the
+    property by construction - an empty list at a non-allow verdict would fall
+    through to the ``"allowed"`` last-resort string, which is the one way this
+    filter could fail open.
     """
     if verdict.status == "allow" and verdict.all_matched_patterns:
         # Build approval reason from ALL matched patterns (top-level + nested)
         noun = "pattern" if len(verdict.all_matched_patterns) == 1 else "patterns"
-        verdict.reasons.append(f"command matches allowed {noun}: {', '.join(verdict.all_matched_patterns)}")
-    return list(dict.fromkeys(verdict.reasons))
+        verdict.add("allow", f"command matches allowed {noun}: {', '.join(verdict.all_matched_patterns)}")
+    justifying = (text for level, text in verdict.reasons if level == verdict.status)
+    return list(dict.fromkeys(justifying))
 
 
 def _finalize_reason(verdict: _Verdict, config: dict[str, Any], reasons: list[str]) -> str:
@@ -970,11 +1075,11 @@ def evaluate_bash_command(command: str, config: dict[str, Any]) -> dict[str, Any
     if blocked_patterns:
         for reason in _heredoc_blocked_reasons(parsed.raw, blocked_patterns):
             verdict.status = "deny"
-            verdict.reasons.append(reason)
+            verdict.add("deny", reason)
 
     for pattern, text in whole_command_hits:
         verdict.status = "deny"
-        verdict.reasons.append(_blocked_reason(text, pattern))
+        verdict.add("deny", _blocked_reason(text, pattern))
 
     # Redirection policy reads the segments, which already cover nested redirections.
     _apply_redirection_policies(segments, rules, parsed.raw, verdict)

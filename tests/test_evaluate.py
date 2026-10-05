@@ -3764,6 +3764,13 @@ class TestReasonsList:
         command, and substitution scan), so the naive concatenation would
         repeat a bullet; the order assertion keeps the list from being sorted
         or reversed to satisfy the dedup.
+
+        Every entry is a refusal. The wildcard-resolution sentence that used to
+        follow these two - `"echo" commands do not match allowed patterns; wildcard
+        policy is ask` - is recorded for the ``ask`` it argues for, and this
+        command was denied, so it is not in the list. That is the whole point of a
+        reason carrying its level: a refusal cannot end by mentioning something
+        that was not approved.
         """
         result = evaluate_bash_command(
             "echo $(cat /etc/passwd) $(cat /etc/passwd)", make_config(blocked=["/etc/passwd"])
@@ -3771,12 +3778,11 @@ class TestReasonsList:
         reasons = result["reasons"]
         assert result["status"] == "deny"
         assert len(reasons) == len(set(reasons))
+        assert all(reason.startswith("Blocked by bash permissions") for reason in reasons), reasons
         # The per-segment hit and the whole-command hit are two different
-        # reasons about the same pattern, in that order; the not-allowlisted
-        # reason from the wildcard resolution follows them.
+        # reasons about the same pattern, in that order.
         assert reasons[0].startswith('Blocked by bash permissions: Argument "cat /etc/passwd"')
         assert reasons[1].startswith('Blocked by bash permissions: Argument "echo $(cat /etc/passwd)')
-        assert reasons[2].startswith('"echo"')
 
     def test_an_unparseable_command_returns_no_dict_at_all(self) -> None:
         """The gate is scoped to evaluations that returned: a ParseError has no `reasons`.
@@ -3858,8 +3864,14 @@ class TestReasonStringsAreReadByHumans:
         # There is no command name for a name-based allow-list to match, and a
         # reason saying "does not match allowed patterns" implies a pattern
         # could. The consequence is the actionable part.
+        #
+        # The redirection policy is `ask` here, not `deny`, because the sentence
+        # argues for an ask: it is what the user is being asked about. Under a
+        # denying redirection the verdict is `deny` and the sentence is filtered
+        # out with the rest of the ask-level reasons, which is why the next test
+        # needs this one to be about the same command.
         reasons = self._reasons(
-            "> /etc/x && cat f", {"*": "ask", "allowed_cmds_regex": ["^cat(\\s|$)"], "output_redirection": "deny"}
+            "> /etc/x && cat f", {"*": "ask", "allowed_cmds_regex": ["^cat(\\s|$)"], "output_redirection": "ask"}
         )
         assert any('a redirection to "/etc/x" has no command name' in r for r in reasons)
 
