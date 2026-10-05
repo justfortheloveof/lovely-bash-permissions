@@ -50,7 +50,7 @@ there is nowhere else to look.
 documents. Its dependency order is strictly one-way:
 
 ```
-errors.py            (leaf: ShfmtError)
+errors.py            (leaf: ShfmtError, and user_message)
 policy.py            (leaf: the policy vocabulary and the Level type)
 matching.py          (leaf: the one regex matcher for allow and block lists)
 parser.py            -> errors            (shfmt subprocess -> raw JSON)
@@ -64,6 +64,16 @@ evaluate.py          -> ast, converter, inspect, matching, parser, policy, rules
 cli.py               -> ast, converter, errors, inspect, segments, words
 __init__.py          re-exports the public surface
 ```
+
+`errors.py` holds `user_message` as well as the exceptions, and it is a leaf for
+the same reason they are: both hosts render a verdict to a user — and, through
+it, to a model — and a config that will not validate has to produce that text
+without the developer half of a pydantic error in it. It lives there rather than
+in either host because the two reach the same message by different routes and a
+message rendered twice renders twice. It imports nothing, duck-types `errors()`
+rather than importing pydantic, and keeps working when the error has already been
+through `str()` — which is the shape the Devin half actually receives, since
+`config.manager` re-raises the loader's messages as a plain `ValueError`.
 
 `inspect.py` and `words.py` depend on `ast.py` alone on purpose: they answer
 questions about a tree the caller already holds, so they never parse. `converter.py` imports
@@ -195,6 +205,42 @@ nothing to explain — a matched pattern, or the wildcard — and never for an `
 or a `deny`. Both facts are load-bearing for the Pi prompt, which renders one
 bullet per entry.
 
+### Why a reason carries its level
+
+`_Verdict.reasons` is `list[tuple[level, text]]`, and `_finalize_reasons` emits
+only the pairs whose level is the final verdict. One rule, applied once, at the
+end — because a reason is an *argument* for a verdict, and most steps do not know
+the verdict when they record it.
+
+The check used to live in each step, against the status as of that step, and that
+placement is what made it wrong: `_apply_redirection_policies` runs before
+`_apply_wildcard_resolution`, so an approval recorded at step four survived a
+downgrade at step five. The user was told part of a command had been approved in
+the middle of the prompt asking them about the rest — the two things the same
+reason string was never supposed to do at once. Each step that needed the rule had
+to remember it, and two of them did not.
+
+What the pairing buys is that all three of these hold **by construction** rather
+than by every future step checking: a `deny` names only why it was refused; an
+`ask` names only what approval is being requested for; an `allow` names every
+rule that permitted it. The last one is why a construct that resolves to `allow`
+has to say so rather than stay silent — the reason list is how a user finds out
+which of their own rules permitted a command, and a rule that permits silently
+answers nothing.
+
+Recording the level a reason *argues for* is not the level its step goes on to
+produce. `_apply_substitution_policies` decides first, then records once, because
+one nested-non-match sentence argues for a `deny` under a `deny` policy, an `ask`
+under an `allow` one, and a `deny` under a command already refused for something
+else. The fourth return path holds a `_Verdict` for the same reason: with
+`{"*": "deny", "command_substitution": "allow"}` the wildcard refuses the command
+while the substitution policy permits the construct, and a plain list of strings
+puts both sentences in the refusal.
+
+`tests/scenarios/test_verdict_reporting.py` pins the three properties, and
+`test_verdict_fail_closed.py` pins the safety half — that a verdict is never more
+permissive than the reasons it carries.
+
 ### A fourth return path
 
 `evaluate_bash_command` has a second exit for commands that parse to **zero
@@ -262,6 +308,31 @@ Each of the following was considered, tested, and kept on purpose. Removing or
 "simplifying" any of them reintroduces a bypass, so read this before changing
 the code they point at.
 
+- **`error` inherits the wildcard, so `{"*": "allow"}` auto-approves a command
+  the parser could not read.** Deliberate, and chosen over defaulting `error` to
+  `ask`: a user who wrote `{"*": "allow", "error": "allow"}` and a user who wrote
+  `{"*": "allow"}` get the same answer, and one key means one thing. The cost is
+  that `blocked_cmds_regex` offers no protection for input shfmt rejects — it is
+  never reached, because the command is never analysed. `error: "ask"` is the
+  documented answer for anyone who wants malformed-but-bash-accepted syntax to
+  prompt. Note this is an *inheritance*, not a default: `policy.DEFAULT_LEVEL` is
+  `ask`, and an absent key under an asking wildcard asks.
+- **A command that produces zero segments inherits the wildcard too**, so
+  `(( 1+2 ))`, `[[ -f x ]]` and `case $x in esac` are auto-approved under
+  `{"*": "allow"}`. Same reasoning and the same escape hatch, and the reasoning
+  differs from the substitution arm of `_empty_segment_result` only in that the
+  substitution arm fails closed for an *inherited* allow and this one does not.
+  What makes it safe is that the reason names the level: `<empty command>
+  produced no parseable segments - defaulting to wildcard policy (allow)`, so an
+  approval resting on "we could not analyse this" is visible rather than silent.
+- **`rules._resolve_output_level` returns `deny` for a level it does not
+  recognise**, while the three sibling resolvers return `deny` for the same
+  input and this one used to return `allow`. The asymmetry is the point: `"block"`
+  is Devin's own wire word for a refusal, so it is the level a config author is
+  most likely to reach for from the wrong vocabulary, and it must not approve a
+  redirection. The no-kinds case still returns `allow` — that reads no level at
+  all, so it is "nothing to govern" rather than "a level I did not recognise" —
+  and `check_output_redirections` cannot reach it anyway.
 - **`segments._HANDLERS` maps `Lit`, `SglQuoted` and `ExtGlob` to the no-op
   `_nothing`.** The entries emit no segment and look like dead code, but a type
   missing from the table logs an "Unhandled AST node type" warning, so removing

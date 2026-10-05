@@ -172,9 +172,9 @@ A misspelled redirection kind is a config error, not a silently ignored key. `{"
 `[`, `test`, `true`, `false` and `:` are part of the shell language, but they are commands as far as bash is concerned — `[` is a builtin binary and `/usr/bin/[` exists on most systems — so the evaluator reports each of them as a command segment. None of them is auto-approved; that is the point, since an allow-list you did not write is not a decision you made. The practical consequence is that ordinary shell control flow prompts until you list the builtin:
 
 ```bash
-[ -n "$p" ] && ls                 # -> asks:  "[" does not match allowed patterns
-if true; then ls; fi              # -> asks:  "true" does not match allowed patterns
-while false; do ls; done          # -> asks:  "false" does not match allowed patterns
+[ -n "$p" ] && ls                 # -> asks:  "[" does not match allowed patterns; wildcard policy is ask
+if true; then ls; fi              # -> asks:  "true" does not match allowed patterns; wildcard policy is ask
+while false; do ls; done          # -> asks:  "false" does not match allowed patterns; wildcard policy is ask
 ls                                # -> allowed (if ^ls is listed)
 ```
 
@@ -258,7 +258,11 @@ So a `deny` is inert only when the command never reaches the evaluation that wou
 > [!IMPORTANT]
 > Setting `"deny"` on a construct key while leaving the wildcard at `"ask"` **hard-blocks** the command rather than prompting. A construct `deny` is absolute: it is applied whatever verdict the wildcard produced, and no approval at runtime can lift it — only a config change can. If you want a prompt instead, use `"ask"`.
 
-When a construct policy blocks, the reason says so explicitly — `command substitution denied in config`, `subshell (...) denied in config` — so a blocked command is never reported as merely "requires approval". The same wording appears when a nested command inside a substitution fails the allow-list and the policy is `deny`.
+When a construct policy blocks, the reason says so explicitly — `command substitution denied in config`, `subshell (...) denied in config` — so a blocked command is never reported as merely "requires approval". The same wording appears when a nested command inside a substitution fails the allow-list and the policy is `deny`. The allowed counterparts exist too — `command substitution allowed`, `subshell (...) allowed` — so an auto-approval names the rule that permitted it rather than leaving you to infer it.
+
+### What a verdict is allowed to say
+
+One rule, applied once the verdict is final: **a reason is shown if and only if the level it argues for is the level that was reached.** A consequence worth knowing when you read a refusal is that it names only its own reasons — never a matched allow pattern, never an approved construct. If a command was refused, nothing in the reason says part of it had been allowed, and the reverse holds for a prompt: it tells you what needs approving and nothing that was already approved. Both directions matter because the alternative is a prompt that lists work already done, which is how a prompt becomes too long to read.
 
 ### Devin config
 

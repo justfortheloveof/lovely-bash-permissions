@@ -111,6 +111,20 @@ express "this mode says allow" to a process that never saw the mode.
 {"allowed_cmds_regex": ["^ls"]}  with no top_level       ->  "ask"
 ```
 
+`reasons` holds one entry per reason, and `reason` is those entries joined on
+`"; "`. The list exists because a `"; "` **inside** a reason is not a separator —
+re-splitting `reason` to recover it produces two bullets from one, and the wrong
+first one. Render `reasons` as-is, one bullet per entry.
+
+Only the reasons that justify the verdict are present. A `deny` lists why it was
+refused and nothing that was approved; an `ask` lists what needs approving and
+nothing already approved; an `allow` names every rule that permitted it. So the
+bullet count is bounded by what the user has to act on, and a prompt is never
+padded with work already approved. An `allow` decided by the wildcard alone has
+an empty `reasons` — nothing matched a pattern and no named rule spoke — and a
+descriptive `reason` instead, which is the one case where the list is empty on a
+verdict.
+
 The block is sent **verbatim, exactly as the file declares it**. Do not splice a
 resolved `"*"` into it: that works numerically and is wrong in substance, because
 `validate` would then check a config that differs from the one on disk and a user
