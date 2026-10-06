@@ -16,6 +16,7 @@ import pytest
 
 from lovely_bash_permissions.decide import decide_bash_command
 from lovely_bash_permissions.evaluate import evaluate_bash_command
+from lovely_bash_permissions.hook import _hook_command, _strip_hook_wrappers
 from lovely_bash_permissions.rules import _resolve_output_level
 
 #: A permissive wildcard plus a block list: the shape that makes the wildcard the
@@ -102,6 +103,32 @@ class TestAVerdictIsNotMorePermissiveThanItsReasons:
         result = evaluate_bash_command(f"{BLOCKED_READ}; x=1", PERMISSIVE_WITH_BLOCKS)
         assert result["reasons"]
         assert all(reason.startswith("Blocked by bash permissions") for reason in result["reasons"])
+
+    def test_the_rewritten_command_is_a_fixed_point(self) -> None:
+        """Re-running the hook on its own rewrite must not change the command.
+
+        Devin feeds the rewritten command back through the hook, so the wrapper
+        has to strip to exactly the payload that went in. Leading whitespace went
+        missing: wrapping ``"\\nls\\n"`` produced ``... ; \\nls\\n`` and stripping
+        that back gave ``"ls\\n"``, because the pattern's ``;\\s*`` consumed the
+        newline as if the hook had written it. A leading newline is what separates
+        two commands, so a tool that eats one changes what runs.
+        """
+        payloads = ("\nls\n", "ls", "\tls\n", "\n\nls", "  ls", "ls  ", "\r\nls", "", " ", "a\n\nb")
+        for payload in payloads:
+            wrapped = _hook_command("ask", "a reason", payload)
+            assert _strip_hook_wrappers(wrapped) == payload, payload
+            assert _hook_command("ask", "a reason", wrapped) == wrapped, payload
+
+    def test_a_users_own_near_miss_is_not_stripped(self) -> None:
+        """The marker requirement is what keeps a user's own command intact."""
+        for command in (
+            ": 'x' 💚 ; ls",
+            "  : '[♡ perms: 💚 auto-approved] hi' 💚 ; ls",
+            ": '[♡ perms: 💚 auto-approved] hi'  💚 ; ls",
+            ":: ls",
+        ):
+            assert _strip_hook_wrappers(command) == command, command
 
     def test_the_assignment_is_still_named_when_it_decided_the_verdict(self) -> None:
         """Dropping an approval from a refusal must not drop it from an approval.

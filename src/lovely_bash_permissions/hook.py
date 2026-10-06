@@ -36,8 +36,20 @@ _SHLEX_QUOTE_ESCAPE = "'\"'\"'"
 #: ``'``. Requires the ``[♡ perms: `` marker so a user's own ``: 'x' 💚 ; cmd``
 #: is left alone, and anchors at the start so a trailing forged label is not
 #: stripped.
+#: Exactly the text :func:`_hook_command` writes, and nothing more. The earlier
+#: pattern used ``\s*`` at every gap, which made stripping eat whitespace that
+#: belonged to the *command*: wrapping ``"\nls\n"`` produced ``... ; \nls\n`` and
+#: stripping that back gave ``"ls\n"``. A fixed point requires that stripping
+#: return the payload byte for byte, because Devin feeds the rewritten command
+#: back through this hook - a tool that reformats the command it was handed
+#: changes what runs, and a leading newline is what separates two commands.
+#:
+#: Each gap is the literal it is written with: ``; `` always, and no leading
+#: ``\s*`` at the start at all, so a payload that is itself indented keeps its
+#: indentation. ``re.escape`` is used on the emoji group rather than an
+#: alternation, so this stays a single ``str`` pattern and keeps the anchoring.
 _HOOK_LABEL_WRAPPER_RE = re.compile(
-    r"^:\s*'\[♡ perms: (?:[^']|" + _SHLEX_QUOTE_ESCAPE + r")*'\s*(?:💚|💛|❤️)\s*;\s*",
+    r"^: '\[♡ perms: (?:[^']|" + _SHLEX_QUOTE_ESCAPE + r")*' (?:💚|💛|❤️) ; ",
     re.DOTALL,
 )
 
