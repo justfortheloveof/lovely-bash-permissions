@@ -12,6 +12,8 @@ found by, because the bugs are historical and the invariants are not.
 
 from typing import Any
 
+import pytest
+
 from lovely_bash_permissions.decide import decide_bash_command
 from lovely_bash_permissions.evaluate import evaluate_bash_command
 from lovely_bash_permissions.rules import _resolve_output_level
@@ -172,6 +174,59 @@ class TestAWildcardDenyIsNotSpentByAnEarlierAsk:
         for command, config, key in self.ASKING_CONSTRUCTS:
             result = evaluate_bash_command(command, {**config, key: "deny"})
             assert result["status"] == "deny", (command, config)
+
+
+class TestAPolicyKeyCoversEveryShapeItNames:
+    """A key must govern every construct shape a user might write, not only the
+    ones that happen to carry a command name.
+
+    ``background_execution`` collected the command names of backgrounded
+    statements, and decided from the collection being non-empty. Three shapes
+    carry no name, so all three reported "no background execution" and a
+    user-written ``deny`` allowed them: an assignment-only ``CallExpr`` (it has
+    ``Assigns`` where a command has ``Args``), a ``DeclClause`` (``export``,
+    ``declare``, ``local``, ``readonly`` — not a ``CallExpr`` at all), and any
+    compound built only from those.
+    """
+
+    #: Backgrounded statements that run no command, and what each is called.
+    UNNAMED: tuple[tuple[str, str], ...] = (
+        ("x=1 &", "a variable assignment"),
+        ("export FOO=bar &", "an export or declaration statement"),
+        ("( x=1 ) &", "a statement with no command name"),
+        ("declare -a B &", "an export or declaration statement"),
+    )
+
+    @pytest.mark.parametrize(("command", "named"), UNNAMED)
+    def test_a_deny_refuses_a_backgrounded_statement_with_no_command_name(self, command: str, named: str) -> None:
+        for level in ("deny", "ask", "allow"):
+            result = evaluate_bash_command(command, {"*": "allow", "background_execution": level})
+            assert result["status"] == level, (command, level, result)
+            assert any(named in reason for reason in result["reasons"]), (command, level, result["reasons"])
+
+    @pytest.mark.parametrize(("command", "named"), UNNAMED)
+    def test_an_unset_policy_still_inherits_the_wildcard(self, command: str, named: str) -> None:
+        """The fix must not make a backgrounded assignment prompt on its own.
+
+        With no ``background_execution`` key the resolved level is the wildcard,
+        so this is decided entirely by ``*`` - as every other construct key is.
+        Were it not, a permissive config would start asking about ``x=1 &`` for
+        no reason the user wrote.
+        """
+        for wildcard in ("allow", "ask", "deny"):
+            result = evaluate_bash_command(command, {"*": wildcard})
+            assert result["status"] == wildcard, (command, wildcard, result)
+
+    def test_a_statement_that_is_not_backgrounded_is_untouched(self) -> None:
+        """The shape that exposed the gap must not start firing without ``&``."""
+        result = evaluate_bash_command("x=1", {"*": "allow", "background_execution": "deny"})
+        assert result["status"] == "allow"
+        assert not any("background" in reason for reason in result["reasons"]), result["reasons"]
+
+    def test_a_named_background_command_still_reports_its_name(self) -> None:
+        """The existing behaviour is unchanged; only the empty case is new."""
+        result = evaluate_bash_command("sleep 5 &", {"*": "allow", "background_execution": "deny"})
+        assert result["reasons"] == ["background execution denied: sleep"]
 
 
 class TestALevelNobodyWroteIsNeverAllow:

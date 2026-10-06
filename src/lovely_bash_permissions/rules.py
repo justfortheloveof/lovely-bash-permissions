@@ -304,17 +304,51 @@ def check_input_redirections(segments: list[Segment], rules: dict[str, Any]) -> 
     return _redirection_result("input", level, targets)
 
 
+#: What a backgrounded statement is called in a reason when it runs no command.
+#: Three shapes reach this: an assignment-only ``CallExpr``, which carries
+#: ``Assigns`` rather than ``Args``; a ``DeclClause`` - ``export``, ``declare``,
+#: ``local``, ``readonly`` - which is not a ``CallExpr`` at all; and any compound
+#: built only from those. Naming them keeps the reason truthful about what was
+#: backgrounded, which is the whole point of a reason that names something.
+_UNNAMED_BACKGROUND: str = "a statement with no command name"
+_DECLARATION_BACKGROUND: str = "an export or declaration statement"
+_ASSIGNMENT_BACKGROUND: str = "a variable assignment"
+
+
+def _describe_unnamed_background(cmd: dict[str, Any]) -> str:
+    """Name a backgrounded statement that has no command name to report."""
+    kind = cmd.get("Type")
+    if kind == "DeclClause":
+        return _DECLARATION_BACKGROUND
+    if kind == "CallExpr" and cmd.get("Assigns"):
+        return _ASSIGNMENT_BACKGROUND
+    return _UNNAMED_BACKGROUND
+
+
 def _collect_background_command_names(node: dict[str, Any], results: list[str]) -> None:
-    """Recursively collect command names being run in the background.
+    """Recursively collect what is being run in the background.
 
     Background flags can appear on any statement in the tree, not just the
     top-level ones - e.g. ``(echo hi &)`` or ``x=$(echo hi &)`` background the
     inner command while the outer statement has ``Background=false``.
+
+    A backgrounded statement that runs **no command** still contributes an entry,
+    because the caller decides the policy from the presence of background work
+    and not from whether it could be named. It used to contribute nothing:
+    ``x=1 &``, ``export FOO=bar &`` and ``( x=1 ) &`` all reached here with an
+    empty list, so the caller reported "no background execution" and
+    ``{"background_execution": "deny"}`` - a deny the user wrote - allowed all
+    three, at every level of the policy. Silence read as "there is none".
     """
     if not isinstance(node, dict):
         return
     if node.get("Background") or node.get("Type") == "CoprocClause":
-        results.extend(_command_names_in(node.get("Cmd") or node))
+        cmd = node.get("Cmd") or node
+        names = _command_names_in(cmd)
+        if names:
+            results.extend(names)
+        else:
+            results.append(_describe_unnamed_background(cmd))
     for value in node.values():
         if isinstance(value, dict):
             _collect_background_command_names(value, results)
