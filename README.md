@@ -21,8 +21,8 @@ client is a separate repository and speaks one JSON object over a pipe, once per
 command; `lovely-pi-permissions` is the TypeScript extension that drives it.
 Copilot support is a local Linux/macOS integration with global, shared
 repository, and personal-local Lovely policy layers and a manually registered
-user-level hook. Saved approvals, automatic setup, and cloud-agent support are
-not included.
+user-level hook. Saved approvals are supported for the matching Copilot
+permission location; automatic setup and cloud-agent support are not included.
 
 ## Installation
 

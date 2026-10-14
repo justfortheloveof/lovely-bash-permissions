@@ -21,14 +21,151 @@ nowhere else to look.
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from collections.abc import Iterator
+from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 from lovely_bash_permissions.segments import parse_segments
+
+# ---------------------------------------------------------------------------
+# Copilot CLI contract-test helpers
+# ---------------------------------------------------------------------------
+
+
+DEFAULT_CWD = object()
+
+
+def invoke_copilot_cli(
+    monkeypatch: pytest.MonkeyPatch,
+    payload: str,
+    *,
+    args: list[str] | None = None,
+) -> tuple[int | None, str, str]:
+    """Call the public Copilot CLI entry point with controlled process streams."""
+    from lovely_bash_permissions.copilot_cli import main
+
+    stdout = StringIO()
+    stderr = StringIO()
+    monkeypatch.setattr(sys, "argv", ["lovely-copilot-permissions", *(args or [])])
+    monkeypatch.setattr(sys, "stdin", StringIO(payload))
+    monkeypatch.setattr(sys, "stdout", stdout)
+    monkeypatch.setattr(sys, "stderr", stderr)
+
+    status: int | None = None
+    try:
+        main()
+    except SystemExit as exc:
+        status = exc.code if isinstance(exc.code, int) else 1
+    return status, stdout.getvalue(), stderr.getvalue()
+
+
+def copilot_event(
+    command: object = "git status",
+    *,
+    tool_name: str = "bash",
+    tool_args: object = None,
+    cwd: object = DEFAULT_CWD,
+) -> dict[str, Any]:
+    """Build a native Copilot preToolUse Bash payload."""
+    return {
+        "cwd": str(Path.cwd()) if cwd is DEFAULT_CWD else cwd,
+        "toolName": tool_name,
+        "toolArgs": {"command": command} if tool_args is None else tool_args,
+    }
+
+
+def copilot_policy(home: Path, config: object) -> Path:
+    """Write the global Copilot Lovely policy used by a CLI contract test."""
+    path = home / "lovely-permissions.jsonc"
+    home.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(config), encoding="utf-8")
+    return path
+
+
+def saved_copilot_approvals(home: Path, locations: dict[str, Any]) -> Path:
+    """Write Copilot's persisted permission file for a CLI contract test."""
+    path = home / "permissions-config.json"
+    home.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"locations": locations}), encoding="utf-8")
+    return path
+
+
+def copilot_project_policy(project: Path, config: object, *, local: bool = False) -> Path:
+    """Write a shared or personal-local Copilot project policy."""
+    filename = "lovely-permissions.local.jsonc" if local else "lovely-permissions.jsonc"
+    path = project / ".github" / "copilot" / filename
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(config), encoding="utf-8")
+    return path
+
+
+def git_checkout(path: Path) -> Path:
+    """Create a Git checkout for Copilot location contract tests."""
+    path.mkdir(parents=True)
+    subprocess.run(["git", "init", "--quiet", str(path)], check=True, capture_output=True, text=True)
+    return path
+
+
+def git_commit(path: Path) -> None:
+    """Create an empty commit so a checkout can host a linked worktree."""
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(path),
+            "-c",
+            "user.name=Test User",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "--allow-empty",
+            "--quiet",
+            "-m",
+            "test",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def response_from(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Parse and minimally validate the hook's progress/decision response."""
+    lines = output.splitlines()
+    assert len(lines) == 2
+    progress, decision = (json.loads(line) for line in lines)
+    assert progress["type"] == "progress"
+    return progress, decision
+
+
+@pytest.fixture
+def isolate_copilot_process(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Keep Copilot CLI tests independent of a developer's Copilot setup."""
+    monkeypatch.setenv("COPILOT_HOME", str(tmp_path / "copilot-home"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.chdir(tmp_path)
+
+
+@pytest.fixture
+def copilot_test_helpers() -> SimpleNamespace:
+    """Provide shared helpers for the split Copilot CLI contract-test modules."""
+    return SimpleNamespace(
+        invoke_cli=invoke_copilot_cli,
+        event=copilot_event,
+        policy=copilot_policy,
+        saved_approvals=saved_copilot_approvals,
+        project_policy=copilot_project_policy,
+        git_checkout=git_checkout,
+        git_commit=git_commit,
+        response_from=response_from,
+    )
+
 
 # ---------------------------------------------------------------------------
 # Environment isolation

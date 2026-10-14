@@ -3,10 +3,33 @@
 from __future__ import annotations
 
 import json
+import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 from .copilot import get_copilot_home
+
+
+def apply_saved_command_approvals(bash_config: dict[str, Any], approval_ids: Iterable[str]) -> dict[str, Any]:
+    """Merge Copilot saved command approvals into Lovely allow patterns.
+
+    Exact identifiers match only the executed command; trailing ``:*``
+    identifiers also match the command followed by arguments. The impossible
+    lookahead keeps Lovely's matcher on the executed-form match only.
+    """
+    result = dict(bash_config)
+    imported_patterns = []
+    for identifier in approval_ids:
+        prefix = identifier.endswith(":*")
+        command = identifier[:-2] if prefix else identifier
+        escaped = re.escape(command)
+        body = f"{escaped}(?:\\s+.*)?" if prefix else escaped
+        imported_patterns.append(f"^(?!\\b\\B){body}\\Z")
+
+    if imported_patterns:
+        result["allowed_cmds_regex"] = list(dict.fromkeys([*result.get("allowed_cmds_regex", []), *imported_patterns]))
+    return result
 
 
 def get_copilot_permissions_path() -> Path:

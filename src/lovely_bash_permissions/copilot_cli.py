@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -12,7 +11,7 @@ from typing import Any
 
 from . import decide
 from .config.copilot import load_copilot_policy
-from .config.copilot_permissions import load_saved_command_approvals
+from .config.copilot_permissions import apply_saved_command_approvals, load_saved_command_approvals
 from .copilot_diagnostics import get_copilot_diagnostics
 
 
@@ -124,17 +123,6 @@ def _project_and_permission_location_from_event_cwd(value: object) -> tuple[Path
     return checkout_root, checkout_root
 
 
-def _copilot_approval_regex(identifier: str) -> str:
-    """Translate a Copilot command identifier to a full executed-command match."""
-    prefix = identifier.endswith(":*")
-    command = identifier[:-2] if prefix else identifier
-    escaped = re.escape(command)
-    body = f"{escaped}(?:\\s+.*)?" if prefix else escaped
-    # The impossible lookahead makes Lovely's matcher use the executed form
-    # only, rather than letting a quoted/raw spelling grant a saved approval.
-    return f"^(?!\\b\\B){body}\\Z"
-
-
 def _decision_for_payload(raw: str) -> dict[str, str] | None:
     """Turn one Copilot hook payload into a policy verdict, or skip its tool."""
     try:
@@ -169,11 +157,7 @@ def _decision_for_payload(raw: str) -> dict[str, str] | None:
     approval_ids, warning = load_saved_command_approvals(permission_location)
     if warning:
         print(f"warning: {warning}", file=sys.stderr)
-    bash_config = dict(config.get("bash") or {})
-    if approval_ids:
-        existing_patterns = bash_config.get("allowed_cmds_regex", [])
-        imported_patterns = [_copilot_approval_regex(identifier) for identifier in approval_ids]
-        bash_config["allowed_cmds_regex"] = list(dict.fromkeys([*existing_patterns, *imported_patterns]))
+    bash_config = apply_saved_command_approvals(dict(config.get("bash") or {}), approval_ids)
 
     decision = decide.decide_bash_command(command, bash_config, top_level_wildcard)
     action = decision["action"]
@@ -204,7 +188,7 @@ def _show_config() -> None:
     """Print the selected Copilot sources and effective Bash policy."""
     try:
         project_dir, permission_location = _project_and_permission_location_from_event_cwd(str(Path.cwd()))
-        result, warning = get_copilot_diagnostics(project_dir, permission_location, _copilot_approval_regex)
+        result, warning = get_copilot_diagnostics(project_dir, permission_location)
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         sys.exit(1)

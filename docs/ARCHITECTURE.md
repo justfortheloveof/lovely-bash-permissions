@@ -5,8 +5,9 @@ Four surfaces ship in one package: a general-purpose bash parser and three
 permission hosts built on it — Devin's hook protocol, the Pi coding agent's
 extension over a pipe, and GitHub Copilot CLI's local Bash hook. Copilot uses
 global, shared repository, and personal-local Lovely policy layers and manual
-user-level registration on Linux/macOS; saved approvals, automatic setup, and
-cloud-agent support are not implemented.
+user-level registration on Linux/macOS. Saved approvals are imported for the
+matching Copilot permission location; automatic setup and cloud-agent support
+are not implemented.
 
 ## Tests
 
