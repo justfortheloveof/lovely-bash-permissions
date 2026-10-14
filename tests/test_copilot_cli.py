@@ -117,6 +117,84 @@ def response_from(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
 
 
 class TestCopilotCliHookContract:
+    @pytest.mark.parametrize(
+        "verdict",
+        ["allow", "ask", "deny"],
+    )
+    def test_test_mode_prints_one_final_decision_without_progress(
+        self, verdict: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        copilot_home = tmp_path / "copilot-home"
+        policy(copilot_home, {"bash": {"*": verdict}})
+        monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
+
+        status, output, stderr = invoke_cli(monkeypatch, "", args=["--test", "git status"])
+
+        assert status == 0
+        assert stderr == ""
+        lines = output.splitlines()
+        assert len(lines) == 1
+        decision = json.loads(lines[0])
+        assert decision["permissionDecision"] == verdict
+        if verdict == "allow":
+            assert "permissionDecisionReason" not in decision
+        else:
+            assert decision["permissionDecisionReason"]
+
+    def test_test_mode_evaluates_empty_command_with_configured_error_policy(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        copilot_home = tmp_path / "copilot-home"
+        policy(copilot_home, {"bash": {"error": "deny"}})
+        monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
+
+        status, output, stderr = invoke_cli(monkeypatch, "", args=["--test", ""])
+
+        assert status == 0
+        assert stderr == ""
+        decision = json.loads(output)
+        assert decision["permissionDecision"] == "deny"
+        assert "error evaluating command" in decision["permissionDecisionReason"]
+
+    def test_test_mode_uses_the_current_directory_for_project_policy(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        copilot_home = tmp_path / "copilot-home"
+        policy(copilot_home, {"bash": {"*": "deny"}})
+        monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
+        checkout = git_checkout(tmp_path / "checkout")
+        project_policy(checkout, {"bash": {"*": "allow"}})
+        monkeypatch.chdir(checkout)
+
+        status, output, stderr = invoke_cli(monkeypatch, "", args=["--test", "git status"])
+
+        assert status == 0
+        assert stderr == ""
+        assert json.loads(output) == {"permissionDecision": "allow"}
+
+    def test_test_mode_imports_saved_approvals_for_current_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        copilot_home = tmp_path / "copilot-home"
+        monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
+        saved_approvals(
+            copilot_home,
+            {str(tmp_path): {"tool_approvals": [{"kind": "commands", "commandIdentifiers": ["git status"]}]}},
+        )
+
+        status, output, stderr = invoke_cli(monkeypatch, "", args=["--test", "git status"])
+
+        assert status == 0
+        assert stderr == ""
+        assert json.loads(output) == {"permissionDecision": "allow"}
+
+    def test_test_mode_usage_failure_exits_nonzero_without_a_verdict(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        status, output, stderr = invoke_cli(monkeypatch, "", args=["--test"])
+
+        assert status != 0
+        assert output == ""
+        assert "usage:" in stderr
+
     def test_saved_command_approval_from_configured_home_allows_matching_command(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

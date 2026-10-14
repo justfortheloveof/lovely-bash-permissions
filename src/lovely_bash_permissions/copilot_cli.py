@@ -185,12 +185,18 @@ def _emit_verdict(verdict: dict[str, str]) -> None:
     action = verdict["action"]
     reason = verdict["reason"]
     progress = {"type": "progress", "message": f"Lovely policy: {action} — {reason}"}
+    print(json.dumps(progress, ensure_ascii=False))
+    print(json.dumps(_decision_object(verdict), ensure_ascii=False))
+
+
+def _decision_object(verdict: dict[str, str]) -> dict[str, str]:
+    """Translate a policy verdict to Copilot's final hook response."""
+    action = verdict["action"]
+    reason = verdict["reason"]
     decision: dict[str, str] = {"permissionDecision": action}
     if action != "allow":
         decision["permissionDecisionReason"] = reason
-
-    print(json.dumps(progress, ensure_ascii=False))
-    print(json.dumps(decision, ensure_ascii=False))
+    return decision
 
 
 def main() -> None:
@@ -199,7 +205,20 @@ def main() -> None:
         prog="lovely-copilot-permissions",
         description="Evaluate local GitHub Copilot CLI preToolUse Bash calls with Lovely policy.",
     )
-    parser.parse_args()
+    parser.add_argument(
+        "--test",
+        metavar="COMMAND",
+        help="Print the Copilot decision for COMMAND without timeline progress.",
+    )
+    args = parser.parse_args()
+
+    if args.test is not None:
+        payload = json.dumps({"cwd": str(Path.cwd()), "toolName": "bash", "toolArgs": {"command": args.test}})
+        verdict = _decision_for_payload(payload)
+        if verdict is None:
+            raise RuntimeError("test mode did not produce a verdict")
+        print(json.dumps(_decision_object(verdict), ensure_ascii=False))
+        sys.exit(0)
 
     verdict = _decision_for_payload(sys.stdin.read())
     if verdict is None:
