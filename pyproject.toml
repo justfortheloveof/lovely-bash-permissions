@@ -5,7 +5,7 @@ description = "A Python library for parsing bash commands into structured AST tr
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
-keywords = ["bash", "parser", "ast", "shell", "shfmt", "permissions", "cli", "agent", "devin", "pi"]
+keywords = ["bash", "parser", "ast", "shell", "shfmt", "permissions", "cli", "agent", "devin", "pi", "copilot"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -29,6 +29,7 @@ dependencies = [
 lovely-bash-inspection = "lovely_bash_permissions.cli:main"
 lovely-devin-permissions = "lovely_bash_permissions.devin_cli:main"
 lovely-pi-bash-permissions = "lovely_bash_permissions.pi_cli:main"
+lovely-copilot-permissions = "lovely_bash_permissions.copilot_cli:main"
 
 [build-system]
 requires = ["uv_build>=0.12.7,<0.13.0"]

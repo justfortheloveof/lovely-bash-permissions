@@ -1,10 +1,12 @@
 # Architecture
 
 A short map of `lovely_bash_permissions` for someone who has not read it before.
-Three surfaces currently ship in one package: a general-purpose bash parser and
-two permission hosts built on it — one for Devin's hook protocol and one that
-serves the Pi coding agent's extension over a pipe. A third host for GitHub
-Copilot CLI is specified but not yet implemented.
+Four surfaces ship in one package: a general-purpose bash parser and three
+permission hosts built on it — Devin's hook protocol, the Pi coding agent's
+extension over a pipe, and GitHub Copilot CLI's local Bash hook. Copilot's
+initial integration supports the global Lovely policy and manual user-level
+registration on Linux/macOS; repository/local policy layers, saved approvals,
+automatic setup, and cloud-agent support are not implemented.
 
 ## Tests
 
@@ -45,7 +47,7 @@ All shared fixtures and helpers live in a single `tests/conftest.py`. The tree i
 split by subject, not by audience, so one root conftest serves all of it and
 there is nowhere else to look.
 
-## The three surfaces
+## The library and permission hosts
 
 **Library half** — the parser and its inspection API, which is what `README.md`
 documents. Its dependency order is strictly one-way:
@@ -94,15 +96,16 @@ extension `lovely-pi-permissions` drives over a pipe. It is a *host*, not a
 separate policy evaluator: it calls the same `decide.decide_bash_command` as the
 Devin hook and owns no decision logic of its own.
 
-**Planned Copilot host** — a Copilot-specific configuration resolver and
-`copilot_cli.py` adapter will call `decide.decide_bash_command`. It owns the
-Copilot `preToolUse` protocol and Copilot-specific policy/approval discovery; it
-does not use Devin's protocol adapter or Devin-specific effective-config wrapper.
+**Copilot host** — `config/copilot.py` loads and validates the global
+`$COPILOT_HOME/lovely-permissions.jsonc` policy (default `~/.copilot/`), and
+`copilot_cli.py` adapts Copilot's `preToolUse` Bash payload and output protocol.
+The adapter calls `decide.decide_bash_command`; it does not use Devin's protocol
+adapter or Devin-specific effective-config wrapper. Only this global policy
+source is implemented so far.
 
-Three console scripts currently sit at the edges: `lovely-bash-inspection`
-(library), `lovely-devin-permissions` (Devin), and
-`lovely-pi-bash-permissions` (Pi). The planned fourth script is
-`lovely-copilot-permissions`.
+Four console scripts sit at the edges: `lovely-bash-inspection` (library),
+`lovely-devin-permissions` (Devin), `lovely-pi-bash-permissions` (Pi), and
+`lovely-copilot-permissions` (Copilot).
 
 **`policy.py` declares the vocabulary once.** Every construct the evaluator gates
 and every output-redirection kind it classifies is named there; the schema
@@ -133,8 +136,9 @@ neither should be inlined back into its caller.
 calls `load_devin_exec_regexes(project_dir)` — a host that has no `Exec()`
 concept cannot call it without reading a Devin config file it has no opinion
 about. The host-agnostic resolution is the first function; the Devin merge is a
-thin wrapper over it. Pi and the planned Copilot host use the host-agnostic
-resolver and load their own host-specific approvals.
+thin wrapper over it. Pi uses the host-agnostic resolver, and Copilot validates
+its global Lovely policy before calling the shared decision function; neither
+host reads Devin-specific `Exec()` permissions.
 
 `resolve_bash_config` branches on `if not raw_bash:`, **not**
 `if raw_bash is None:`. An empty block and `None` take the same branch today, so
@@ -149,8 +153,8 @@ dicts by `--show-config` and by the golden harness.
 
 **`decide_bash_command`.** The decision logic used to live inside `hook.py`,
 interleaved with Devin's wire protocol. It is now one host-agnostic function
-called by the Devin and Pi hosts and intended for Copilot too, so a policy change
-cannot land in one host and miss another.
+called by the Devin, Pi, and Copilot hosts, so a policy change cannot land in
+one host and miss another.
 
 Two things about it are load-bearing and previously implicit:
 

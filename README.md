@@ -6,21 +6,23 @@ Perfect for AI agents, shell scripting tools, permission checkers, syntax analys
 
 ## Related Projects
 
-This repository currently ships two permission clients built on the same parser
-and policy vocabulary, with a third host integration specified for GitHub Copilot
-CLI:
+This repository ships three permission clients built on the same parser and
+policy vocabulary:
 
 | Project | What it is | Read more |
 | --- | --- | --- |
 | `lovely-devin-permissions` | a Devin CLI permission hook | [README.lovely-devin-permissions.md](README.lovely-devin-permissions.md) |
 | `lovely-pi-bash-permissions` | bash permission decisions for the [`lovely-pi-permissions`](https://github.com/jftlo/lovely-pi-permissions) Pi extension | [README.lovely-pi-bash-permissions.md](README.lovely-pi-bash-permissions.md) |
-| `lovely-copilot-permissions` | planned local GitHub Copilot CLI Bash permission hook | [README.lovely-copilot-permissions.md](README.lovely-copilot-permissions.md) |
+| `lovely-copilot-permissions` | a local GitHub Copilot CLI Bash permission hook | [README.lovely-copilot-permissions.md](README.lovely-copilot-permissions.md) |
 
-The shipped clients parse bash commands, evaluate command segments against
-configurable rules, and decide whether to allow, ask for approval, or deny
-execution. The Pi client is a separate repository and speaks one JSON object over
-a pipe, once per command; `lovely-pi-permissions` is the TypeScript extension that
-drives it. Copilot support is specified but not yet implemented.
+The clients parse bash commands, evaluate command segments against configurable
+rules, and decide whether to allow, ask for approval, or deny execution. The Pi
+client is a separate repository and speaks one JSON object over a pipe, once per
+command; `lovely-pi-permissions` is the TypeScript extension that drives it.
+Copilot support is an initial local Linux/macOS integration with a global Lovely
+policy and a manually registered user-level hook. Repository/local Copilot
+policies, saved approvals, automatic setup, and cloud-agent support are not
+included yet.
 
 ## Installation
 
