@@ -16,3 +16,4 @@ dist/
 build/
 venv/
 *.golden.json
+/tools/matrix/
