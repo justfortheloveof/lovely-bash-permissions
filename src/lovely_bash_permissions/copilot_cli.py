@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
+from pathlib import Path
 from typing import Any
 
 from . import decide
-from .config.copilot import CopilotPolicyError, load_copilot_policy
+from .config.copilot import load_copilot_policy
 
 
 def _deny(reason: str) -> dict[str, str]:
@@ -26,6 +28,45 @@ def _decode_tool_args(value: object) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise TypeError("toolArgs must be an object or a JSON-encoded object")
     return value
+
+
+def _project_dir_from_event_cwd(value: object) -> Path:
+    """Resolve Copilot's event cwd to its active checkout root or directory."""
+    if not isinstance(value, str) or not value or not Path(value).is_absolute():
+        raise ValueError("invalid hook input: 'cwd' must be an absolute directory path")
+
+    try:
+        event_dir = Path(value).resolve(strict=True)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise ValueError(f"invalid hook input: cannot resolve event 'cwd' {value!r}: {exc}") from exc
+    if not event_dir.is_dir():
+        raise ValueError(f"invalid hook input: event 'cwd' is not a directory: {event_dir}")
+
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(event_dir), "rev-parse", "--show-toplevel"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValueError(f"cannot determine project root from event 'cwd' {event_dir}: {exc}") from exc
+
+    if result.returncode != 0:
+        # A valid directory outside a checkout is its own project-policy root.
+        return event_dir
+
+    root = result.stdout.strip()
+    if not root:
+        raise ValueError(f"cannot determine project root from event 'cwd' {event_dir}")
+    try:
+        checkout_root = Path(root).resolve(strict=True)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise ValueError(f"cannot resolve Git checkout root {root!r}: {exc}") from exc
+    if not checkout_root.is_dir():
+        raise ValueError(f"Git checkout root is not a directory: {checkout_root}")
+    return checkout_root
 
 
 def _decision_for_payload(raw: str) -> dict[str, str] | None:
@@ -54,8 +95,9 @@ def _decision_for_payload(raw: str) -> dict[str, str] | None:
         return _deny("invalid hook input: Bash toolArgs must contain a string 'command'")
 
     try:
-        config, top_level_wildcard = load_copilot_policy()
-    except CopilotPolicyError as exc:
+        project_dir = _project_dir_from_event_cwd(payload.get("cwd"))
+        config, top_level_wildcard = load_copilot_policy(project_dir)
+    except ValueError as exc:
         return _deny(str(exc))
 
     decision = decide.decide_bash_command(command, config.get("bash") or {}, top_level_wildcard)

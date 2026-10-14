@@ -17,3 +17,4 @@ build/
 venv/
 *.golden.json
 /tools/matrix/
+/.github/copilot/lovely-permissions.local.jsonc

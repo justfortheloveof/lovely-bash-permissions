@@ -1,12 +1,15 @@
 """In-process contract tests for the GitHub Copilot CLI hook."""
 
 import json
+import subprocess
 import sys
 from io import StringIO
 from pathlib import Path
 from typing import Any
 
 import pytest
+
+DEFAULT_CWD = object()
 
 
 def invoke_cli(
@@ -33,10 +36,16 @@ def invoke_cli(
     return status, stdout.getvalue(), stderr.getvalue()
 
 
-def event(command: object = "git status", *, tool_name: str = "bash", tool_args: object = None) -> dict[str, Any]:
+def event(
+    command: object = "git status",
+    *,
+    tool_name: str = "bash",
+    tool_args: object = None,
+    cwd: object = DEFAULT_CWD,
+) -> dict[str, Any]:
     """Build a native Copilot preToolUse Bash payload."""
     return {
-        "cwd": "/tmp/project",
+        "cwd": str(Path.cwd()) if cwd is DEFAULT_CWD else cwd,
         "toolName": tool_name,
         "toolArgs": {"command": command} if tool_args is None else tool_args,
     }
@@ -46,6 +55,19 @@ def policy(home: Path, config: object) -> Path:
     path = home / "lovely-permissions.jsonc"
     home.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(config), encoding="utf-8")
+    return path
+
+
+def project_policy(project: Path, config: object, *, local: bool = False) -> Path:
+    path = project / ".github" / "copilot" / ("lovely-permissions.local.jsonc" if local else "lovely-permissions.jsonc")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(config), encoding="utf-8")
+    return path
+
+
+def git_checkout(path: Path) -> Path:
+    path.mkdir(parents=True)
+    subprocess.run(["git", "init", "--quiet", str(path)], check=True, capture_output=True, text=True)
     return path
 
 
@@ -172,6 +194,152 @@ class TestCopilotCliHookContract:
         _, decision = response_from(output)
         assert decision["permissionDecision"] == "ask"
         assert decision["permissionDecisionReason"]
+
+    def test_repository_and_local_policies_override_global_from_event_checkout_root(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        copilot_home = tmp_path / "copilot-home"
+        policy(copilot_home, {"bash": {"*": "deny"}})
+        monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
+        checkout = git_checkout(tmp_path / "checkout")
+        nested = checkout / "src" / "nested"
+        nested.mkdir(parents=True)
+        project_policy(checkout, {"bash": {"*": "ask"}})
+        project_policy(checkout, {"bash": {"*": "allow"}}, local=True)
+        hook_process_dir = tmp_path / "unrelated"
+        hook_process_dir.mkdir()
+        monkeypatch.chdir(hook_process_dir)
+
+        status, output, stderr = invoke_cli(monkeypatch, json.dumps(event("echo hi", cwd=str(nested))))
+
+        assert status == 0
+        assert stderr == ""
+        _, decision = response_from(output)
+        assert decision == {"permissionDecision": "allow"}
+
+    def test_project_policy_outside_git_uses_normalized_event_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        copilot_home = tmp_path / "copilot-home"
+        policy(copilot_home, {"bash": {"*": "deny"}})
+        monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        project_policy(outside, {"bash": {"*": "allow"}})
+        event_dir = outside / "child"
+        event_dir.mkdir()
+        monkeypatch.chdir(tmp_path)
+
+        status, output, stderr = invoke_cli(
+            monkeypatch,
+            json.dumps(event("echo hi", cwd=str(event_dir / ".."))),
+        )
+
+        assert status == 0
+        assert stderr == ""
+        _, decision = response_from(output)
+        assert decision["permissionDecision"] == "allow"
+
+    def test_allowed_patterns_from_global_and_project_policies_are_merged(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        copilot_home = tmp_path / "copilot-home"
+        policy(copilot_home, {"bash": {"allowed_cmds_regex": ["^echo global$"]}})
+        monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
+        checkout = git_checkout(tmp_path / "checkout")
+        nested = checkout / "nested"
+        nested.mkdir()
+        project_policy(checkout, {"bash": {"allowed_cmds_regex": ["^echo project$"]}})
+
+        for command in ("echo global", "echo project"):
+            status, output, stderr = invoke_cli(monkeypatch, json.dumps(event(command, cwd=str(nested))))
+
+            assert status == 0
+            assert stderr == ""
+            _, decision = response_from(output)
+            assert decision == {"permissionDecision": "allow"}
+
+    @pytest.mark.parametrize("invalid_cwd", [None, "", "relative/path", "/missing/copilot/project", 42])
+    def test_missing_or_invalid_event_cwd_denies_without_using_process_directory(
+        self, invalid_cwd: object, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        copilot_home = tmp_path / "copilot-home"
+        policy(copilot_home, {"bash": {"*": "allow"}})
+        monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
+        payload = event("echo hi", cwd=invalid_cwd)
+
+        status, output, _ = invoke_cli(monkeypatch, json.dumps(payload))
+
+        assert status == 0
+        _, decision = response_from(output)
+        assert decision["permissionDecision"] == "deny"
+        assert "cwd" in decision["permissionDecisionReason"]
+
+    def test_missing_event_cwd_denies(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        payload = event()
+        payload.pop("cwd")
+
+        status, output, _ = invoke_cli(monkeypatch, json.dumps(payload))
+
+        assert status == 0
+        _, decision = response_from(output)
+        assert decision["permissionDecision"] == "deny"
+        assert "cwd" in decision["permissionDecisionReason"]
+
+    def test_file_event_cwd_denies(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        file_cwd = tmp_path / "not-a-directory"
+        file_cwd.write_text("", encoding="utf-8")
+
+        status, output, _ = invoke_cli(monkeypatch, json.dumps(event("echo hi", cwd=str(file_cwd))))
+
+        assert status == 0
+        _, decision = response_from(output)
+        assert decision["permissionDecision"] == "deny"
+        assert "not a directory" in decision["permissionDecisionReason"]
+
+    @pytest.mark.parametrize("source", ["project", "local"])
+    @pytest.mark.parametrize("contents", ["{ malformed", '{"bash":{"*":"invalid"}}'])
+    def test_invalid_repository_or_local_policy_denies_even_with_valid_global_policy(
+        self,
+        source: str,
+        contents: str,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        copilot_home = tmp_path / "copilot-home"
+        policy(copilot_home, {"bash": {"*": "allow"}})
+        monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
+        checkout = git_checkout(tmp_path / "checkout")
+        nested = checkout / "nested"
+        nested.mkdir()
+        invalid_path = project_policy(checkout, {}, local=source == "local")
+        invalid_path.write_text(contents, encoding="utf-8")
+
+        status, output, _ = invoke_cli(monkeypatch, json.dumps(event("echo hi", cwd=str(nested))))
+
+        assert status == 0
+        _, decision = response_from(output)
+        assert decision["permissionDecision"] == "deny"
+        assert str(invalid_path) in decision["permissionDecisionReason"]
+
+    @pytest.mark.parametrize("source", ["project", "local"])
+    def test_unreadable_repository_or_local_policy_denies(
+        self, source: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        checkout = git_checkout(tmp_path / "checkout")
+        nested = checkout / "nested"
+        nested.mkdir()
+        unreadable_path = project_policy(checkout, {}, local=source == "local")
+        unreadable_path.unlink()
+        unreadable_path.mkdir()
+
+        status, output, _ = invoke_cli(monkeypatch, json.dumps(event("echo hi", cwd=str(nested))))
+
+        assert status == 0
+        _, decision = response_from(output)
+        assert decision["permissionDecision"] == "deny"
+        assert "cannot read" in decision["permissionDecisionReason"]
+        assert str(unreadable_path) in decision["permissionDecisionReason"]
 
     def test_default_home_is_used_when_copilot_home_is_unset(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

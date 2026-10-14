@@ -1,9 +1,8 @@
 # lovely-copilot-permissions
 
 A local GitHub Copilot CLI hook for evaluating Bash tool calls with Lovely Bash
-Permissions. The initial integration supports the global Lovely policy only;
-repository and personal-local policy layers and saved Copilot approvals are not
-imported yet.
+Permissions. Lovely policies can be layered globally, per repository, and in a
+private local override. Saved Copilot approvals are not imported yet.
 
 ## Install
 
@@ -72,15 +71,38 @@ the policy result. An invocation failure that produces no verdict exits
 nonzero. Malformed input and missing or non-string commands produce an explicit
 denial. An empty command is evaluated through the configured `error` policy.
 
-## Global Lovely policy
+## Lovely policy files
 
-The initial integration reads one policy file:
+Copilot policies use a separate namespace from Devin's policies. The CLI merges
+these files from lowest to highest precedence:
 
 | Scope | Location |
 | --- | --- |
 | Global | `$COPILOT_HOME/lovely-permissions.jsonc` (default `~/.copilot/lovely-permissions.jsonc`) |
+| Shared project | `<checkout>/.github/copilot/lovely-permissions.jsonc` |
+| Personal local | `<checkout>/.github/copilot/lovely-permissions.local.jsonc` |
 
-The file uses Lovely's standard policy schema. For example:
+For hook events, the project is selected using Copilot's event `cwd`, not the
+hook process's current directory. In a Git checkout, Lovely uses the active
+checkout root (including a linked worktree); outside a checkout, it uses the
+normalized event directory. The event `cwd` must be an existing absolute
+directory. A missing or invalid value produces a denial rather than silently
+using the hook process's directory.
+
+Policy objects merge recursively, arrays concatenate, and later scalar values
+override earlier values. Every present file must be readable, valid JSONC, and
+valid under Lovely's policy schema; one invalid source denies even if another
+source is valid. Missing files are ignored. If all three are missing, Lovely
+asks by default.
+
+The local override is private and should be ignored by version control. For
+example, add this to the repository's `.gitignore`:
+
+```gitignore
+.github/copilot/lovely-permissions.local.jsonc
+```
+
+Each file uses Lovely's standard policy schema. For example:
 
 ```jsonc
 {
@@ -98,11 +120,6 @@ See the [Devin guide](README.lovely-devin-permissions.md#configuration-files)
 for policy keys and regex guidance; Copilot uses the same Lovely schema and
 decision engine, but not Devin's host protocol or configuration files.
 
-If the global policy is missing, Lovely asks by default. A present policy that
-is unreadable, malformed, or invalid denies the command rather than being
-ignored. Repository and personal-local policy layers are not supported by this
-initial version.
-
 ## Scope and limitations
 
 - Initial support is for local Copilot CLI sessions on Linux and macOS.
@@ -110,7 +127,7 @@ initial version.
   are not deployed to cloud-agent jobs.
 - Only the `preToolUse` Bash tool is handled. Other tools and hook events are
   outside this integration.
-- Copilot's saved command approvals are not imported in this initial version.
+- Copilot's saved command approvals are not imported in this version.
 - There is no `--setup`, `--test`, or `--show-config` mode; configure the hook
   manually as shown above.
 - The hook uses Copilot's default 30-second timeout. The shared parser also has
