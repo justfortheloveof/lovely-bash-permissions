@@ -1,9 +1,10 @@
 # Architecture
 
 A short map of `lovely_bash_permissions` for someone who has not read it before.
-Three surfaces ship in one package: a general-purpose bash parser, and two
-permission clients built on top of it — one for Devin's hook protocol, one that
-serves the Pi coding agent's extension over a pipe.
+Three surfaces currently ship in one package: a general-purpose bash parser and
+two permission hosts built on it — one for Devin's hook protocol and one that
+serves the Pi coding agent's extension over a pipe. A third host for GitHub
+Copilot CLI is specified but not yet implemented.
 
 ## Tests
 
@@ -23,7 +24,7 @@ about the product's behaviour, not one module's internals. If a test only
 imports one module, it does not belong there.
 
 A **contract** test — one that pins a property spanning two modules, usually
-across the two halves — lives with the side it is about rather than in
+across the library and host layers — lives with the side it is about rather than in
 `scenarios/`, and does not need to import only one module to earn its place. The
 "every declared policy key is enforced" tests in `tests/config/test_schema.py`
 are the example: their subject is the config surface, and they reach into
@@ -66,13 +67,13 @@ __init__.py          re-exports the public surface
 ```
 
 `errors.py` holds `user_message` as well as the exceptions, and it is a leaf for
-the same reason they are: both hosts render a verdict to a user — and, through
-it, to a model — and a config that will not validate has to produce that text
-without the developer half of a pydantic error in it. It lives there rather than
-in either host because the two reach the same message by different routes and a
+the same reason they are: every permission host renders a verdict to a user —
+and, through it, to a model — and a config that will not validate has to produce
+that text without developer-facing Pydantic error details. It lives there rather
+than in a host because each reaches the same message by a different route and a
 message rendered twice renders twice. It imports nothing, duck-types `errors()`
 rather than importing pydantic, and keeps working when the error has already been
-through `str()` — which is the shape the Devin half actually receives, since
+through `str()` — which is the shape the Devin host actually receives, since
 `config.manager` re-raises the loader's messages as a plain `ValueError`.
 
 `inspect.py` and `words.py` depend on `ast.py` alone on purpose: they answer
@@ -80,22 +81,28 @@ questions about a tree the caller already holds, so they never parse. `converter
 `parser` at module level; `parser.py` imports only `errors.py`, so the edge
 cannot cycle.
 
-**Devin half** — the permission hook: `config/` -> `hook.py` -> `devin_cli.py`.
+**Devin host** — the permission hook: `config/` -> `hook.py` -> `devin_cli.py`.
 **Nothing in the library half imports any of it**, which is what makes the parser
 vendored-and-usable-on-its-own and the hook deletable-without-trace. The
 dependency runs one way only, and `config/` now takes part in it too:
 `config/schema.py` and `config/effective_bash.py` import `policy.py`, which holds
-the policy vocabulary both halves resolve from. `policy.py` is data and imports
-nothing, so the edge cannot cycle.
+the policy vocabulary the library and hosts resolve from. `policy.py` is data
+and imports nothing, so the edge cannot cycle.
 
-**Pi half** — `decide.py` -> `pi_cli.py`, the server the Pi coding agent's
+**Pi host** — `decide.py` -> `pi_cli.py`, the server the Pi coding agent's
 extension `lovely-pi-permissions` drives over a pipe. It is a *host*, not a
-third copy of the policy: it calls the same `decide.decide_bash_command` the
-Devin hook calls, and owns no decision logic of its own.
+separate policy evaluator: it calls the same `decide.decide_bash_command` as the
+Devin hook and owns no decision logic of its own.
 
-Three console scripts sit at the edges: `lovely-bash-inspection` (library half),
-`lovely-devin-permissions` (Devin half), and `lovely-pi-bash-permissions` (Pi
-half).
+**Planned Copilot host** — a Copilot-specific configuration resolver and
+`copilot_cli.py` adapter will call `decide.decide_bash_command`. It owns the
+Copilot `preToolUse` protocol and Copilot-specific policy/approval discovery; it
+does not use Devin's protocol adapter or Devin-specific effective-config wrapper.
+
+Three console scripts currently sit at the edges: `lovely-bash-inspection`
+(library), `lovely-devin-permissions` (Devin), and
+`lovely-pi-bash-permissions` (Pi). The planned fourth script is
+`lovely-copilot-permissions`.
 
 **`policy.py` declares the vocabulary once.** Every construct the evaluator gates
 and every output-redirection kind it classifies is named there; the schema
@@ -119,14 +126,15 @@ read.
 ## The two seams, and why they exist
 
 Both exist to stop host-specific code from reaching into shared code, which is
-what makes a second host possible at all. Neither is a stylistic preference, and
+what makes additional hosts possible. Neither is a stylistic preference, and
 neither should be inlined back into its caller.
 
 **`resolve_bash_config` / `get_effective_bash_config`.** `get_effective_bash_config`
 calls `load_devin_exec_regexes(project_dir)` — a host that has no `Exec()`
 concept cannot call it without reading a Devin config file it has no opinion
 about. The host-agnostic resolution is the first function; the Devin merge is a
-thin wrapper over it.
+thin wrapper over it. Pi and the planned Copilot host use the host-agnostic
+resolver and load their own host-specific approvals.
 
 `resolve_bash_config` branches on `if not raw_bash:`, **not**
 `if raw_bash is None:`. An empty block and `None` take the same branch today, so
@@ -140,8 +148,9 @@ equally load-bearing — the function is still called directly with unvalidated
 dicts by `--show-config` and by the golden harness.
 
 **`decide_bash_command`.** The decision logic used to live inside `hook.py`,
-interleaved with Devin's wire protocol. It is now one host-agnostic function that
-both hosts call, so a policy change cannot land in one and miss the other.
+interleaved with Devin's wire protocol. It is now one host-agnostic function
+called by the Devin and Pi hosts and intended for Copilot too, so a policy change
+cannot land in one host and miss another.
 
 Two things about it are load-bearing and previously implicit:
 
@@ -159,7 +168,7 @@ Two things about it are load-bearing and previously implicit:
   appear in `decide.py` as a value, which `tests/test_decide.py` asserts by
   walking its AST.
 
-## The two halves, by full name
+## The Pi engine and its client
 
 - `lovely-pi-bash-permissions` — this repo, Python, the engine. Reads one JSON
   request on stdin, evaluates bash commands, writes one JSON response on

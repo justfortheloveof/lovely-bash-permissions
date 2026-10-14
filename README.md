@@ -6,18 +6,21 @@ Perfect for AI agents, shell scripting tools, permission checkers, syntax analys
 
 ## Related Projects
 
-This repository ships two permission clients built on the same parser and the
-same policy vocabulary:
+This repository currently ships two permission clients built on the same parser
+and policy vocabulary, with a third host integration specified for GitHub Copilot
+CLI:
 
 | Project | What it is | Read more |
 | --- | --- | --- |
 | `lovely-devin-permissions` | a Devin CLI permission hook | [README.lovely-devin-permissions.md](README.lovely-devin-permissions.md) |
 | `lovely-pi-bash-permissions` | bash permission decisions for the [`lovely-pi-permissions`](https://github.com/jftlo/lovely-pi-permissions) Pi extension | [README.lovely-pi-bash-permissions.md](README.lovely-pi-bash-permissions.md) |
+| `lovely-copilot-permissions` | planned local GitHub Copilot CLI Bash permission hook | [README.lovely-copilot-permissions.md](README.lovely-copilot-permissions.md) |
 
-Both parse bash commands, evaluate each command segment against configurable
-rules, and decide whether to allow, ask for approval, or deny execution. The Pi
-one is a separate repository and speaks one JSON object over a pipe, once per
-command; `lovely-pi-permissions` is the TypeScript extension that drives it.
+The shipped clients parse bash commands, evaluate command segments against
+configurable rules, and decide whether to allow, ask for approval, or deny
+execution. The Pi client is a separate repository and speaks one JSON object over
+a pipe, once per command; `lovely-pi-permissions` is the TypeScript extension that
+drives it. Copilot support is specified but not yet implemented.
 
 ## Installation
 
@@ -343,7 +346,7 @@ print(structurally_equal(parse_ast("echo hi"), parse_ast("echo ho")))  # False
 
 ## Segments: `parse_segments`
 
-`parse_segments(command, dialect="bash")` is the flat, execution-order view of a command: one dict per thing bash actually runs, split at every `|`, `|&`, `&&`, `||`, `;` and `&`. It is the input the Devin half's policy engine consumes, and it imports from the subpackage rather than the package root:
+`parse_segments(command, dialect="bash")` is the flat, execution-order view of a command: one dict per thing bash actually runs, split at every `|`, `|&`, `&&`, `||`, `;` and `&`. It is the input the permission hosts' policy engines consume, and it imports from the subpackage rather than the package root:
 
 ```python
 from lovely_bash_permissions.segments import parse_segments
