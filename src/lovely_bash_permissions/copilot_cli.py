@@ -13,6 +13,7 @@ from typing import Any
 from . import decide
 from .config.copilot import load_copilot_policy
 from .config.copilot_permissions import load_saved_command_approvals
+from .copilot_diagnostics import get_copilot_diagnostics
 
 
 def _deny(reason: str) -> dict[str, str]:
@@ -193,13 +194,31 @@ def _emit_verdict(verdict: dict[str, str]) -> None:
     print(json.dumps(decision, ensure_ascii=False))
 
 
+def _show_config() -> None:
+    """Print the selected Copilot sources and effective Bash policy."""
+    try:
+        project_dir, permission_location = _project_and_permission_location_from_event_cwd(str(Path.cwd()))
+        result, warning = get_copilot_diagnostics(project_dir, permission_location, _copilot_approval_regex)
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    if warning:
+        print(f"warning: {warning}", file=sys.stderr)
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    sys.exit(0)
+
+
 def main() -> None:
     """Read one Copilot hook payload and emit its native permission verdict."""
     parser = argparse.ArgumentParser(
         prog="lovely-copilot-permissions",
         description="Evaluate local GitHub Copilot CLI preToolUse Bash calls with Lovely policy.",
     )
-    parser.parse_args()
+    parser.add_argument("--show-config", action="store_true", help="Show policy sources and effective Bash config")
+    args = parser.parse_args()
+    if args.show_config:
+        _show_config()
 
     verdict = _decision_for_payload(sys.stdin.read())
     if verdict is None:

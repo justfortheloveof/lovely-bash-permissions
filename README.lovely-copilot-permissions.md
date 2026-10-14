@@ -121,6 +121,22 @@ See the [Devin guide](README.lovely-devin-permissions.md#configuration-files)
 for policy keys and regex guidance; Copilot uses the same Lovely schema and
 decision engine, but not Devin's host protocol or configuration files.
 
+### Inspect the selected configuration
+
+Run `lovely-copilot-permissions --show-config` from the repository or directory
+you want to inspect. The command prints JSON describing all candidate Lovely
+policy files and whether they exist, the saved-approval file, the selected
+Copilot permission location, imported command approvals, and the effective Bash
+configuration after applying the root wildcard and imported approvals. The
+current directory determines both project policy discovery and the selected
+permission location, using the same checkout, linked-worktree, submodule, and
+non-repository rules as hook mode.
+
+Every present Lovely policy source is validated. If any source is unreadable,
+malformed, or invalid, the command writes the error to stderr, exits nonzero,
+and emits no JSON. A malformed saved-approval file is auxiliary: it produces a
+stderr warning and the diagnostics show no imported approvals from that file.
+
 ## Copilot saved command approvals
 
 The hook reads persisted approvals from
@@ -153,8 +169,7 @@ hook writes a warning to stderr and imports no approvals from it.
   are not deployed to cloud-agent jobs.
 - Only the `preToolUse` Bash tool is handled. Other tools and hook events are
   outside this integration.
-- There is no `--setup`, `--test`, or `--show-config` mode; configure the hook
-  manually as shown above.
+- There is no `--setup` mode; configure the hook manually as shown above.
 - The hook uses Copilot's default 30-second timeout. The shared parser also has
   a 30-second `shfmt` timeout, so a slow parse can race Copilot's outer timeout.
   Copilot treats nonzero hook exits as denial, while a hook timeout fails open
