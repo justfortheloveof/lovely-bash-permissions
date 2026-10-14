@@ -72,6 +72,29 @@ the policy result. An invocation failure that produces no verdict exits
 nonzero. Malformed input and missing or non-string commands produce an explicit
 denial. An empty command is evaluated through the configured `error` policy.
 
+## Preview a decision
+
+Run `--test COMMAND` to print the final Copilot decision JSON without starting a
+Copilot session or emitting timeline progress:
+
+```bash
+lovely-copilot-permissions --test 'git status'
+```
+
+Test mode uses the current working directory as its policy context and loads the
+same Lovely policy files and saved Copilot command approvals as hook mode. For
+example, to preview the policy for a repository, run the command from that
+checkout. An empty command is still evaluated by Lovely's configured `error`
+policy:
+
+```bash
+lovely-copilot-permissions --test ''
+```
+
+Allow, ask, and deny decisions all exit with status 0; the JSON contains the
+verdict. Invalid invocations that produce no decision, such as omitting the
+command, exit nonzero.
+
 ## Lovely policy files
 
 Copilot policies use a separate namespace from Devin's policies. The CLI merges
@@ -153,8 +176,8 @@ hook writes a warning to stderr and imports no approvals from it.
   are not deployed to cloud-agent jobs.
 - Only the `preToolUse` Bash tool is handled. Other tools and hook events are
   outside this integration.
-- There is no `--setup`, `--test`, or `--show-config` mode; configure the hook
-  manually as shown above.
+- There is no `--setup` or `--show-config` mode; configure the hook manually as
+  shown above.
 - The hook uses Copilot's default 30-second timeout. The shared parser also has
   a 30-second `shfmt` timeout, so a slow parse can race Copilot's outer timeout.
   Copilot treats nonzero hook exits as denial, while a hook timeout fails open
