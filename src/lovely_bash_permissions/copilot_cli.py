@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import Any
 
 from . import decide
 from .config.copilot import load_copilot_policy
+from .config.copilot_permissions import load_saved_command_approvals
 
 
 def _deny(reason: str) -> dict[str, str]:
@@ -30,8 +32,8 @@ def _decode_tool_args(value: object) -> dict[str, Any]:
     return value
 
 
-def _project_dir_from_event_cwd(value: object) -> Path:
-    """Resolve Copilot's event cwd to its active checkout root or directory."""
+def _project_and_permission_location_from_event_cwd(value: object) -> tuple[Path, Path]:
+    """Resolve the policy root and Copilot permission location from event cwd."""
     if not isinstance(value, str) or not value or not Path(value).is_absolute():
         raise ValueError("invalid hook input: 'cwd' must be an absolute directory path")
 
@@ -55,7 +57,7 @@ def _project_dir_from_event_cwd(value: object) -> Path:
 
     if result.returncode != 0:
         # A valid directory outside a checkout is its own project-policy root.
-        return event_dir
+        return event_dir, event_dir
 
     root = result.stdout.strip()
     if not root:
@@ -66,7 +68,70 @@ def _project_dir_from_event_cwd(value: object) -> Path:
         raise ValueError(f"cannot resolve Git checkout root {root!r}: {exc}") from exc
     if not checkout_root.is_dir():
         raise ValueError(f"Git checkout root is not a directory: {checkout_root}")
-    return checkout_root
+
+    try:
+        superproject = subprocess.run(
+            ["git", "-C", str(event_dir), "rev-parse", "--show-superproject-working-tree"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        common_dir = subprocess.run(
+            ["git", "-C", str(event_dir), "rev-parse", "--git-common-dir"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        git_dir = subprocess.run(
+            ["git", "-C", str(event_dir), "rev-parse", "--git-dir"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValueError(f"cannot determine Copilot permission location from event 'cwd' {event_dir}: {exc}") from exc
+    if superproject.returncode != 0 or common_dir.returncode != 0 or git_dir.returncode != 0:
+        raise ValueError(f"cannot determine Copilot permission location from event 'cwd' {event_dir}")
+
+    # Copilot scopes a submodule to its own checkout, not the containing
+    # superproject. Its active checkout root already has that identity.
+    if superproject.stdout.strip():
+        return checkout_root, checkout_root
+
+    common_path = Path(common_dir.stdout.strip())
+    if not common_path.is_absolute():
+        common_path = event_dir / common_path
+    git_path = Path(git_dir.stdout.strip())
+    if not git_path.is_absolute():
+        git_path = event_dir / git_path
+    try:
+        common_path = common_path.resolve(strict=True)
+        git_path = git_path.resolve(strict=True)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise ValueError(f"cannot resolve Copilot permission location from event 'cwd' {event_dir}: {exc}") from exc
+
+    if common_path != git_path:
+        # Linked worktrees have a per-worktree git dir and share the main
+        # repository's common .git directory.
+        main_root = common_path.parent
+        if not main_root.is_dir():
+            raise ValueError(f"Copilot main repository root is not a directory: {main_root}")
+        return checkout_root, main_root
+    return checkout_root, checkout_root
+
+
+def _copilot_approval_regex(identifier: str) -> str:
+    """Translate a Copilot command identifier to a full executed-command match."""
+    prefix = identifier.endswith(":*")
+    command = identifier[:-2] if prefix else identifier
+    escaped = re.escape(command)
+    body = f"{escaped}(?:\\s+.*)?" if prefix else escaped
+    # The impossible lookahead makes Lovely's matcher use the executed form
+    # only, rather than letting a quoted/raw spelling grant a saved approval.
+    return f"^(?!\\b\\B){body}\\Z"
 
 
 def _decision_for_payload(raw: str) -> dict[str, str] | None:
@@ -95,12 +160,21 @@ def _decision_for_payload(raw: str) -> dict[str, str] | None:
         return _deny("invalid hook input: Bash toolArgs must contain a string 'command'")
 
     try:
-        project_dir = _project_dir_from_event_cwd(payload.get("cwd"))
+        project_dir, permission_location = _project_and_permission_location_from_event_cwd(payload.get("cwd"))
         config, top_level_wildcard = load_copilot_policy(project_dir)
     except ValueError as exc:
         return _deny(str(exc))
 
-    decision = decide.decide_bash_command(command, config.get("bash") or {}, top_level_wildcard)
+    approval_ids, warning = load_saved_command_approvals(permission_location)
+    if warning:
+        print(f"warning: {warning}", file=sys.stderr)
+    bash_config = dict(config.get("bash") or {})
+    if approval_ids:
+        existing_patterns = bash_config.get("allowed_cmds_regex", [])
+        imported_patterns = [_copilot_approval_regex(identifier) for identifier in approval_ids]
+        bash_config["allowed_cmds_regex"] = list(dict.fromkeys([*existing_patterns, *imported_patterns]))
+
+    decision = decide.decide_bash_command(command, bash_config, top_level_wildcard)
     action = decision["action"]
     reason = decision["reason"] or "command allowed by the configured Lovely policy"
     return {"action": action, "reason": reason}

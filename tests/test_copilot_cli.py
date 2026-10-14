@@ -58,6 +58,13 @@ def policy(home: Path, config: object) -> Path:
     return path
 
 
+def saved_approvals(home: Path, locations: dict[str, Any]) -> Path:
+    path = home / "permissions-config.json"
+    home.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"locations": locations}), encoding="utf-8")
+    return path
+
+
 def project_policy(project: Path, config: object, *, local: bool = False) -> Path:
     path = project / ".github" / "copilot" / ("lovely-permissions.local.jsonc" if local else "lovely-permissions.jsonc")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -69,6 +76,28 @@ def git_checkout(path: Path) -> Path:
     path.mkdir(parents=True)
     subprocess.run(["git", "init", "--quiet", str(path)], check=True, capture_output=True, text=True)
     return path
+
+
+def git_commit(path: Path) -> None:
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(path),
+            "-c",
+            "user.name=Test User",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "--allow-empty",
+            "--quiet",
+            "-m",
+            "test",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -88,6 +117,312 @@ def response_from(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
 
 
 class TestCopilotCliHookContract:
+    def test_saved_command_approval_from_configured_home_allows_matching_command(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        copilot_home = tmp_path / "copilot-home"
+        monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
+        copilot_home.mkdir()
+        (copilot_home / "permissions-config.json").write_text(
+            json.dumps(
+                {
+                    "locations": {
+                        str(tmp_path): {"tool_approvals": [{"kind": "commands", "commandIdentifiers": ["git status"]}]}
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        status, output, stderr = invoke_cli(monkeypatch, json.dumps(event("git status")))
+
+        assert status == 0
+        assert stderr == ""
+        _, decision = response_from(output)
+        assert decision == {"permissionDecision": "allow"}
+
+    @pytest.mark.parametrize(
+        ("identifier", "command", "expected"),
+        [
+            ("git status", "git status", "allow"),
+            ("git status", "git status --short", "ask"),
+            ("git", "git status", "ask"),
+            ("echo hello world", "echo 'hello world'", "allow"),
+            ("echo 'hello world'", "echo 'hello world'", "ask"),
+            ("git:*", "git", "allow"),
+            ("git:*", "git status --short", "allow"),
+            ("git:*", "git-status", "ask"),
+        ],
+    )
+    def test_saved_command_identifiers_use_exact_and_trailing_prefix_matching(
+        self,
+        identifier: str,
+        command: str,
+        expected: str,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        copilot_home = tmp_path / "copilot-home"
+        monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
+        saved_approvals(
+            copilot_home,
+            {str(tmp_path): {"tool_approvals": [{"kind": "commands", "commandIdentifiers": [identifier]}]}},
+        )
+
+        status, output, stderr = invoke_cli(monkeypatch, json.dumps(event(command)))
+
+        assert status == 0
+        assert stderr == ""
+        _, decision = response_from(output)
+        assert decision["permissionDecision"] == expected
+
+    def test_saved_approvals_use_repository_root_from_nested_event_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        copilot_home = tmp_path / "copilot-home"
+        monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
+        checkout = git_checkout(tmp_path / "checkout")
+        nested = checkout / "src" / "nested"
+        nested.mkdir(parents=True)
+        saved_approvals(
+            copilot_home,
+            {str(checkout): {"tool_approvals": [{"kind": "commands", "commandIdentifiers": ["git status"]}]}},
+        )
+
+        status, output, stderr = invoke_cli(monkeypatch, json.dumps(event("git status", cwd=str(nested))))
+
+        assert status == 0
+        assert stderr == ""
+        _, decision = response_from(output)
+        assert decision == {"permissionDecision": "allow"}
+
+    def test_saved_approvals_outside_git_use_normalized_event_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        copilot_home = tmp_path / "copilot-home"
+        monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
+        outside = tmp_path / "outside"
+        nested = outside / "nested"
+        nested.mkdir(parents=True)
+        saved_approvals(
+            copilot_home,
+            {str(outside): {"tool_approvals": [{"kind": "commands", "commandIdentifiers": ["git status"]}]}},
+        )
+
+        status, output, stderr = invoke_cli(
+            monkeypatch,
+            json.dumps(event("git status", cwd=str(nested / ".."))),
+        )
+
+        assert status == 0
+        assert stderr == ""
+        _, decision = response_from(output)
+        assert decision == {"permissionDecision": "allow"}
+
+    def test_saved_command_approval_matches_each_executed_compound_segment(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        copilot_home = tmp_path / "copilot-home"
+        monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
+        policy(copilot_home, {"bash": {"allowed_cmds_regex": ["^echo first$"]}})
+        saved_approvals(
+            copilot_home,
+            {str(tmp_path): {"tool_approvals": [{"kind": "commands", "commandIdentifiers": ["git status"]}]}},
+        )
+
+        status, output, stderr = invoke_cli(monkeypatch, json.dumps(event("echo first; git status")))
+
+        assert status == 0
+        assert stderr == ""
+        _, decision = response_from(output)
+        assert decision == {"permissionDecision": "allow"}
+
+    @pytest.mark.parametrize(
+        ("matching_location", "approvals"),
+        [
+            (False, [{"kind": "commands", "commandIdentifiers": ["git status"]}]),
+            (True, [{"kind": "write"}]),
+        ],
+        ids=["different-location", "unrelated-approval-kind"],
+    )
+    def test_only_matching_location_command_approvals_are_imported(
+        self,
+        matching_location: bool,
+        approvals: list[dict[str, Any]],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        copilot_home = tmp_path / "copilot-home"
+        monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
+        location = tmp_path if matching_location else tmp_path / "another-location"
+        saved_approvals(copilot_home, {str(location): {"tool_approvals": approvals}})
+
+        status, output, stderr = invoke_cli(monkeypatch, json.dumps(event("git status")))
+
+        assert status == 0
+        assert stderr == ""
+        _, decision = response_from(output)
+        assert decision["permissionDecision"] == "ask"
+
+    def test_saved_command_approval_cannot_override_lovely_deny(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        copilot_home = tmp_path / "copilot-home"
+        monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
+        policy(copilot_home, {"bash": {"blocked_cmds_regex": ["^git status$"]}})
+        saved_approvals(
+            copilot_home,
+            {str(tmp_path): {"tool_approvals": [{"kind": "commands", "commandIdentifiers": ["git status"]}]}},
+        )
+
+        status, output, stderr = invoke_cli(monkeypatch, json.dumps(event("git status")))
+
+        assert status == 0
+        assert stderr == ""
+        _, decision = response_from(output)
+        assert decision["permissionDecision"] == "deny"
+
+    def test_duplicate_saved_command_identifiers_are_reported_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        copilot_home = tmp_path / "copilot-home"
+        monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
+        saved_approvals(
+            copilot_home,
+            {
+                str(tmp_path): {
+                    "tool_approvals": [{"kind": "commands", "commandIdentifiers": ["git status", "git status"]}]
+                }
+            },
+        )
+
+        status, output, stderr = invoke_cli(monkeypatch, json.dumps(event("git status")))
+
+        assert status == 0
+        assert stderr == ""
+        progress, decision = response_from(output)
+        assert decision == {"permissionDecision": "allow"}
+        assert "allowed pattern:" in progress["message"]
+        assert "allowed patterns:" not in progress["message"]
+
+    @pytest.mark.parametrize("malformed_json", [True, False], ids=["invalid-json", "invalid-schema"])
+    def test_malformed_saved_approval_data_warns_and_imports_none(
+        self, malformed_json: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        copilot_home = tmp_path / "copilot-home"
+        monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
+        copilot_home.mkdir()
+        approval_file = copilot_home / "permissions-config.json"
+        malformed = (
+            "{invalid"
+            if malformed_json
+            else json.dumps(
+                {
+                    "locations": {
+                        str(tmp_path): {"tool_approvals": [{"kind": "commands", "commandIdentifiers": ["git status"]}]},
+                        "relative": {},
+                    }
+                }
+            )
+        )
+        approval_file.write_text(malformed, encoding="utf-8")
+
+        status, output, stderr = invoke_cli(monkeypatch, json.dumps(event("git status")))
+
+        assert status == 0
+        assert str(approval_file) in stderr
+        _, decision = response_from(output)
+        assert decision["permissionDecision"] == "ask"
+
+    def test_unreadable_saved_approval_data_warns_and_imports_none(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        copilot_home = tmp_path / "copilot-home"
+        monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
+        copilot_home.mkdir()
+        approval_file = copilot_home / "permissions-config.json"
+        approval_file.mkdir()
+
+        status, output, stderr = invoke_cli(monkeypatch, json.dumps(event("git status")))
+
+        assert status == 0
+        assert str(approval_file) in stderr
+        _, decision = response_from(output)
+        assert decision["permissionDecision"] == "ask"
+
+    def test_missing_saved_approval_file_is_silent(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        status, output, stderr = invoke_cli(monkeypatch, json.dumps(event("git status")))
+
+        assert status == 0
+        assert stderr == ""
+        _, decision = response_from(output)
+        assert decision["permissionDecision"] == "ask"
+
+    def test_saved_approvals_for_linked_worktree_use_main_repository_location(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        copilot_home = tmp_path / "copilot-home"
+        monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
+        main_checkout = git_checkout(tmp_path / "main-checkout")
+        git_commit(main_checkout)
+        linked_checkout = tmp_path / "linked-checkout"
+        subprocess.run(
+            ["git", "-C", str(main_checkout), "worktree", "add", "--quiet", "-b", "linked", str(linked_checkout)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        saved_approvals(
+            copilot_home,
+            {str(main_checkout): {"tool_approvals": [{"kind": "commands", "commandIdentifiers": ["git status"]}]}},
+        )
+
+        status, output, stderr = invoke_cli(monkeypatch, json.dumps(event("git status", cwd=str(linked_checkout))))
+
+        assert status == 0
+        assert stderr == ""
+        _, decision = response_from(output)
+        assert decision == {"permissionDecision": "allow"}
+
+    def test_saved_approvals_for_submodule_use_submodule_location(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        copilot_home = tmp_path / "copilot-home"
+        monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
+        source = git_checkout(tmp_path / "submodule-source")
+        git_commit(source)
+        superproject = git_checkout(tmp_path / "superproject")
+        git_commit(superproject)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "protocol.file.allow=always",
+                "-C",
+                str(superproject),
+                "submodule",
+                "add",
+                "--quiet",
+                str(source),
+                "modules/example",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        submodule = superproject / "modules" / "example"
+        saved_approvals(
+            copilot_home,
+            {str(submodule): {"tool_approvals": [{"kind": "commands", "commandIdentifiers": ["git status"]}]}},
+        )
+
+        status, output, stderr = invoke_cli(monkeypatch, json.dumps(event("git status", cwd=str(submodule))))
+
+        assert status == 0
+        assert stderr == ""
+        _, decision = response_from(output)
+        assert decision == {"permissionDecision": "allow"}
+
     def test_object_tool_args_use_global_copilot_home_policy(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -353,6 +688,23 @@ class TestCopilotCliHookContract:
         assert status == 0
         _, decision = response_from(output)
         assert decision["permissionDecision"] == "deny"
+
+    def test_default_home_is_used_for_saved_command_approvals(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("COPILOT_HOME", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        saved_approvals(
+            tmp_path / ".copilot",
+            {str(tmp_path): {"tool_approvals": [{"kind": "commands", "commandIdentifiers": ["git status"]}]}},
+        )
+
+        status, output, stderr = invoke_cli(monkeypatch, json.dumps(event("git status")))
+
+        assert status == 0
+        assert stderr == ""
+        _, decision = response_from(output)
+        assert decision == {"permissionDecision": "allow"}
 
     @pytest.mark.parametrize("contents", ["{invalid", json.dumps({"bash": {"*": "unsafe"}})])
     def test_invalid_global_policy_denies(self, contents: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

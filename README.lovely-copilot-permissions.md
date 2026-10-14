@@ -2,7 +2,8 @@
 
 A local GitHub Copilot CLI hook for evaluating Bash tool calls with Lovely Bash
 Permissions. Lovely policies can be layered globally, per repository, and in a
-private local override. Saved Copilot approvals are not imported yet.
+private local override. Persisted Copilot command approvals are imported only
+for the active Copilot permission location.
 
 ## Install
 
@@ -120,6 +121,31 @@ See the [Devin guide](README.lovely-devin-permissions.md#configuration-files)
 for policy keys and regex guidance; Copilot uses the same Lovely schema and
 decision engine, but not Devin's host protocol or configuration files.
 
+## Copilot saved command approvals
+
+The hook reads persisted approvals from
+`$COPILOT_HOME/permissions-config.json` (default:
+`~/.copilot/permissions-config.json`). If Copilot is launched with the legacy
+`--config-dir` option, set `COPILOT_HOME` for the hook process to that same
+directory so it reads Copilot's saved approvals.
+
+Only `tool_approvals` entries with `kind: "commands"` are imported, and only
+from the location matching the event's `cwd`. Repository approvals use the Git
+checkout root; linked worktrees use their main repository root; submodules use
+their own checkout root; and directories outside Git use the normalized event
+directory. Other approval kinds and transient Copilot grants are ignored.
+
+An identifier without a wildcard (for example, `git status`) matches the full
+executed command exactly. An identifier ending in `:*` (for example, `git:*`)
+matches that command itself or that command followed by arguments. Lovely
+checks saved approvals against each parsed command segment, so a saved approval
+for one part of a compound Bash command does not approve its other parts.
+Lovely's explicit deny rules always take precedence over imported approvals.
+
+If `permissions-config.json` is missing, no saved approvals are added and no
+warning is emitted. If the existing file cannot be read or is malformed, the
+hook writes a warning to stderr and imports no approvals from it.
+
 ## Scope and limitations
 
 - Initial support is for local Copilot CLI sessions on Linux and macOS.
@@ -127,7 +153,6 @@ decision engine, but not Devin's host protocol or configuration files.
   are not deployed to cloud-agent jobs.
 - Only the `preToolUse` Bash tool is handled. Other tools and hook events are
   outside this integration.
-- Copilot's saved command approvals are not imported in this version.
 - There is no `--setup`, `--test`, or `--show-config` mode; configure the hook
   manually as shown above.
 - The hook uses Copilot's default 30-second timeout. The shared parser also has
