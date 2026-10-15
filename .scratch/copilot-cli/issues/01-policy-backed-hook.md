@@ -1,6 +1,6 @@
 # 01: Add a policy-backed Copilot Bash hook
 
-**What to build:** A runnable `lovely-copilot-permissions` hook evaluates Copilot `preToolUse` Bash calls using the existing Lovely decision engine and the global Copilot Lovely policy. Users can register it manually for local Copilot CLI sessions and receive Copilot-native decisions with explanations.
+**What to build:** A runnable `lovely-copilot-permissions` hook evaluates Copilot `preToolUse` Bash calls using the shared Bash policy decision engine and the global Copilot policy. Users can register it manually for local Copilot CLI sessions and receive Copilot-native decisions with explanations.
 
 **Blocked by:** None (can start immediately).
 

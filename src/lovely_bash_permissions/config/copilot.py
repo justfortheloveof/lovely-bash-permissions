@@ -1,4 +1,4 @@
-"""Lovely policy discovery for the GitHub Copilot CLI host.
+"""Copilot Bash policy discovery for the GitHub Copilot CLI host.
 
 Copilot keeps its global, shared project, and personal local policy files in a
 Copilot-specific namespace. The shared evaluator remains host-agnostic.
@@ -18,7 +18,7 @@ from .schema import PermissionsConfig
 
 
 class CopilotPolicyError(ValueError):
-    """A present Copilot Lovely policy could not be used safely."""
+    """A present Copilot policy could not be used safely."""
 
 
 def get_copilot_home() -> Path:
@@ -39,7 +39,7 @@ def get_copilot_policy_paths(project_dir: Path | str) -> tuple[tuple[str, Path],
 
 def _load_policy_source(path: Path, level: str) -> dict[str, Any] | None:
     """Read and validate one source, returning None only when it is absent."""
-    label = f"{level} Lovely policy"
+    label = f"{level} Copilot policy"
     try:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
@@ -88,7 +88,7 @@ def load_copilot_policy(project_dir: Path | str) -> tuple[dict[str, Any], str]:
     try:
         validated = PermissionsConfig.model_validate(merged)
     except ValueError as exc:
-        raise CopilotPolicyError(f"merged Copilot Lovely policy is invalid: {user_message(exc)}") from exc
+        raise CopilotPolicyError(f"merged Copilot policy is invalid: {user_message(exc)}") from exc
 
     config = validated.model_dump(mode="json", by_alias=True, exclude_none=True)
     return config, wildcard_level(config)

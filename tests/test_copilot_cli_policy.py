@@ -1,4 +1,4 @@
-"""In-process contract tests for Copilot Lovely policy loading and precedence."""
+"""In-process contract tests for Copilot policy loading and precedence."""
 
 import json
 from pathlib import Path
@@ -148,4 +148,4 @@ class TestCopilotCliPolicy:
         assert status == 0
         _, decision = self.helpers.response_from(output)
         assert decision["permissionDecision"] == "deny"
-        assert "cannot read global Lovely policy" in decision["permissionDecisionReason"]
+        assert "cannot read global Copilot policy" in decision["permissionDecisionReason"]

@@ -167,7 +167,7 @@ def _decision_for_payload(raw: str) -> dict[str, Any] | None:
 
     decision = decide.decide_bash_command(command, bash_config, top_level_wildcard)
     action = decision["action"]
-    reason = decision["reason"] or "command allowed by the configured Lovely policy"
+    reason = decision["reason"] or "command allowed by the configured Bash policy"
     return {"action": action, "reason": reason, "reasons": decision["reasons"]}
 
 
@@ -215,7 +215,7 @@ def main() -> None:
     """Read one Copilot hook payload and emit its native permission verdict."""
     parser = argparse.ArgumentParser(
         prog="lovely-copilot-permissions",
-        description="Evaluate local GitHub Copilot CLI preToolUse Bash calls with Lovely policy.",
+        description="Evaluate local GitHub Copilot CLI preToolUse Bash calls with the configured Bash policy.",
     )
     parser.add_argument(
         "--test",

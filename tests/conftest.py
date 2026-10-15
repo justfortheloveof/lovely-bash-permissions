@@ -81,7 +81,7 @@ def copilot_event(
 
 
 def copilot_policy(home: Path, config: object) -> Path:
-    """Write the global Copilot Lovely policy used by a CLI contract test."""
+    """Write the global Copilot policy used by a CLI contract test."""
     path = home / "lovely-permissions.jsonc"
     home.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(config), encoding="utf-8")

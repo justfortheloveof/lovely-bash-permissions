@@ -1,7 +1,7 @@
 # lovely-copilot-permissions
 
-A local GitHub Copilot CLI hook for evaluating Bash tool calls with Lovely Bash
-Permissions. Lovely policies can be layered globally, per repository, and in a
+A local GitHub Copilot CLI hook for evaluating Bash tool calls with Lovely
+Permissions. Bash policy can be layered globally, per repository, and in a
 private local override. Persisted Copilot command approvals are imported only
 for the active Copilot permission location.
 
@@ -53,7 +53,7 @@ JSON-encoded object. Other tools are left to Copilot without a decision.
 
 ## Decisions and output
 
-Each Bash command is evaluated by Lovely's shared Bash decision engine. The
+Each Bash command is evaluated by the shared Bash policy decision engine. The
 `allow`, `ask`, and `deny` policy verdicts map to Copilot's matching
 `permissionDecision`; `ask` is explicit. For every verdict the hook writes one
 progress JSON line and then exactly one final decision JSON object:
@@ -77,7 +77,7 @@ JSON escaping keeps the progress event on one physical stdout line while
 Copilot displays its message as multiple lines in the timeline. The final
 response includes the same labeled bullets in `permissionDecisionReason` for
 `ask` and `deny`, but omits that field for `allow`. The decision value remains
-Copilot-native, and Lovely does not rewrite the Bash command.
+Copilot-native, and the hook does not rewrite the Bash command.
 
 Every handled verdict exits successfully, including `deny`. The JSON carries
 the policy result. An invocation failure that produces no verdict exits
@@ -103,10 +103,9 @@ that hook mode emits for the command and context:
 ```
 
 Test mode uses the current working directory as its policy context and loads the
-same Lovely policy files and saved Copilot command approvals as hook mode. For
+same Copilot policy files and saved command approvals as hook mode. For
 example, to preview the policy for a repository, run the command from that
-checkout. An empty command is still evaluated by Lovely's configured `error`
-policy:
+checkout. An empty command is still evaluated by the configured `error` policy:
 
 ```bash
 lovely-copilot-permissions --test ''
@@ -116,7 +115,7 @@ Allow, ask, and deny decisions all exit with status 0; the JSON contains the
 verdict. Invalid invocations that produce no decision, such as omitting the
 command, exit nonzero.
 
-## Lovely policy files
+## Copilot policy files
 
 The CLI merges these files from lowest to highest precedence:
 
@@ -127,7 +126,7 @@ The CLI merges these files from lowest to highest precedence:
 | Personal local | `<checkout>/.github/copilot/lovely-permissions.local.jsonc` |
 
 For hook events, the project is selected using Copilot's event `cwd`, not the
-hook process's current directory. In a Git checkout, Lovely uses the active
+hook process's current directory. In a Git checkout, the hook uses the active
 checkout root (including a linked worktree); outside a checkout, it uses the
 normalized event directory. The event `cwd` must be an existing absolute
 directory. A missing or invalid value produces a denial rather than silently
@@ -135,9 +134,9 @@ using the hook process's directory.
 
 Policy objects merge recursively, arrays concatenate, and later scalar values
 override earlier values. Every present file must be readable, valid JSONC, and
-valid under Lovely's policy schema; one invalid source denies even if another
-source is valid. Missing files are ignored. If all three are missing, Lovely
-asks by default.
+valid under the Bash policy schema; one invalid source denies even if another
+source is valid. Missing files are ignored. If all three are missing, the policy
+defaults to ask.
 
 The local override is private and should be ignored by version control. For
 example, add this to the repository's `.gitignore`:
@@ -146,7 +145,7 @@ example, add this to the repository's `.gitignore`:
 .github/copilot/lovely-permissions.local.jsonc
 ```
 
-Each file uses Lovely's standard policy schema. For example:
+Each file uses the standard Bash policy schema. For example:
 
 ```jsonc
 {
@@ -161,13 +160,13 @@ Each file uses Lovely's standard policy schema. For example:
 ```
 
 See the [Devin guide](README.lovely-devin-permissions.md#configuration-files)
-for policy keys and regex guidance; Copilot uses the same Lovely schema and
-decision engine, but not Devin's host protocol or configuration files.
+for policy keys and regex guidance; Copilot uses the same Bash policy schema and
+shared decision engine, but not Devin's host protocol or configuration files.
 
 ### Inspect the selected configuration
 
 Run `lovely-copilot-permissions --show-config` from the repository or directory
-you want to inspect. The command prints JSON describing all candidate Lovely
+you want to inspect. The command prints JSON describing all candidate Copilot
 policy files and whether they exist, the saved-approval file, the selected
 Copilot permission location, imported command approvals, and the effective Bash
 configuration after applying the root wildcard and imported approvals. The
@@ -175,7 +174,7 @@ current directory determines both project policy discovery and the selected
 permission location, using the same checkout, linked-worktree, submodule, and
 non-repository rules as hook mode.
 
-Every present Lovely policy source is validated. If any source is unreadable,
+Every present Copilot policy source is validated. If any source is unreadable,
 malformed, or invalid, the command writes the error to stderr, exits nonzero,
 and emits no JSON. A malformed saved-approval file is auxiliary: it produces a
 stderr warning and the diagnostics show no imported approvals from that file.
@@ -196,10 +195,10 @@ directory. Other approval kinds and transient Copilot grants are ignored.
 
 An identifier without a wildcard (for example, `git status`) matches the full
 executed command exactly. An identifier ending in `:*` (for example, `git:*`)
-matches that command itself or that command followed by arguments. Lovely
+matches that command itself or that command followed by arguments. The hook
 checks saved approvals against each parsed command segment, so a saved approval
 for one part of a compound Bash command does not approve its other parts.
-Lovely's explicit deny rules always take precedence over imported approvals.
+Explicit Bash policy denials always take precedence over imported approvals.
 
 If `permissions-config.json` is missing, no saved approvals are added and no
 warning is emitted. If the existing file cannot be read or is malformed, the

@@ -138,7 +138,7 @@ class TestCopilotCliApprovals:
         _, decision = self.helpers.response_from(output)
         assert decision["permissionDecision"] == "ask"
 
-    def test_saved_command_approval_cannot_override_lovely_deny(
+    def test_saved_command_approval_cannot_override_bash_policy_deny(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         copilot_home = tmp_path / "copilot-home"

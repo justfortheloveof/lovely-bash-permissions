@@ -4,7 +4,7 @@ A short map of `lovely_bash_permissions` for someone who has not read it before.
 Four surfaces ship in one package: a general-purpose bash parser and three
 permission hosts built on it - Devin's hook protocol, the Pi coding agent's
 extension over a pipe, and GitHub Copilot CLI's local Bash hook. Copilot uses
-global, shared repository, and personal-local Lovely policy layers and manual
+global, shared repository, and personal-local Copilot policy layers and manual
 user-level registration on Linux/macOS. Saved approvals are imported for the
 matching Copilot permission location; automatic setup and cloud-agent support
 are not implemented.
@@ -140,7 +140,7 @@ calls `load_devin_exec_regexes(project_dir)` - a host that has no `Exec()`
 concept cannot call it without reading a Devin config file it has no opinion
 about. The host-agnostic resolution is the first function; the Devin merge is a
 thin wrapper over it. Pi uses the host-agnostic resolver, and Copilot validates
-and merges its Lovely policy sources before calling the shared decision
+and merges its Copilot policy sources before calling the shared decision
 function; neither host reads Devin-specific `Exec()` permissions.
 
 `resolve_bash_config` branches on `if not raw_bash:`, **not**
