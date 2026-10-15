@@ -1,4 +1,4 @@
-# lovely-bash-permissions
+# Lovely Permissions
 
 A Python library for parsing bash commands into structured, typed AST trees using [shfmt-py](https://pypi.org/project/shfmt-py/) as the parsing backend. Parse commands, inspect and traverse the AST to extract commands and arguments, detect variables, analyze pipes and redirections, and handle complex shell syntax like substitutions, subshells, loops, and conditionals.
 

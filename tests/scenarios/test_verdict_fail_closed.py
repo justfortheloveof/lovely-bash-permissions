@@ -212,7 +212,7 @@ class TestAPolicyKeyCoversEveryShapeItNames:
     carry no name, so all three reported "no background execution" and a
     user-written ``deny`` allowed them: an assignment-only ``CallExpr`` (it has
     ``Assigns`` where a command has ``Args``), a ``DeclClause`` (``export``,
-    ``declare``, ``local``, ``readonly`` — not a ``CallExpr`` at all), and any
+    ``declare``, ``local``, ``readonly`` - not a ``CallExpr`` at all), and any
     compound built only from those.
     """
 

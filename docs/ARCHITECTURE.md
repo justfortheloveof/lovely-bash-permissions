@@ -2,7 +2,7 @@
 
 A short map of `lovely_bash_permissions` for someone who has not read it before.
 Four surfaces ship in one package: a general-purpose bash parser and three
-permission hosts built on it — Devin's hook protocol, the Pi coding agent's
+permission hosts built on it - Devin's hook protocol, the Pi coding agent's
 extension over a pipe, and GitHub Copilot CLI's local Bash hook. Copilot uses
 global, shared repository, and personal-local Lovely policy layers and manual
 user-level registration on Linux/macOS. Saved approvals are imported for the
@@ -21,13 +21,13 @@ are not implemented.
 | `tests/tooling/` | checks on the repository, not the package |
 
 A module whose tests split by concern gets `test_<module>_<concern>.py` siblings
-rather than one large file — `cli.py` has four, `rules.py` two, `segments.py`
+rather than one large file - `cli.py` has four, `rules.py` two, `segments.py`
 four. Anything in `scenarios/` deliberately belongs to no single module: it is
 about the product's behaviour, not one module's internals. If a test only
 imports one module, it does not belong there.
 
-A **contract** test — one that pins a property spanning two modules, usually
-across the library and host layers — lives with the side it is about rather than in
+A **contract** test - one that pins a property spanning two modules, usually
+across the library and host layers - lives with the side it is about rather than in
 `scenarios/`, and does not need to import only one module to earn its place. The
 "every declared policy key is enforced" tests in `tests/config/test_schema.py`
 are the example: their subject is the config surface, and they reach into
@@ -50,7 +50,7 @@ there is nowhere else to look.
 
 ## The library and permission hosts
 
-**Library half** — the parser and its inspection API, which is what `README.md`
+**Library half** - the parser and its inspection API, which is what `README.md`
 documents. Its dependency order is strictly one-way:
 
 ```
@@ -70,13 +70,13 @@ __init__.py          re-exports the public surface
 ```
 
 `errors.py` holds `user_message` as well as the exceptions, and it is a leaf for
-the same reason they are: every permission host renders a verdict to a user —
-and, through it, to a model — and a config that will not validate has to produce
+the same reason they are: every permission host renders a verdict to a user -
+and, through it, to a model - and a config that will not validate has to produce
 that text without developer-facing Pydantic error details. It lives there rather
 than in a host because each reaches the same message by a different route and a
 message rendered twice renders twice. It imports nothing, duck-types `errors()`
 rather than importing pydantic, and keeps working when the error has already been
-through `str()` — which is the shape the Devin host actually receives, since
+through `str()` - which is the shape the Devin host actually receives, since
 `config.manager` re-raises the loader's messages as a plain `ValueError`.
 
 `inspect.py` and `words.py` depend on `ast.py` alone on purpose: they answer
@@ -84,7 +84,7 @@ questions about a tree the caller already holds, so they never parse. `converter
 `parser` at module level; `parser.py` imports only `errors.py`, so the edge
 cannot cycle.
 
-**Devin host** — the permission hook: `config/` -> `hook.py` -> `devin_cli.py`.
+**Devin host** - the permission hook: `config/` -> `hook.py` -> `devin_cli.py`.
 **Nothing in the library half imports any of it**, which is what makes the parser
 vendored-and-usable-on-its-own and the hook deletable-without-trace. The
 dependency runs one way only, and `config/` now takes part in it too:
@@ -92,12 +92,12 @@ dependency runs one way only, and `config/` now takes part in it too:
 the policy vocabulary the library and hosts resolve from. `policy.py` is data
 and imports nothing, so the edge cannot cycle.
 
-**Pi host** — `decide.py` -> `pi_cli.py`, the server the Pi coding agent's
+**Pi host** - `decide.py` -> `pi_cli.py`, the server the Pi coding agent's
 extension `lovely-pi-permissions` drives over a pipe. It is a *host*, not a
 separate policy evaluator: it calls the same `decide.decide_bash_command` as the
 Devin hook and owns no decision logic of its own.
 
-**Copilot host** — `copilot_cli.py` adapts Copilot's `preToolUse` Bash payload
+**Copilot host** - `copilot_cli.py` adapts Copilot's `preToolUse` Bash payload
 and output protocol, selecting its policy root from the event's `cwd` and active
 Git checkout. `config/copilot.py` validates and merges the global
 `$COPILOT_HOME/lovely-permissions.jsonc`, shared
@@ -115,13 +115,13 @@ and every output-redirection kind it classifies is named there; the schema
 validates against it, the effective-config builder resolves from it, and the
 evaluator builds its rules from it. This exists because the list used to be
 written out by hand in three modules, which is how `ToolConfig.permission` came to
-be a declared config key with no reader anywhere — it validated, it was
+be a declared config key with no reader anywhere - it validated, it was
 documented as though it did something, and it changed no verdict. A key declared
 in one copy and forgotten in the others is now not expressible.
 
 The vocabulary declares **wire** keys, not field names. The one place the two
-namespaces differ is the wildcard — the field is `wildcard`, the config key is
-`*` — and a `mode="before"` validator sees raw dict keys, i.e. the wire
+namespaces differ is the wildcard - the field is `wildcard`, the config key is
+`*` - and a `mode="before"` validator sees raw dict keys, i.e. the wire
 spelling. `WIRE_NON_POLICY_CONFIG_KEYS` therefore holds `"*"`, and the schema's
 own field-vs-vocabulary check compares *aliases* so the two agree. Do not
 "simplify" either back to field names: a vocabulary that mixed the two rejects
@@ -136,7 +136,7 @@ what makes additional hosts possible. Neither is a stylistic preference, and
 neither should be inlined back into its caller.
 
 **`resolve_bash_config` / `get_effective_bash_config`.** `get_effective_bash_config`
-calls `load_devin_exec_regexes(project_dir)` — a host that has no `Exec()`
+calls `load_devin_exec_regexes(project_dir)` - a host that has no `Exec()`
 concept cannot call it without reading a Devin config file it has no opinion
 about. The host-agnostic resolution is the first function; the Devin merge is a
 thin wrapper over it. Pi uses the host-agnostic resolver, and Copilot validates
@@ -148,10 +148,10 @@ function; neither host reads Devin-specific `Exec()` permissions.
 `{}` never gets the `{**bash}` spread, never has its keys resolved, and returns
 the bare four-key default. The natural-looking `is None` would spread `{}`,
 resolve every policy key against the wildcard, and change the output for a config
-that is a documented no-op — drift introduced by the very refactor meant to
+that is a documented no-op - drift introduced by the very refactor meant to
 prevent it. That is why the parameter is typed `object`: a `dict` signature
 invites narrowing the truthiness test away. The `{**bash}` spread itself is
-equally load-bearing — the function is still called directly with unvalidated
+equally load-bearing - the function is still called directly with unvalidated
 dicts by `--show-config` and by the golden harness.
 
 **`decide_bash_command`.** The decision logic used to live inside `hook.py`,
@@ -165,7 +165,7 @@ Two things about it are load-bearing and previously implicit:
   `NON_CONSTRUCT_KEYS` key: the evaluator's own level resolution never touches
   it, only `resolve_bash_config` populates it. Skip the resolution and a shfmt
   failure on `{"*": "allow"}` falls through the chain to the wildcard and
-  reports `ask` — silent, and in the permissive direction.
+  reports `ask` - silent, and in the permissive direction.
 - It **speaks `deny`, never `block`.** `deny` is this product's policy
   vocabulary; `block` is Devin's wire vocabulary, produced only by `hook.py`'s
   `_DEVIN_ACTION` at the seam. Forwarding a `deny` where `block` is expected
@@ -177,12 +177,12 @@ Two things about it are load-bearing and previously implicit:
 
 ## The Pi engine and its client
 
-- `lovely-pi-bash-permissions` — this repo, Python, the engine. Reads one JSON
+- `lovely-pi-bash-permissions` - this repo, Python, the engine. Reads one JSON
   request on stdin, evaluates bash commands, writes one JSON response on
   stdout, exits.
-- `lovely-pi-permissions` — a separate repository, TypeScript, the client. A Pi
-  coding-agent extension that spawns the engine once per *bash tool call* — plus
-  once at `session_start` to probe it — and gates bash through it. It owns config
+- `lovely-pi-permissions` - a separate repository, TypeScript, the client. A Pi
+  coding-agent extension that spawns the engine once per *bash tool call* - plus
+  once at `session_start` to probe it - and gates bash through it. It owns config
   discovery, deep-merge, mode selection, the ask prompt, doom-loop detection, and
   status-bar sync; none of that lives here.
 
@@ -200,15 +200,15 @@ shipped.
 
 `evaluate_bash_command(command, config)` is the whole flow, in order:
 
-1. **`parse(command)`** — one `shfmt --to-json` subprocess. Any failure raises
+1. **`parse(command)`** - one `shfmt --to-json` subprocess. Any failure raises
    `ShfmtError`; the hook maps that to the `error` policy rather than letting the
    command through.
-2. **`node_from_json(raw)`** — raw JSON becomes a typed `File`.
-3. **`segments_from_ast(tree)`** — the typed AST becomes the flat segment list.
+2. **`node_from_json(raw)`** - raw JSON becomes a typed `File`.
+3. **`segments_from_ast(tree)`** - the typed AST becomes the flat segment list.
 4. **`rules.py` policy checks** over those segments, plus the per-segment
    allowed/blocked matchers in `evaluate.py`. Every regex match, in either
    module, goes through `matching.match_texts`.
-5. **Verdict** — a `_Verdict` accumulator folded through the steps, ending in
+5. **Verdict** - a `_Verdict` accumulator folded through the steps, ending in
    `{"status", "reason", "reasons", "segments"}`.
 
 `reasons` is the same information as `reason`, as a list, de-duplicated in append
@@ -217,7 +217,7 @@ reasons contain a semicolon themselves, and the single largest class of reason
 the evaluator produces is a one-element list like
 `['"ls" command is not allowlisted; wildcard policy is ask']`, which a naive split
 tears into two bullets. The list is empty only when the verdict is an `allow` with
-nothing to explain — a matched pattern, or the wildcard — and never for an `ask`
+nothing to explain - a matched pattern, or the wildcard - and never for an `ask`
 or a `deny`. Both facts are load-bearing for the Pi prompt, which renders one
 bullet per entry.
 
@@ -225,14 +225,14 @@ bullet per entry.
 
 `_Verdict.reasons` is `list[tuple[level, text]]`, and `_finalize_reasons` emits
 only the pairs whose level is the final verdict. One rule, applied once, at the
-end — because a reason is an *argument* for a verdict, and most steps do not know
+end - because a reason is an *argument* for a verdict, and most steps do not know
 the verdict when they record it.
 
 The check used to live in each step, against the status as of that step, and that
 placement is what made it wrong: `_apply_redirection_policies` runs before
 `_apply_wildcard_resolution`, so an approval recorded at step four survived a
 downgrade at step five. The user was told part of a command had been approved in
-the middle of the prompt asking them about the rest — the two things the same
+the middle of the prompt asking them about the rest - the two things the same
 reason string was never supposed to do at once. Each step that needed the rule had
 to remember it, and two of them did not.
 
@@ -240,7 +240,7 @@ What the pairing buys is that all three of these hold **by construction** rather
 than by every future step checking: a `deny` names only why it was refused; an
 `ask` names only what approval is being requested for; an `allow` names every
 rule that permitted it. The last one is why a construct that resolves to `allow`
-has to say so rather than stay silent — the reason list is how a user finds out
+has to say so rather than stay silent - the reason list is how a user finds out
 which of their own rules permitted a command, and a rule that permits silently
 answers nothing.
 
@@ -254,13 +254,13 @@ while the substitution policy permits the construct, and a plain list of strings
 puts both sentences in the refusal.
 
 `tests/scenarios/test_verdict_reporting.py` pins the three properties, and
-`test_verdict_fail_closed.py` pins the safety half — that a verdict is never more
+`test_verdict_fail_closed.py` pins the safety half - that a verdict is never more
 permissive than the reasons it carries.
 
 ### A fourth return path
 
 `evaluate_bash_command` has a second exit for commands that parse to **zero
-segments** — `_empty_segment_result`, reached via `if not segments`. It carries
+segments** - `_empty_segment_result`, reached via `if not segments`. It carries
 `reasons` on every branch, and for the same reason: over the golden corpus 120 of
 its rows are `ask`, and a host asked to explain a verdict it has no reasons for
 either shows an empty prompt or invents one.
@@ -270,7 +270,7 @@ Steps 1-3 happen **exactly once per decision**, threaded through a single
 reads. This was a deliberate fix: building the three forms separately meant
 spawning shfmt twice and re-running the JSON-to-AST conversion three times for one
 decision. Do not "simplify" a call site back into calling `parse()` or
-`parse_segments()` directly — undoing that is what `ParsedCommand` exists to
+`parse_segments()` directly - undoing that is what `ParsedCommand` exists to
 prevent.
 
 ## Two representations, on purpose
@@ -288,8 +288,8 @@ fields the typed AST does not carry:
   **raw** tree and keys off a `Background` boolean on the statement dict. The
   typed `Stmt` has no such attribute at all.
 
-Everything else — substitution detection, allowed-pattern matching, segment
-extraction — uses the typed AST, which is cheaper to traverse and more complete
+Everything else - substitution detection, allowed-pattern matching, segment
+extraction - uses the typed AST, which is cheaper to traverse and more complete
 (it sees substitutions nested inside quoted strings, which a raw-dict visitor
 misses). This split is deliberate: converting the raw tree away would cost a
 walk and buy nothing for those two callers.
@@ -328,7 +328,7 @@ the code they point at.
   the parser could not read.** Deliberate, and chosen over defaulting `error` to
   `ask`: a user who wrote `{"*": "allow", "error": "allow"}` and a user who wrote
   `{"*": "allow"}` get the same answer, and one key means one thing. The cost is
-  that `blocked_cmds_regex` offers no protection for input shfmt rejects — it is
+  that `blocked_cmds_regex` offers no protection for input shfmt rejects - it is
   never reached, because the command is never analysed. `error: "ask"` is the
   documented answer for anyone who wants malformed-but-bash-accepted syntax to
   prompt. Note this is an *inheritance*, not a default: `policy.DEFAULT_LEVEL` is
@@ -346,31 +346,31 @@ the code they point at.
   input and this one used to return `allow`. The asymmetry is the point: `"block"`
   is Devin's own wire word for a refusal, so it is the level a config author is
   most likely to reach for from the wrong vocabulary, and it must not approve a
-  redirection. The no-kinds case still returns `allow` — that reads no level at
-  all, so it is "nothing to govern" rather than "a level I did not recognise" —
+  redirection. The no-kinds case still returns `allow` - that reads no level at
+  all, so it is "nothing to govern" rather than "a level I did not recognise" -
   and `check_output_redirections` cannot reach it anyway.
 - **`segments._HANDLERS` maps `Lit`, `SglQuoted` and `ExtGlob` to the no-op
   `_nothing`.** The entries emit no segment and look like dead code, but a type
   missing from the table logs an "Unhandled AST node type" warning, so removing
   them would start warning on every literal in every command. The entries are
   where a real decision is recorded: a bare literal reached as a *word part* is
-  data — an argument, a glob, an operand under test — not a command.
+  data - an argument, a glob, an operand under test - not a command.
 - **The substitution arm at the tail of `evaluate._empty_segment_result` looks
   unreachable, and currently is:** no command in the harness corpus both yields
   zero segments and still carries a substitution flag, because
   `_extract_segments` recurses into every substitution container. Keep it
-  anyway. It is the fail-closed path — if a future construct is not walked, a
+  anyway. It is the fail-closed path - if a future construct is not walked, a
   zero-segment command would otherwise fall straight through to the wildcard,
   and under `"*": "allow"` that is an auto-approval of a command nothing
   inspected. A redundant gate is not the same as a removable one.
-- **`parse_segments` returning `[]` is ambiguous** — "no commands here" and
+- **`parse_segments` returning `[]` is ambiguous** - "no commands here" and
   "could not parse" look identical, because a parse failure is swallowed. No
   in-tree caller can observe the difference: `evaluate` parses with `parse()`
   (which raises) before it ever calls `parse_segments`, and the inspection CLI
   parses with `parse_ast` and exits non-zero. Direct callers should parse first
   and catch the exception.
 - **The inspection CLI renders a declaration as one `assign: export FOO=bar`
-  line while the permission path splits it into two segments** — one for the
+  line while the permission path splits it into two segments** - one for the
   operands, one for the `export` keyword. The split is what lets
   `variable_assignment` reach the operands at all; before it, `export FOO=bar`
   was approved even under `"variable_assignment": "deny"`. Mirroring it in the

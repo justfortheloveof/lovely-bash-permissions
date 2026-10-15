@@ -86,8 +86,8 @@ denial. An empty command is evaluated through the configured `error` policy.
 
 ## Preview a decision
 
-Run `--test COMMAND` to print the same Copilot-facing output as hook mode—the
-progress JSON line followed by the final decision JSON object—without starting a
+Run `--test COMMAND` to print the same Copilot-facing output as hook mode - the
+progress JSON line followed by the final decision JSON object - without starting a
 Copilot session:
 
 ```bash

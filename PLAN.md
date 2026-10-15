@@ -88,12 +88,12 @@ Current test state: **1657 passing**, 93% coverage. Gates are `pytest` plus the
 **This file is itself inside the format gate.** `ruff format --check` covers `**/*.md`
 and reformats the Python fenced blocks inside it, so `tests/tooling/test_lint_gates.py`
 fails on any code block in this plan that is not already `ruff format` output. When
-editing a snippet here, run `ruff format --diff PLAN.md` — a block that reads correctly
+editing a snippet here, run `ruff format --diff PLAN.md` - a block that reads correctly
 but wraps differently from what ruff produces will fail the suite. (Line-length 120,
 double quotes, per `[tool.ruff.format]` in `pyproject.toml`.)
 
 Neither repo has CI (no `.github/` in either). "Gate" throughout this plan means the
-local commands above, and `vp run build` for the extension — not a green check on a
+local commands above, and `vp run build` for the extension - not a green check on a
 remote.
 
 **This repo has no git remote, and is not on PyPI.** Both matter for Phase 5, which
@@ -269,12 +269,12 @@ be stable for the rest of the project. Keep it for any future change to
 
 **Baseline C's limits, stated plainly.** The harness fingerprints `evaluate_bash_command`,
 `parse_segments`, `parse_ast`, the inspection API, CLI output, and the config layer. It
-does **not** import `decide.py` or `pi_cli.py` — neither exists when C is captured. So
+does **not** import `decide.py` or `pi_cli.py` - neither exists when C is captured. So
 Phase 3's "IDENTICAL vs C" gate is *vacuously* true: it cannot detect a Phase 3
 regression, only confirm that Phase 3 left the library alone. That is a real and useful
 check (Phase 3 must not perturb the evaluator), but it is not a test of the server.
 
-Phase 3's actual gate is Phase 4's unit tests — `tests/test_pi_cli.py` and
+Phase 3's actual gate is Phase 4's unit tests - `tests/test_pi_cli.py` and
 `tests/test_decide.py`, which §7 adds. Do not read a green Phase 3 golden diff as
 evidence the protocol works.
 
@@ -332,8 +332,8 @@ silently rejects the most common key in the product.**
 
 | Consumer | Needs | `NON_POLICY_CONFIG_KEYS` today |
 | --- | --- | --- |
-| `evaluate.py:121`, `effective_bash.py:61` - `config.get(key)` against a user dict | **wire key** | n/a — these use `POLICY_KEYS` / `NON_CONSTRUCT_KEYS`, which are wire-shaped already |
-| `schema.py:111` — `set(type(self).model_fields)` | **field name** | `"wildcard"` |
+| `evaluate.py:121`, `effective_bash.py:61` - `config.get(key)` against a user dict | **wire key** | n/a - these use `POLICY_KEYS` / `NON_CONSTRUCT_KEYS`, which are wire-shaped already |
+| `schema.py:111` - `set(type(self).model_fields)` | **field name** | `"wildcard"` |
 
 Exactly one key diverges: the Python field is `wildcard`, the config key is `*`.
 Every other key is spelled identically in both namespaces, so the divergence is
@@ -354,8 +354,8 @@ That rejects **every bash block that sets a level** - D6, D7, and the extension'
 own `default` mode. It is a total failure of the primary feature, and it is
 invisible in review because the vocabulary looks right where it is read.
 
-**The fix, in `policy.py`:** the constant's *meaning* changes — it stops holding a
-field name and starts holding the wire key — so it is renamed, because a name that
+**The fix, in `policy.py`:** the constant's *meaning* changes - it stops holding a
+field name and starts holding the wire key - so it is renamed, because a name that
 still reads as a field list is exactly what would cause the next person to reintroduce
 the bug.
 
@@ -373,13 +373,13 @@ WIRE_NON_POLICY_CONFIG_KEYS: Final[frozenset[str]] = frozenset({"allowed_cmds_re
 The rename touches four sites, all in this repo:
 `policy.py:61` (the declaration), `config/schema.py:9` (the import),
 `config/schema.py:110-112` (the vocabulary check), and `tests/config/test_schema.py:420`
-(the hand-written copy that must go anyway — see 4.2).
+(the hand-written copy that must go anyway - see 4.2).
 
 Then the two consumers derive what they each need, and neither re-derives the other's
 spelling:
 
 - **Wire set** (the new before-validator):
-  `set(POLICY_KEYS) | set(NON_CONSTRUCT_KEYS) | WIRE_NON_POLICY_CONFIG_KEYS` —
+  `set(POLICY_KEYS) | set(NON_CONSTRUCT_KEYS) | WIRE_NON_POLICY_CONFIG_KEYS` -
   now correct by construction.
 - **Field-name check** (`_fields_match_the_policy_vocabulary`, unchanged in intent):
   compare **aliases**, not field names, so it agrees with the wire set:
@@ -824,13 +824,13 @@ and `validate` would then be checking a config that never existed in the file.
 **`protocol` is on every response line, not just `validate`.** The client asserts it
 during the handshake so a version-skewed pair fails clearly instead of mysteriously, and
 putting it on every line means the client can assert on the first response it sees
-regardless of which op it sent — which is the case that matters when the extension and
+regardless of which op it sent - which is the case that matters when the extension and
 the installed binary come from different install attempts (8.10). A missing or
 non-`1` value is a handshake failure, reported at `session_start` under the D8 posture,
 never a per-command error.
 
 The message names the **resolved path**, which is the part 8.10's resolution order makes
-necessary — a user with both a `PATH` binary and an explicitly configured one needs to know
+necessary - a user with both a `PATH` binary and an explicitly configured one needs to know
 which one answered:
 
 ```
@@ -900,8 +900,8 @@ as its worked example.
 
 So the path form accepts two shapes:
 
-- a **bare bash block** — `{"*": "ask", "allowed_cmds_regex": [...]}`
-- a **mode-wrapped file** — `{"<mode>": {"bash": {...}, ...}}`, which is what every Pi
+- a **bare bash block** - `{"*": "ask", "allowed_cmds_regex": [...]}`
+- a **mode-wrapped file** - `{"<mode>": {"bash": {...}, ...}}`, which is what every Pi
   config file actually is
 
 Rules:
@@ -1099,7 +1099,7 @@ content this plan depends on is durable; the line numbers are not. The 0.87.x sp
 others, so a `:766` reference is meaningless two minor versions out.
 
 Spawning belongs in `session_start`, not the extension factory:
-`docs/extensions.md:220-222` — "Do not start background resources such as processes ...
+`docs/extensions.md:220-222` - "Do not start background resources such as processes ...
 from the factory." `main.ts:17-19` already constructs `SettingsManager` /
 `SessionRuntime` at factory scope, so the spawn must not be added there.
 
@@ -1132,12 +1132,12 @@ line" assumes exactly one response is pending, which is true today and is precis
 the assumption that has just been shown to be fragile.
 
 **Serialization (corrected).** An earlier draft of this plan cited
-`docs/extensions.md:766` —
+`docs/extensions.md:766` -
 
 > sibling tool calls from the same assistant message are preflighted sequentially, then
 > executed concurrently
 
-— and concluded that `tool_call` handlers for one assistant message can overlap. **That
+- and concluded that `tool_call` handlers for one assistant message can overlap. **That
 reading is wrong**, and the shipped source settles it: `agent-loop.js:342` awaits
 `prepareToolCall` in a `for` loop, and only reaches `Promise.all` at `:365` *after* the
 last preflight completes. The CHANGELOG agrees (`CHANGELOG.md:2506`): "sequential
@@ -1147,7 +1147,7 @@ concurrent *execution* afterwards.
 Two consequences, and the second is the one that matters:
 
 1. A promise queue in the client is **cheap insurance, not a correctness requirement.**
-   Keep it — `tool_execution` is a runtime option (`agent.js:134`, default `parallel`),
+   Keep it - `tool_execution` is a runtime option (`agent.js:134`, default `parallel`),
    so the guarantee is a property of the shipped default rather than of the contract, and
    the queue costs nothing at ~2 ms warm. But do not describe it as protecting against an
    overlap that the shipped code does not produce.
@@ -1161,7 +1161,7 @@ Two consequences, and the second is the one that matters:
    streak and the answer cache are both *position-dependent* state, and the property that
    keeps them correct is pi's sequential preflight, not anything in this extension. Phase
    5 puts a subprocess round-trip on that path for the first time, so **document the
-   invariant next to the state that depends on it** — on `callHistory` and `answerCache`,
+   invariant next to the state that depends on it** - on `callHistory` and `answerCache`,
    not only on the cache's mode-switch invalidation. If the queue in (1) is ever removed
    because it "looked unnecessary", this comment is what makes that decision visible.
 
@@ -1451,14 +1451,14 @@ Three tests belong here that the fake server cannot express, because they are ab
 Note the layout reality: there is **no `src/permissions/bash-evaluation.test.ts`** today.
 Bash behaviour is tested through `src/permissions/tool-evaluator.test.ts`, which holds 86
 of the extension's 181 tests. The Phase 5 rewrite therefore lands mostly there, not in a
-new file — "mirror `src/`" should not be read as "create a new test per source file".
+new file - "mirror `src/`" should not be read as "create a new test per source file".
 
 Two build details that will otherwise surface as confusing failures:
 
 - `node:child_process` is already covered by the `external` pattern `/^node:/`
   (`vite.config.ts:13`), so the child is spawned from the real Node API with no build
   config change. `server.ts` is reached from `main.ts`, so `build.lib.entry` stays a
-  single string — no second rollup input needed.
+  single string - no second rollup input needed.
 - `tsconfig.json` sets `exactOptionalPropertyTypes: true` and
   `noUncheckedIndexedAccess: true`, and `noUnusedLocals: true` makes an unused import a
   **build error** (`vp check` runs type-aware lint, `vite.config.ts:16`). Spawn options
@@ -1468,7 +1468,7 @@ Also: `extensions/lovely-pi-permissions.js` is a **committed 137 kB build artifa
 (`.gitignore` covers `/dist`, not `extensions/`), and the old npm package is bundled
 into it rather than external. Phase 5's final commit must include the rebuilt bundle,
 and dropping `@justfortheloveof/lovely-bash-permissions` (8.6) should shrink it
-noticeably — a good sanity check that the dep really is gone.
+noticeably - a good sanity check that the dep really is gone.
 
 ### 8.9 The extension's own config and docs
 
@@ -1522,7 +1522,7 @@ both intrusive and, on a managed machine, likely to fail.
 **Prerequisite, outside the phases:** the repository needs a remote for the URL above to
 resolve. Until one exists, the documented install is aspirational. Either add the remote
 before Phase 5's README is written, or state in the README that it is installed from a
-clone. Do not ship a URL that 404s — that is the same defect as the PyPI line, one
+clone. Do not ship a URL that 404s - that is the same defect as the PyPI line, one
 layer out.
 
 Two consequences for the rest of Phase 5:
@@ -1531,7 +1531,7 @@ Two consequences for the rest of Phase 5:
   be behind, but a user can easily have a *pre-Phase-3* install of
   `lovely-bash-permissions` on their `PATH` that has no `lovely-pi-bash-permissions`
   console script at all (it is added in 6.1). That is a missing binary, which 8.10
-  already handles — but the message must say "an older `lovely-bash-permissions` without
+  already handles - but the message must say "an older `lovely-bash-permissions` without
   the Pi CLI is installed" rather than a generic "not found", because the two look
   identical to the user and have opposite fixes.
 - **`protocol: 1` (6.3) is what catches a mismatched pair**, and because it is on every
@@ -2074,9 +2074,9 @@ A step is complete when:
 - `docs/ARCHITECTURE.md` and the relevant README are updated in the same commit
 - **every example, command, and quoted output in this plan that names a path, a key, a
   message, or a URL has been executed and its output checked against the claim beside
-  it.** Three of the nine defects in 11.1 were exactly this failure — prose that read
+  it.** Three of the nine defects in 11.1 were exactly this failure - prose that read
   correctly and produced a confident wrong answer when run. "Document the install as a
   PyPI package" is such a sentence; `pip index` is not.
 - **the plan is updated to match what was built.** Where implementation turned out
-  differently, the reason is recorded here or in the phase that changed — otherwise the
+  differently, the reason is recorded here or in the phase that changed - otherwise the
   next reader inherits a plan that is confidently wrong in a new way.

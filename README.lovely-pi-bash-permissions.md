@@ -8,8 +8,8 @@ The two names are distinct and are never used interchangeably:
 
 | | Where | What it is |
 | --- | --- | --- |
-| **`lovely-pi-permissions`** | a separate repository, TypeScript | the Pi extension — the *client* |
-| **`lovely-pi-bash-permissions`** | this repository, Python | this CLI — the *server* |
+| **`lovely-pi-permissions`** | a separate repository, TypeScript | the Pi extension - the *client* |
+| **`lovely-pi-bash-permissions`** | this repository, Python | this CLI - the *server* |
 
 The extension owns config discovery, deep-merge, mode selection, the ask prompt,
 doom-loop detection, and status-bar sync. This process owns exactly one thing:
@@ -44,7 +44,7 @@ lovely-pi-bash-permissions --help
 
 > [!IMPORTANT]
 > **If `lovely-bash-permissions` is already installed but `lovely-pi-bash-permissions` is not, you have an
-> older version** — the Pi console script was added later, and there are no
+> older version** - the Pi console script was added later, and there are no
 > releases to be behind. Reinstall from source as above. The two failures look
 > identical from the outside and have opposite fixes.
 
@@ -53,7 +53,7 @@ lovely-pi-bash-permissions --help
 This is a POSIX-only product, and that is a decision rather than an oversight.
 `find_shfmt` looks for the shfmt binary in a venv's `bin/` and on `PATH`; a
 Windows pipx venv puts it in `Scripts/`, which nothing here searches. Rather than
-half-support it, `validate` probes for the binary and reports it — so on Windows an
+half-support it, `validate` probes for the binary and reports it - so on Windows an
 unfindable shfmt **blocks all bash** (see [Failure modes](#failure-modes)) rather
 than silently allowing everything. If Windows support is ever wanted it is a small
 change: add `Scripts/` and a `.exe` suffix to the candidate lists, plus a re-run of
@@ -67,12 +67,12 @@ the exchange is one request against one response by construction.
 
 All of stdin is read, not one line. A client that somehow sent two requests gets
 one honest parse error instead of an answer to the first and silence about the
-second — which is the whole class of misalignment a stream allowed and one
+second - which is the whole class of misalignment a stream allowed and one
 process per call cannot.
 
 `op` is a discriminator, not a leftover of the stream framing. There are two
 operations, and the client has to say which: `evaluate` for a verdict, and
-`validate` to ask whether a config is usable at all — which is also how the
+`validate` to ask whether a config is usable at all - which is also how the
 extension probes for shfmt at `session_start`.
 
 ```jsonc
@@ -88,12 +88,12 @@ extension probes for shfmt at `session_start`.
 
 `protocol` is on **every** response, not just `validate`, so the client can
 assert it on the first exchange it sees whichever op it sent. A missing or
-non-`1` value is a handshake failure, reported at `session_start` — never a
+non-`1` value is a handshake failure, reported at `session_start` - never a
 per-command error.
 
 Only protocol lines go to stdout. Diagnostics go to stderr, which carries one
 thing: a crash before or during the handshake, where no protocol line was ever
-written. A traceback never enters a block reason — that string goes into the
+written. A traceback never enters a block reason - that string goes into the
 model's context on every blocked command and would leak absolute paths into the
 conversation.
 
@@ -112,7 +112,7 @@ express "this mode says allow" to a process that never saw the mode.
 ```
 
 `reasons` holds one entry per reason, and `reason` is those entries joined on
-`"; "`. The list exists because a `"; "` **inside** a reason is not a separator —
+`"; "`. The list exists because a `"; "` **inside** a reason is not a separator -
 re-splitting `reason` to recover it produces two bullets from one, and the wrong
 first one. Render `reasons` as-is, one bullet per entry.
 
@@ -121,7 +121,7 @@ refused and nothing that was approved; an `ask` lists what needs approving and
 nothing already approved; an `allow` names every rule that permitted it. So the
 bullet count is bounded by what the user has to act on, and a prompt is never
 padded with work already approved. An `allow` decided by the wildcard alone has
-an empty `reasons` — nothing matched a pattern and no named rule spoke — and a
+an empty `reasons` - nothing matched a pattern and no named rule spoke - and a
 descriptive `reason` instead, which is the one case where the list is empty on a
 verdict.
 
@@ -138,7 +138,7 @@ fewer thing to get wrong at the seam. An unvalidated policy is never evaluated.
 
 `{"op": "validate", "config": {...}}` returns `{"protocol": 1, "valid": true}` or
 `{"valid": false, "error": ...}`. It exists so config errors surface at
-`session_start` — on the status bar — rather than on the first command.
+`session_start` - on the status bar - rather than on the first command.
 
 `validate` covers **the bash block only**. The extension's non-bash tools
 (`read`, `write`, `edit`, `grep`, `find`, `ls`, custom tools) and `doom_loop`
@@ -154,7 +154,7 @@ produced it.
 ## The bash config schema
 
 A `bash` block, in full. It is exactly the same schema the Devin half uses, which
-is the point — one vocabulary, one implementation, two hosts.
+is the point - one vocabulary, one implementation, two hosts.
 
 | Key | Meaning |
 | --- | --- |
@@ -190,12 +190,12 @@ unknown bash config key 'permission'; valid keys are '*', 'allowed_cmds_regex', 
 
 A key this process cannot read must not validate. `permission` was the one that
 survived longest: it looked like it set the tool's default level, nothing
-consulted it, and it changed no verdict — while the wildcard quietly decided the
+consulted it, and it changed no verdict - while the wildcard quietly decided the
 real outcome. A key that reads as "configured" while governing nothing is worse
 than a typo, because nothing about it looks wrong.
 
-Note that `blocked_paths_regex` — which the extension documents for non-bash
-tools — is **not** a bash key. Under `bash` it is rejected like any other unknown
+Note that `blocked_paths_regex` - which the extension documents for non-bash
+tools - is **not** a bash key. Under `bash` it is rejected like any other unknown
 key. Path blocking for bash is `blocked_cmds_regex`.
 
 ### `--print-schema`
@@ -207,7 +207,7 @@ lovely-pi-bash-permissions --print-schema
 prints this schema as JSON Schema, keyed by wire names (`*`, not `wildcard`),
 and exits 0. It is not part of the protocol: it is what the extension's
 contract test reads, to fail when its `BashConfig` type and this vocabulary
-disagree — in either direction, since both are silent at runtime otherwise.
+disagree - in either direction, since both are silent at runtime otherwise.
 
 ## The level fallback chain (D6)
 
@@ -222,7 +222,7 @@ activates a tool**: a tool absent from the mode is unreachable even when the mod
 is `"*": "allow"`. That is the fail-closed direction, and it is what stops a
 wildcard from silently re-enabling a tool that was deliberately left out.
 
-`doom_loop` is not a tool — it is a config key with its own level, and it is
+`doom_loop` is not a tool - it is a config key with its own level, and it is
 never "activated" because there is no tool of that name to activate.
 
 ## `--test`
@@ -242,14 +242,14 @@ echo '{"*": "ask", "allowed_cmds_regex": ["^git\\s"]}' | lovely-pi-bash-permissi
 **A path is read as given.** It is never located, never discovered, never merged.
 Config resolution belongs to the extension; resolving Pi's three locations here
 would put a second resolver in the tree, and it could not reproduce what the
-extension uses anyway — the extension concatenates arrays and selects a mode
+extension uses anyway - the extension concatenates arrays and selects a mode
 before this process ever sees a block, so a merge here would be a *different*
 config from the one in force. Debugging a rejection against a policy that was
 never in force is worse than no merge at all.
 
 The one thing `--test` does that the server does not is accept a **mode-wrapped**
 file, because every real Pi config file is one. A bare block would not fail
-loudly — the root schema is permissive, so `bash` would come back absent, the
+loudly - the root schema is permissive, so `bash` would come back absent, the
 evaluator would run on an empty policy, and every command would resolve to `ask`.
 That is indistinguishable from a correct pessimistic policy, so a mode with no
 `bash` block is a hard error instead.
@@ -268,7 +268,7 @@ That is indistinguishable from a correct pessimistic policy, so a mode with no
 | `1` | **no verdict at all** | usage with no input; unreadable file; a file that is neither shape; a mode with no `bash` block; unknown `--mode`; an invalid config |
 
 Without that middle row a script cannot tell *"the policy denies this"* from
-*"I handed you the wrong file"* — which is the distinction a CI check needs most.
+*"I handed you the wrong file"* - which is the distinction a CI check needs most.
 `2` for deny and `1` for no verdict matches `lovely-devin-permissions`, so the
 two CLIs in this package agree.
 
@@ -280,13 +280,13 @@ Every failure below ends with the same sentence, in the extension's message:
 
 It is not padding. Blocking all bash is the *designed* behaviour when this
 process is unusable, and without that sentence the user's first instinct is to
-go looking for a misconfigured policy — a bug hunt for a setup error.
+go looking for a misconfigured policy - a bug hunt for a setup error.
 
 | Failure | What the user sees |
 | --- | --- |
 | binary not found | names the `pipx install` command, and distinguishes "not installed" from "an older `lovely-bash-permissions` that predates the Pi CLI" |
 | protocol version mismatch | names the resolved path that answered and the version it speaks, because a user with both a `PATH` binary and a configured one needs to know which one replied |
-| shfmt missing | names **shfmt-py**, the package that provides the binary — shfmt is not a separate install |
+| shfmt missing | names **shfmt-py**, the package that provides the binary - shfmt is not a separate install |
 | config invalid | the mode and file it came from, then Python's message verbatim |
 
 The shfmt case is the one that matters most on POSIX, because it is the only one
@@ -328,6 +328,6 @@ repository alone.
 
 ## See also
 
-- [`lovely-pi-permissions`](https://github.com/jftlo/lovely-pi-permissions) — the Pi extension (client)
-- [`README.lovely-devin-permissions.md`](README.lovely-devin-permissions.md) — the Devin hook, which speaks the same policy vocabulary over a different protocol
-- [`README.md`](README.md) — the underlying bash-AST library
+- [`lovely-pi-permissions`](https://github.com/jftlo/lovely-pi-permissions) - the Pi extension (client)
+- [`README.lovely-devin-permissions.md`](README.lovely-devin-permissions.md) - the Devin hook, which speaks the same policy vocabulary over a different protocol
+- [`README.md`](README.md) - the underlying bash-AST library
