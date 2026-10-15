@@ -130,17 +130,45 @@ class TestCopilotCliHook:
         assert "error evaluating command" in decision["permissionDecisionReason"]
 
     @pytest.mark.parametrize(
-        ("policy_config", "expected"),
+        ("policy_config", "expected", "expected_message", "expected_decision"),
         [
-            ({"bash": {"*": "allow"}}, "allow"),
-            ({"bash": {"*": "ask"}}, "ask"),
-            ({"bash": {"*": "deny"}}, "deny"),
+            (
+                {"bash": {"*": "allow"}},
+                "allow",
+                "[♡ perms: 💚 auto-approved]\n- allowed by wildcard policy (allow)",
+                {"permissionDecision": "allow"},
+            ),
+            (
+                {"bash": {"*": "ask"}},
+                "ask",
+                '[♡ perms: 💛 REQUIRES-USER-APPROVAL]\n- "git" command is not allowlisted; wildcard policy is ask',
+                {
+                    "permissionDecision": "ask",
+                    "permissionDecisionReason": (
+                        '[♡ perms: 💛 REQUIRES-USER-APPROVAL]\n- "git" command is not allowlisted; '
+                        "wildcard policy is ask"
+                    ),
+                },
+            ),
+            (
+                {"bash": {"*": "deny"}},
+                "deny",
+                '[♡ perms: ❤️ auto-rejected]\n- "git" command is not allowlisted; wildcard policy is deny',
+                {
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": (
+                        '[♡ perms: ❤️ auto-rejected]\n- "git" command is not allowlisted; wildcard policy is deny'
+                    ),
+                },
+            ),
         ],
     )
     def test_each_policy_verdict_has_copilot_output_framing(
         self,
         policy_config: object,
         expected: str,
+        expected_message: str,
+        expected_decision: dict[str, str],
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -148,17 +176,62 @@ class TestCopilotCliHook:
         self.helpers.policy(copilot_home, policy_config)
         monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
 
-        status, output, stderr = self.helpers.invoke_cli(monkeypatch, json.dumps(self.helpers.event("echo hi")))
+        status, output, stderr = self.helpers.invoke_cli(monkeypatch, json.dumps(self.helpers.event()))
 
         assert status == 0
         assert stderr == ""
+        assert len(output.splitlines()) == 2
         progress, decision = self.helpers.response_from(output)
-        assert expected in progress["message"]
+        assert progress == {"type": "progress", "message": expected_message}
+        assert decision == expected_decision
         assert decision["permissionDecision"] == expected
-        if expected == "allow":
-            assert "permissionDecisionReason" not in decision
-        else:
-            assert decision["permissionDecisionReason"]
+
+    def test_multiple_reasons_are_separate_bullets_in_both_output_modes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        copilot_home = tmp_path / "copilot-home"
+        self.helpers.policy(
+            copilot_home,
+            {
+                "bash": {
+                    "*": "ask",
+                    "allowed_cmds_regex": ["^cat$"],
+                    "blocked_cmds_regex": [],
+                    "input_redirection": "ask",
+                    "output_redirection": "ask",
+                    "background_execution": "ask",
+                }
+            },
+        )
+        monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
+        command = "cat < /tmp/in > /tmp/out &"
+
+        hook_status, hook_output, hook_stderr = self.helpers.invoke_cli(
+            monkeypatch,
+            json.dumps(self.helpers.event(command)),
+        )
+        test_status, test_output, test_stderr = self.helpers.invoke_cli(
+            monkeypatch,
+            "",
+            args=["--test", command],
+        )
+
+        expected_message = (
+            "[♡ perms: 💛 REQUIRES-USER-APPROVAL]\n"
+            "- output redirection requires approval\n"
+            "- input redirection requires approval\n"
+            "- background execution requires approval: cat"
+        )
+        assert hook_status == test_status == 0
+        assert hook_stderr == test_stderr == ""
+        assert test_output == hook_output
+        assert len(hook_output.splitlines()) == 2
+        progress, decision = self.helpers.response_from(hook_output)
+        assert progress == {"type": "progress", "message": expected_message}
+        assert decision == {
+            "permissionDecision": "ask",
+            "permissionDecisionReason": expected_message,
+        }
 
     def test_invocation_error_without_a_verdict_exits_nonzero(self, monkeypatch: pytest.MonkeyPatch) -> None:
         status, output, stderr = self.helpers.invoke_cli(monkeypatch, "", args=["--unsupported"])

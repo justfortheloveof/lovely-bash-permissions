@@ -14,10 +14,16 @@ from .config.copilot import load_copilot_policy
 from .config.copilot_permissions import apply_saved_command_approvals, load_saved_command_approvals
 from .copilot_diagnostics import get_copilot_diagnostics
 
+COPILOT_STATUS = {
+    "allow": ("💚", "auto-approved"),
+    "ask": ("💛", "REQUIRES-USER-APPROVAL"),
+    "deny": ("❤️", "auto-rejected"),
+}
 
-def _deny(reason: str) -> dict[str, str]:
+
+def _deny(reason: str) -> dict[str, Any]:
     """Build a denial for a hook request that cannot be evaluated."""
-    return {"action": "deny", "reason": reason}
+    return {"action": "deny", "reason": reason, "reasons": [reason]}
 
 
 def _decode_tool_args(value: object) -> dict[str, Any]:
@@ -123,7 +129,7 @@ def _project_and_permission_location_from_event_cwd(value: object) -> tuple[Path
     return checkout_root, checkout_root
 
 
-def _decision_for_payload(raw: str) -> dict[str, str] | None:
+def _decision_for_payload(raw: str) -> dict[str, Any] | None:
     """Turn one Copilot hook payload into a policy verdict, or skip its tool."""
     try:
         payload = json.loads(raw)
@@ -162,25 +168,31 @@ def _decision_for_payload(raw: str) -> dict[str, str] | None:
     decision = decide.decide_bash_command(command, bash_config, top_level_wildcard)
     action = decision["action"]
     reason = decision["reason"] or "command allowed by the configured Lovely policy"
-    return {"action": action, "reason": reason}
+    return {"action": action, "reason": reason, "reasons": decision["reasons"]}
 
 
-def _emit_verdict(verdict: dict[str, str]) -> None:
+def _verdict_message(verdict: dict[str, Any]) -> str:
+    """Format the branded Copilot status and one bullet for each reason."""
+    emoji, status = COPILOT_STATUS[verdict["action"]]
+    label = f"[♡ perms: {emoji} {status}]"
+    reasons = verdict.get("reasons") or [verdict["reason"]]
+    return "\n".join((label, *(f"- {reason}" for reason in reasons)))
+
+
+def _emit_verdict(verdict: dict[str, Any]) -> None:
     """Write Copilot's progress line followed by exactly one decision object."""
-    action = verdict["action"]
-    reason = verdict["reason"]
-    progress = {"type": "progress", "message": f"Lovely policy: {action} — {reason}"}
+    message = _verdict_message(verdict)
+    progress = {"type": "progress", "message": message}
     print(json.dumps(progress, ensure_ascii=False))
-    print(json.dumps(_decision_object(verdict), ensure_ascii=False))
+    print(json.dumps(_decision_object(verdict, message), ensure_ascii=False))
 
 
-def _decision_object(verdict: dict[str, str]) -> dict[str, str]:
+def _decision_object(verdict: dict[str, Any], message: str) -> dict[str, str]:
     """Translate a policy verdict to Copilot's final hook response."""
     action = verdict["action"]
-    reason = verdict["reason"]
     decision: dict[str, str] = {"permissionDecision": action}
     if action != "allow":
-        decision["permissionDecisionReason"] = reason
+        decision["permissionDecisionReason"] = message
     return decision
 
 

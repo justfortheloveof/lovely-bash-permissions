@@ -59,13 +59,25 @@ Each Bash command is evaluated by Lovely's shared Bash decision engine. The
 progress JSON line and then exactly one final decision JSON object:
 
 ```json
-{"type":"progress","message":"Lovely policy: deny — command matches a blocked rule"}
-{"permissionDecision":"deny","permissionDecisionReason":"command matches a blocked rule"}
+{"type":"progress","message":"[♡ perms: ❤️ auto-rejected]\n- command matches a blocked rule"}
+{"permissionDecision":"deny","permissionDecisionReason":"[♡ perms: ❤️ auto-rejected]\n- command matches a blocked rule"}
 ```
 
-Copilot displays the progress message in the timeline and strips it from the
-hook result. The final response includes `permissionDecisionReason` for `ask`
-and `deny`, but not for `allow`; Lovely does not rewrite the Bash command.
+The progress message starts with the same status labels as the Devin hook:
+
+| Verdict | Progress label |
+| --- | --- |
+| `allow` | `[♡ perms: 💚 auto-approved]` |
+| `ask` | `[♡ perms: 💛 REQUIRES-USER-APPROVAL]` |
+| `deny` | `[♡ perms: ❤️ auto-rejected]` |
+
+Each reason appears on its own following line as a `- ` bullet. If the
+evaluator supplies no reason list, its fallback reason is shown as one bullet.
+JSON escaping keeps the progress event on one physical stdout line while
+Copilot displays its message as multiple lines in the timeline. The final
+response includes the same labeled bullets in `permissionDecisionReason` for
+`ask` and `deny`, but omits that field for `allow`. The decision value remains
+Copilot-native, and Lovely does not rewrite the Bash command.
 
 Every handled verdict exits successfully, including `deny`. The JSON carries
 the policy result. An invocation failure that produces no verdict exits
@@ -82,12 +94,12 @@ Copilot session:
 lovely-copilot-permissions --test 'git status'
 ```
 
-For example, test mode prints both lines in the same order Copilot receives
-them:
+For example, test mode prints the same labeled progress and decision lines
+that hook mode emits for the command and context:
 
 ```json
-{"type":"progress","message":"Lovely policy: allow — command matches allowed pattern: ^git status$"}
-{"permissionDecision":"allow"}
+{"type":"progress","message":"[♡ perms: 💛 REQUIRES-USER-APPROVAL]\n- \"git\" command is not allowlisted; wildcard policy is ask"}
+{"permissionDecision":"ask","permissionDecisionReason":"[♡ perms: 💛 REQUIRES-USER-APPROVAL]\n- \"git\" command is not allowlisted; wildcard policy is ask"}
 ```
 
 Test mode uses the current working directory as its policy context and loads the
