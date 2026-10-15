@@ -63,9 +63,9 @@ progress JSON line and then exactly one final decision JSON object:
 {"permissionDecision":"deny","permissionDecisionReason":"[♡ perms: ❤️ auto-rejected]\n- command matches a blocked rule"}
 ```
 
-The progress message starts with the same status labels as the Devin hook:
+The progress message starts with the same verdict labels as the Devin hook:
 
-| Verdict | Progress label |
+| Verdict | Verdict label |
 | --- | --- |
 | `allow` | `[♡ perms: 💚 auto-approved]` |
 | `ask` | `[♡ perms: 💛 REQUIRES-USER-APPROVAL]` |
