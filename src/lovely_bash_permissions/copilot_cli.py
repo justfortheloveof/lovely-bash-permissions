@@ -208,7 +208,7 @@ def main() -> None:
     parser.add_argument(
         "--test",
         metavar="COMMAND",
-        help="Print the Copilot decision for COMMAND without timeline progress.",
+        help="Print the Copilot progress and decision JSON for COMMAND.",
     )
     parser.add_argument("--show-config", action="store_true", help="Show policy sources and effective Bash config")
     args = parser.parse_args()
@@ -218,7 +218,7 @@ def main() -> None:
         verdict = _decision_for_payload(payload)
         if verdict is None:
             raise RuntimeError("test mode did not produce a verdict")
-        print(json.dumps(_decision_object(verdict), ensure_ascii=False))
+        _emit_verdict(verdict)
         sys.exit(0)
     if args.show_config:
         _show_config()

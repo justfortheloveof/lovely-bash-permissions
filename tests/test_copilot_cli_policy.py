@@ -28,7 +28,8 @@ class TestCopilotCliPolicy:
 
         assert status == 0
         assert stderr == ""
-        assert json.loads(output) == {"permissionDecision": "allow"}
+        _, decision = self.helpers.response_from(output)
+        assert decision == {"permissionDecision": "allow"}
 
     def test_missing_policy_asks_by_default(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("COPILOT_HOME", str(tmp_path / "empty-copilot-home"))

@@ -29,7 +29,8 @@ class TestCopilotCliApprovals:
 
         assert status == 0
         assert stderr == ""
-        assert json.loads(output) == {"permissionDecision": "allow"}
+        _, decision = self.helpers.response_from(output)
+        assert decision == {"permissionDecision": "allow"}
 
     def test_saved_command_approval_from_configured_home_allows_matching_command(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

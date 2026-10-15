@@ -74,11 +74,20 @@ denial. An empty command is evaluated through the configured `error` policy.
 
 ## Preview a decision
 
-Run `--test COMMAND` to print the final Copilot decision JSON without starting a
-Copilot session or emitting timeline progress:
+Run `--test COMMAND` to print the same Copilot-facing output as hook mode—the
+progress JSON line followed by the final decision JSON object—without starting a
+Copilot session:
 
 ```bash
 lovely-copilot-permissions --test 'git status'
+```
+
+For example, test mode prints both lines in the same order Copilot receives
+them:
+
+```json
+{"type":"progress","message":"Lovely policy: allow — command matches allowed pattern: ^git status$"}
+{"permissionDecision":"allow"}
 ```
 
 Test mode uses the current working directory as its policy context and loads the
@@ -97,8 +106,7 @@ command, exit nonzero.
 
 ## Lovely policy files
 
-Copilot policies use a separate namespace from Devin's policies. The CLI merges
-these files from lowest to highest precedence:
+The CLI merges these files from lowest to highest precedence:
 
 | Scope | Location |
 | --- | --- |
@@ -184,16 +192,3 @@ Lovely's explicit deny rules always take precedence over imported approvals.
 If `permissions-config.json` is missing, no saved approvals are added and no
 warning is emitted. If the existing file cannot be read or is malformed, the
 hook writes a warning to stderr and imports no approvals from it.
-
-## Scope and limitations
-
-- Initial support is for local Copilot CLI sessions on Linux and macOS.
-- Copilot cloud-agent support is not included; a local user hook and executable
-  are not deployed to cloud-agent jobs.
-- Only the `preToolUse` Bash tool is handled. Other tools and hook events are
-  outside this integration.
-- There is no `--setup` mode; configure the hook manually as shown above.
-- The hook uses Copilot's default 30-second timeout. The shared parser also has
-  a 30-second `shfmt` timeout, so a slow parse can race Copilot's outer timeout.
-  Copilot treats nonzero hook exits as denial, while a hook timeout fails open
-  to its normal permission flow.

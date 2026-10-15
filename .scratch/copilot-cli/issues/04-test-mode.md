@@ -12,3 +12,7 @@
 - [x] Valid allow, ask, and deny decisions exit successfully; invocation failures that produce no verdict exit nonzero.
 - [x] In-process tests cover configuration parity, empty commands, output, and process status without launching the installed command or Copilot.
 - [x] The Copilot integration guide documents how to preview decisions with test mode.
+
+## Comments
+
+The follow-up in ticket 06 changes test-mode stdout to mirror hook mode, including its progress JSON line.

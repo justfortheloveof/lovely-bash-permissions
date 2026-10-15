@@ -18,20 +18,23 @@ class TestCopilotCliHook:
         "verdict",
         ["allow", "ask", "deny"],
     )
-    def test_test_mode_prints_one_final_decision_without_progress(
+    def test_test_mode_prints_same_progress_and_decision_as_hook(
         self, verdict: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         copilot_home = tmp_path / "copilot-home"
         self.helpers.policy(copilot_home, {"bash": {"*": verdict}})
         monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
 
-        status, output, stderr = self.helpers.invoke_cli(monkeypatch, "", args=["--test", "git status"])
+        hook_status, hook_output, hook_stderr = self.helpers.invoke_cli(
+            monkeypatch,
+            json.dumps(self.helpers.event()),
+        )
+        test_status, test_output, test_stderr = self.helpers.invoke_cli(monkeypatch, "", args=["--test", "git status"])
 
-        assert status == 0
-        assert stderr == ""
-        lines = output.splitlines()
-        assert len(lines) == 1
-        decision = json.loads(lines[0])
+        assert hook_status == test_status == 0
+        assert hook_stderr == test_stderr == ""
+        assert test_output == hook_output
+        _, decision = self.helpers.response_from(test_output)
         assert decision["permissionDecision"] == verdict
         if verdict == "allow":
             assert "permissionDecisionReason" not in decision
@@ -49,7 +52,7 @@ class TestCopilotCliHook:
 
         assert status == 0
         assert stderr == ""
-        decision = json.loads(output)
+        _, decision = self.helpers.response_from(output)
         assert decision["permissionDecision"] == "deny"
         assert "error evaluating command" in decision["permissionDecisionReason"]
 
