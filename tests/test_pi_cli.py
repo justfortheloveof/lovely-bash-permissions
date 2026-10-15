@@ -461,12 +461,14 @@ class TestTheEntryPoint:
     def test_help_mentions_read_as_given(
         self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Explain that --test uses the given path rather than discovering config files."""
+        monkeypatch.setenv("COLUMNS", "40")
         monkeypatch.setattr(sys, "argv", ["lovely-pi-bash-permissions", "--help"])
         with pytest.raises(SystemExit):
             pi_cli.main()
-        out = capsys.readouterr().out
-        assert "never located" in out
-        assert "discovered" in out
+        help_text = " ".join(capsys.readouterr().out.split())
+        assert "never located" in help_text
+        assert "discovered" in help_text
 
 
 # ---------------------------------------------------------------------------
