@@ -41,14 +41,17 @@ class TestCopilotCliHook:
         else:
             assert decision["permissionDecisionReason"]
 
-    def test_test_mode_evaluates_empty_command_with_configured_error_policy(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize("test_mode", [False, True], ids=["hook", "test"])
+    def test_empty_command_uses_configured_error_policy_in_both_modes(
+        self, test_mode: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         copilot_home = tmp_path / "copilot-home"
         self.helpers.policy(copilot_home, {"bash": {"error": "deny"}})
         monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
 
-        status, output, stderr = self.helpers.invoke_cli(monkeypatch, "", args=["--test", ""])
+        input_data = "" if test_mode else json.dumps(self.helpers.event(command=""))
+        args = ["--test", ""] if test_mode else None
+        status, output, stderr = self.helpers.invoke_cli(monkeypatch, input_data, args=args)
 
         assert status == 0
         assert stderr == ""
@@ -116,18 +119,6 @@ class TestCopilotCliHook:
         _, decision = self.helpers.response_from(output)
         assert decision["permissionDecision"] == "deny"
         assert decision["permissionDecisionReason"]
-
-    def test_empty_command_uses_global_error_policy(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        copilot_home = tmp_path / "copilot-home"
-        self.helpers.policy(copilot_home, {"bash": {"error": "deny"}})
-        monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
-
-        status, output, _ = self.helpers.invoke_cli(monkeypatch, json.dumps(self.helpers.event(command="")))
-
-        assert status == 0
-        _, decision = self.helpers.response_from(output)
-        assert decision["permissionDecision"] == "deny"
-        assert "error evaluating command" in decision["permissionDecisionReason"]
 
     @pytest.mark.parametrize(
         ("policy_config", "expected", "expected_message", "expected_decision"),
